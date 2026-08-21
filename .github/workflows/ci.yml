@@ -31,10 +31,18 @@ jobs:
               "type FxArticleTransport = typeof FxArticleTransportSchema.Type;\n\ninterface FxTweetPayload {\n  readonly value: unknown;\n}\n\ninterface FxAuthorPayload {\n  readonly value: unknown;\n}\n\n",
           )
           source = source.replace(
+              "Schema.Union([FxAuthorTransportSchema, Schema.Null])",
+              "Schema.Union([FxAuthorTransportSchema, Schema.String, Schema.Null])",
+          )
+          source = source.replace(
               "const normalizeReplyingTo = (\n",
               "const isStringArray = (\n  value: typeof FxReplyingToTransportSchema.Type\n): value is readonly string[] => Array.isArray(value);\n\nconst normalizeReplyingTo = (\n",
           )
           source = source.replace("if (Array.isArray(replyingTo)) {", "if (isStringArray(replyingTo)) {")
+          source = source.replace(
+              "  author: FxAuthorTransport | null | undefined\n): FxAuthor | null | undefined => {\n  if (author === null) {\n    return null;\n  }\n  return author ? normalizeAuthor(author) : undefined;\n};",
+              "  author: FxAuthorTransport | string | null | undefined\n): FxAuthor | null | undefined => {\n  if (author === null) {\n    return null;\n  }\n  if (typeof author === \"string\") {\n    return { screen_name: author };\n  }\n  return author ? normalizeAuthor(author) : undefined;\n};",
+          )
           source = source.replace(
               "  payload: unknown,\n  operation: string\n): Effect.Effect<FxTweet, FxTwitterSchemaError> =>\n  Effect.gen(function* decodeTweetEffect() {\n    const raw = yield* decodeTweetTransport(payload).pipe(",
               "  payload: FxTweetPayload,\n  operation: string\n): Effect.Effect<FxTweet, FxTwitterSchemaError> =>\n  Effect.gen(function* decodeTweetEffect() {\n    const raw = yield* decodeTweetTransport(payload.value).pipe(",
