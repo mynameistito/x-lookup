@@ -67,9 +67,7 @@ describe("FxTwitter provider compatibility", () => {
       if (request.url.includes("/2/thread/")) {
         return Response.json({
           code: 200,
-          thread: [
-            { id: "3", replying_to: { status: "2" }, text: "post 3" },
-          ],
+          thread: [{ id: "3", replying_to: { status: "2" }, text: "post 3" }],
         });
       }
       const id = requestId(request);
@@ -78,14 +76,21 @@ describe("FxTwitter provider compatibility", () => {
         code: 200,
         status: {
           id,
-          replying_to: numericId > 1 ? { status: String(numericId - 1) } : undefined,
+          replying_to:
+            numericId > 1 ? { status: String(numericId - 1) } : undefined,
           text: `post ${id}`,
         },
       });
     });
 
-    const chain = await runWithClient(fetchFxConversationChainEffect("3"), client);
-    const fullThread = await runWithClient(fetchFxFullThreadEffect("3"), client);
+    const chain = await runWithClient(
+      fetchFxConversationChainEffect("3"),
+      client
+    );
+    const fullThread = await runWithClient(
+      fetchFxFullThreadEffect("3"),
+      client
+    );
 
     expect(chain.map((tweet) => tweet.id)).toStrictEqual(["1", "2", "3"]);
     expect(fullThread.map((tweet) => tweet.id)).toStrictEqual(["1", "2", "3"]);
@@ -106,7 +111,10 @@ describe("FxTwitter provider compatibility", () => {
       });
     });
 
-    const chain = await runWithClient(fetchFxConversationChainEffect("a"), client);
+    const chain = await runWithClient(
+      fetchFxConversationChainEffect("a"),
+      client
+    );
 
     expect(chain.map((tweet) => tweet.id)).toStrictEqual(["b", "a"]);
     expect(requests).toBe(2);
@@ -122,7 +130,8 @@ describe("FxTwitter provider compatibility", () => {
         code: 200,
         status: {
           id,
-          replying_to: numericId > 1 ? { status: String(numericId - 1) } : undefined,
+          replying_to:
+            numericId > 1 ? { status: String(numericId - 1) } : undefined,
           text: id,
         },
       });
