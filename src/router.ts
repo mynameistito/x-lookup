@@ -9,7 +9,7 @@ import { embedResponse, isEmbedUserAgent, oembedResponse, type OEmbedQuery } fro
 import { requestOrigin, wantsJson, wantsMarkdown } from './lib/http.js'
 import { workerConfig, type RuntimeConfig } from './lib/cache.js'
 import type { Env } from './env.js'
-import { DOCS_MARKDOWN, ROOT_MARKDOWN } from './docs.js'
+import { ROOT_MARKDOWN } from './docs.js'
 
 const HANDLE = '([A-Za-z0-9_]{1,15})'
 const STATUS_ROUTE = new RegExp(`^/${HANDLE}/status/(\\d+)$`)
@@ -134,8 +134,7 @@ export async function handleRequest(request: Request, env: Env = {}): Promise<Re
   const config = workerConfig(env)
 
   try {
-    if (path === '/') return textResponse(ROOT_MARKDOWN)
-    if (path === '/docs') return textResponse(DOCS_MARKDOWN)
+    if (path === '/' || path === '/docs') return textResponse(ROOT_MARKDOWN)
     if (path === '/api/browse') return await handleBrowse(query, request, config)
     if (path === '/api/convert') return await handleConvert(query, request, config)
     if (path === '/oembed') return handleOEmbed(query, request)

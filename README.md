@@ -38,7 +38,7 @@ Discord, Telegram, Slack, and other preview bots receive Open Graph embed HTML.
 | `GET /api/browse?resource=profile\|search\|followers\|following&…` | Browse endpoint |
 | `GET /search?q=…` · `GET /:handle` · `GET /:handle/followers` · `GET /:handle/following` | Shortcuts |
 | `GET /oembed?url=…` | oEmbed JSON |
-| `GET /docs` · `GET /` | Usage docs (Markdown) |
+| `GET /` (also `/docs`) | Full usage documentation (Markdown) |
 
 All API responses send CORS `*`, support `OPTIONS` (204) and `HEAD`; other
 methods get 405. Errors are always `{ "error": string, "code": string }` with a
