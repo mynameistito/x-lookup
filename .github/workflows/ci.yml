@@ -16,7 +16,7 @@ jobs:
           ref: tmp/issue-3-finalize-2
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile
-      - name: Apply deterministic provider fixes
+      - name: Apply deterministic provider and test fixes
         shell: bash
         run: |
           bun run fix || true
@@ -78,11 +78,8 @@ jobs:
           path.write_text(source)
 
           Path("src/lib/provider-http.ts").write_text('''import { Effect } from "effect";
-          import {
-            HttpClient,
-            HttpClientError,
-            HttpClientResponse,
-          } from "effect/unstable/http";
+          import type { HttpClient } from "effect/unstable/http";
+          import { FetchHttpClient } from "effect/unstable/http";
 
           import { ConvertError } from "./errors.js";
           import type { HttpMappedError } from "./errors.js";
@@ -94,24 +91,6 @@ jobs:
           const toConvertError = (failure: ProviderHttpFailure): ConvertError =>
             new ConvertError(failure.status, failure.message, failure.code);
 
-          const liveHttpClient: HttpClient.HttpClient = HttpClient.make(
-            (request, url, signal) =>
-              Effect.tryPromise({
-                try: () =>
-                  globalThis.fetch(url, {
-                    headers: request.headers,
-                    method: request.method,
-                    signal,
-                  }),
-                catch: (cause) =>
-                  new HttpClientError.HttpClientError({
-                    reason: new HttpClientError.TransportError({ cause, request }),
-                  }),
-              }).pipe(
-                Effect.map((response) => HttpClientResponse.fromWeb(request, response))
-              )
-          );
-
           /**
            * Promise compatibility boundary for the existing application layer.
            * Provider adapters remain Effect-native and testable with a supplied HttpClient.
@@ -122,10 +101,24 @@ jobs:
             Effect.runPromise(
               program.pipe(
                 Effect.mapError(toConvertError),
-                Effect.provideService(HttpClient.HttpClient, liveHttpClient)
+                Effect.provide(FetchHttpClient.layer)
               )
             );
           '''.replace("          ", ""))
+
+          for path in Path("src/__tests__").glob("*.test.ts"):
+              source = path.read_text()
+              if 'vi.stubGlobal("fetch", fetchMock);' not in source:
+                  continue
+              source = source.replace(
+                  'vi.stubGlobal("fetch", fetchMock);',
+                  'vi.spyOn(globalThis, "fetch").mockImplementation(\n    fetchMock as unknown as typeof fetch\n  );',
+              )
+              source = source.replace(
+                  "    vi.unstubAllGlobals();",
+                  "    vi.restoreAllMocks();\n    vi.unstubAllGlobals();",
+              )
+              path.write_text(source)
           PY
           bun run fix
       - run: bun run check
