@@ -1,13 +1,11 @@
-import { Effect, Result } from "effect";
+import { Context, Effect, Layer, Result } from "effect";
 
 import {
   Cache,
   buildCacheKey,
   cacheControlHeader,
-  layerIsolateMemory,
 } from "./cache.js";
 import type { CacheStatus } from "./cache.js";
-import { ConvertError } from "./errors.js";
 import type { FxTweet } from "./fxtwitter.js";
 import type { HeaderMap, HttpPayload } from "./http.js";
 import { renderThreadMarkdown } from "./markdown.js";
@@ -27,8 +25,11 @@ import { resolve } from "./status-target.js";
 import type { ResolveError, StatusTarget } from "./status-target.js";
 import { parse as parseThreadSelection } from "./thread-selection.js";
 import type { InvalidThread, ThreadSelection } from "./thread-selection.js";
-import { fetchPosts } from "./tweet-fetch.js";
-import type { FetchSource } from "./tweet-fetch.js";
+import {
+  layerPostLookupWithoutDependencies,
+  PostLookup,
+} from "./tweet-fetch.js";
+import type { FetchSource, PostLookupFailure } from "./tweet-fetch.js";
 
 /** Raw, untrusted convert query values exactly as they arrive from HTTP. */
 export interface ConvertInput {
@@ -67,8 +68,8 @@ export type ConvertParseError =
   | InvalidUserinfo
   | ResolveError;
 
-/** A convert failure: a parse refusal or an upstream provider failure. */
-export type ConvertFailure = ConvertError | ConvertParseError;
+/** A convert failure: a parse refusal or a typed post/provider failure. */
+export type ConvertFailure = ConvertParseError | PostLookupFailure;
 
 export interface ConvertSuccess {
   body: string;
@@ -82,14 +83,22 @@ export interface ConvertSuccess {
   compact: boolean;
 }
 
+export interface ConversionService {
+  readonly convert: (
+    input: ConvertInput
+  ) => Effect.Effect<ConvertSuccess, ConvertFailure>;
+}
+
+/** Owns parsed conversion policy, post lookup, caching, truncation, and metadata. */
+export class Conversion extends Context.Service<Conversion, ConversionService>()(
+  "x-lookup/application/Conversion"
+) {}
+
 /**
  * Parse raw convert query values into a {@link ConvertRequest}.
  *
  * Parse order preserves the historical error precedence: format, thread,
  * userinfo, flags, context, replies, then the status target.
- *
- * @param input - The raw query values.
- * @returns The parsed request, or the first parse refusal encountered.
  */
 export const parseConvertRequest = (
   input: ConvertInput
@@ -167,76 +176,70 @@ const limitPostsByRole = (
 
 type ConvertPayload = Omit<ConvertSuccess, "cache">;
 
-const convertTweetUncached = async (
-  request: ConvertRequest
-): Promise<ConvertPayload> => {
-  const warnings: string[] = [];
-  const { compact, context, format, replies, target, thread, userinfo } =
-    request;
-  const { canonicalUrl, handle, id } = target;
+const makeConversion = Effect.gen(function* makeConversionService() {
+  const cache = yield* Cache;
+  const postLookup = yield* PostLookup;
 
-  const { tweets, source } = await fetchPosts(
-    handle,
-    id,
-    thread._tag,
-    context,
-    replies
+  const convertUncached = Effect.fn("Conversion.loadUncached")(
+    function* convertUncachedEffect(request: ConvertRequest) {
+      const warnings: string[] = [];
+      const { compact, context, format, replies, target, thread, userinfo } =
+        request;
+      const { canonicalUrl, handle, id } = target;
+      const fetched = yield* postLookup.lookup({
+        context,
+        handle,
+        id,
+        replies,
+        thread: thread._tag,
+      });
+
+      let posts = fetched.tweets;
+      if (thread._tag === "full" && posts.length > thread.limit) {
+        posts = limitPostsByRole(posts, id, thread.limit);
+        warnings.push(`Thread truncated to ${thread.limit} posts.`);
+      }
+      posts = posts.map((post) =>
+        withSourceUrls(
+          post,
+          post.id === id || posts.length === 1 ? canonicalUrl : undefined
+        )
+      );
+
+      if (fetched.source !== "fxtwitter") {
+        warnings.push(
+          `Fetched via ${fetched.source} fallback — threads, full articles, and quotes may be limited.`
+        );
+      }
+
+      const body = renderThreadMarkdown(posts, {
+        canonicalUrl,
+        compact: compact && format !== "obsidian",
+        format: format === "json" ? "markdown" : format,
+        userinfo,
+      });
+
+      return {
+        body,
+        canonicalUrl,
+        compact: compact && format !== "obsidian",
+        format,
+        postCount: posts.length,
+        posts,
+        source: fetched.source,
+        warnings,
+      } satisfies ConvertPayload;
+    }
   );
 
-  let posts = tweets;
-  if (thread._tag === "full" && posts.length > thread.limit) {
-    posts = limitPostsByRole(posts, id, thread.limit);
-    warnings.push(`Thread truncated to ${thread.limit} posts.`);
-  }
-  posts = posts.map((post) =>
-    withSourceUrls(
-      post,
-      post.id === id || posts.length === 1 ? canonicalUrl : undefined
-    )
-  );
-
-  if (source !== "fxtwitter") {
-    warnings.push(
-      `Fetched via ${source} fallback — threads, full articles, and quotes may be limited.`
-    );
-  }
-
-  const body = renderThreadMarkdown(posts, {
-    canonicalUrl,
-    compact: compact && format !== "obsidian",
-    format: format === "json" ? "markdown" : format,
-    userinfo,
-  });
-
-  return {
-    body,
-    canonicalUrl,
-    compact: compact && format !== "obsidian",
-    format,
-    postCount: posts.length,
-    posts,
-    source,
-    warnings,
-  };
-};
-
-/**
- * Convert a status request using the cache authority supplied through Effect.
- *
- * Only the cache seam is Effect-native here. The existing Promise-based tweet
- * orchestration remains behind the loader bridge until the application-service
- * migration in the next issue.
- */
-export const convertTweetEffect = (
-  input: ConvertInput
-): Effect.Effect<Result.Result<ConvertSuccess, ConvertFailure>, never, Cache> =>
-  Effect.gen(function* convertTweetCached() {
+  const convert = Effect.fn("Conversion.convert")(function* convertEffect(
+    input: ConvertInput
+  ) {
     const parsed = parseConvertRequest(input);
     if (Result.isFailure(parsed)) {
-      return Result.fail(parsed.failure);
+      return yield* Effect.fail(parsed.failure);
     }
     const request = parsed.success;
-
     const cacheKey = buildCacheKey({
       compact: request.compact ? "1" : "0",
       context: request.context,
@@ -248,39 +251,28 @@ export const convertTweetEffect = (
       userinfo: input.userinfo ?? "off",
       v: 5,
     });
-
-    const cache = yield* Cache;
-    const cached = yield* Effect.result(
-      cache.getOrLoad(
-        cacheKey,
-        request.nocache,
-        Effect.tryPromise({
-          catch: (cause) => cause,
-          try: () => convertTweetUncached(request),
-        })
-      )
+    const cached = yield* cache.getOrLoad(
+      cacheKey,
+      request.nocache,
+      convertUncached(request)
     );
-    if (Result.isFailure(cached)) {
-      if (cached.failure instanceof ConvertError) {
-        return Result.fail(cached.failure);
-      }
-      return yield* Effect.die(cached.failure);
-    }
-    return Result.succeed({
-      ...cached.success.value,
-      cache: cached.success.status,
-    });
+    return { ...cached.value, cache: cached.status };
   });
 
-const defaultCacheLayer = layerIsolateMemory();
+  return Conversion.of({ convert });
+});
 
-/** Temporary Promise bridge retained until conversion orchestration migrates. */
-export const convertTweet = (
+/** Dependency-preserving application Layer; composition chooses Cache/PostLookup. */
+export const layerConversionWithoutDependencies = Layer.effect(
+  Conversion,
+  makeConversion
+);
+
+/** Invoke conversion orchestration through the public application service seam. */
+export const convertTweetEffect = (
   input: ConvertInput
-): Promise<Result.Result<ConvertSuccess, ConvertFailure>> =>
-  Effect.runPromise(
-    Effect.provide(convertTweetEffect(input), defaultCacheLayer)
-  );
+): Effect.Effect<ConvertSuccess, ConvertFailure, Conversion> =>
+  Conversion.use((service) => service.convert(input));
 
 export const acceptPrefersHtml = (accept: string): boolean => {
   if (accept.includes("application/json") || accept.includes("text/markdown")) {
