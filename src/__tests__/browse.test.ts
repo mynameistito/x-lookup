@@ -1,203 +1,217 @@
-import { Result } from "effect";
-import { beforeEach, describe, expect, test, vi } from "vitest";
-import type { Mock } from "vitest";
+import { Effect, Layer, Result } from "effect";
+import { describe, expect, test } from "vitest";
 
-import { browse, browseResponse, isOriginalPost } from "../lib/browse.js";
+import {
+  browseEffect,
+  browseResponse,
+  isOriginalPost,
+  layerBrowseWithoutDependencies,
+} from "../lib/browse.js";
+import { layerMemory } from "../lib/cache.js";
+import type { FxAuthor, FxListResponse, FxTweet } from "../lib/fxtwitter.js";
+import { FxTwitterSearchUnavailableError } from "../lib/provider-errors.js";
+import { FxTwitter } from "../lib/provider-service.js";
+import type { FxTwitterService } from "../lib/provider-service.js";
 
-const respond = <T>(url: string, body: T, status = 200): Promise<Response> => {
-  if (!url.includes("api.fxtwitter.com")) {
-    return Promise.reject(new Error(`unexpected upstream: ${url}`));
-  }
-  return Promise.resolve(Response.json(body, { status }));
-};
-
-const stubFetch = (route: (url: string) => Promise<Response>): Mock => {
-  const fetchMock = vi.fn<(url: string) => Promise<Response>>(route);
-  vi.stubGlobal("fetch", fetchMock);
-  return fetchMock;
-};
-
-/** Unwrap a browse result, failing the test when it is a typed failure. */
-const succeed = async (input: Parameters<typeof browse>[0]) => {
-  const result = await browse(input);
-  if (Result.isFailure(result)) {
-    throw new Error(`expected success, got: ${JSON.stringify(result.failure)}`);
-  }
-  return result.success;
-};
-
-/** Extract the typed failure of a browse call, failing the test on success. */
-const failureOf = async (input: Parameters<typeof browse>[0]) => {
-  const result = await browse(input);
-  if (Result.isSuccess(result)) {
-    throw new Error("expected a typed failure, got success");
-  }
-  return result.failure;
-};
-
-const post = {
+const post: FxTweet = {
   author: { screen_name: "ada" },
   id: "1",
   text: "hello",
   url: "https://x.com/ada/status/1",
 };
 
-describe(browse, () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    vi.unstubAllGlobals();
-  });
+const emptyList = <T>(): FxListResponse<T> => ({ results: [] });
 
-  test("filters replies and reposts from a profile and includes source links", async () => {
-    stubFetch((url) => {
-      if (url.includes("/statuses")) {
-        return respond(url, {
-          code: 200,
-          cursor: { bottom: "next" },
-          results: [
-            post,
-            { ...post, id: "2", replying_to: ["bob"] },
-            { ...post, id: "3", reposted_by: "bob" },
-          ],
-        });
-      }
-      return respond(url, {
-        code: 200,
-        user: { name: "Ada", screen_name: "ada" },
-      });
-    });
+const makeFxTwitter = (
+  overrides: Partial<FxTwitterService> = {}
+): FxTwitterService => ({
+  fetchConnections: () => Effect.succeed(emptyList<FxAuthor>()),
+  fetchConversationReplies: () => Effect.succeed([]),
+  fetchFullThread: (id) => Effect.succeed([{ id }]),
+  fetchProfile: (handle) => Effect.succeed({ screen_name: handle }),
+  fetchProfileStatuses: () => Effect.succeed(emptyList<FxTweet>()),
+  fetchStatus: (id) => Effect.succeed({ id }),
+  searchStatuses: () => Effect.succeed(emptyList<FxTweet>()),
+  ...overrides,
+});
 
-    const result = await succeed({
-      handle: "ada",
-      nocache: true,
-      resource: "profile",
-    });
-    expect(result.posts).toHaveLength(1);
+const browseLayer = (fxTwitter: FxTwitterService) =>
+  layerBrowseWithoutDependencies.pipe(
+    Layer.provide([
+      layerMemory(),
+      Layer.succeed(FxTwitter, FxTwitter.of(fxTwitter)),
+    ])
+  );
+
+const runBrowse = (
+  input: Parameters<typeof browseEffect>[0],
+  fxTwitter: FxTwitterService
+) =>
+  Effect.runPromise(
+    Effect.result(Effect.provide(browseEffect(input), browseLayer(fxTwitter)))
+  );
+
+const requireSuccess = <A, E>(result: Result.Result<A, E>): A => {
+  if (Result.isFailure(result)) {
+    throw new Error(`expected success: ${String(result.failure)}`);
+  }
+  return result.success;
+};
+
+describe("Browse", () => {
+  test("loads profile and posts in parallel, filters replies/reposts, and renders continuations", async () => {
+    const result = requireSuccess(
+      await runBrowse(
+        { handle: "ada", nocache: true, resource: "profile" },
+        makeFxTwitter({
+          fetchProfile: () =>
+            Effect.succeed({ name: "Ada", screen_name: "ada" }),
+          fetchProfileStatuses: () =>
+            Effect.succeed({
+              cursor: { bottom: "next" },
+              results: [
+                post,
+                { ...post, id: "2", replying_to: ["bob"] },
+                { ...post, id: "3", reposted_by: "bob" },
+              ],
+            }),
+        })
+      )
+    );
+    expect(result.profile?.screen_name).toBe("ada");
+    expect(result.posts?.map((tweet) => tweet.id)).toStrictEqual(["1"]);
     expect(result.markdown).toContain("[@ada](https://x.com/ada)");
     expect(result.markdown).toContain("[Source](https://x.com/ada/status/1)");
     expect(result.markdown).toContain("/ada?cursor=next");
     expect(result.markdown).toContain("/ada?page=2");
   });
 
-  test("walks cursors sequentially for page=N", async () => {
-    const fetchMock = stubFetch((url) => {
-      if (url.includes("cursor=page-2")) {
-        return respond(url, {
-          code: 200,
-          cursor: { bottom: "page-3" },
-          results: [post],
-        });
-      }
-      return respond(url, {
-        code: 200,
-        cursor: { bottom: "page-2" },
-        results: [],
-      });
-    });
-
-    const result = await succeed({
-      nocache: true,
-      page: 2,
-      q: "hello world",
-      resource: "search",
-    });
-
-    const secondCall = String(fetchMock.mock.calls[1]?.[0]);
-    expect(secondCall).toContain("cursor=page-2");
-    expect(secondCall).toContain("count=20");
-    expect(result.markdown).toContain(
-      "/search?q=hello+world&feed=latest&cursor=page-3"
+  test("walks search cursors sequentially while preserving feed, limits, and continuation metadata", async () => {
+    const calls: Array<[string, string, string | undefined, number | undefined]> = [];
+    const result = requireSuccess(
+      await runBrowse(
+        {
+          full: true,
+          limit: 7,
+          page: 2,
+          q: "effect",
+          resource: "search",
+        },
+        makeFxTwitter({
+          searchStatuses: (query, feed, cursor, count) => {
+            calls.push([query, feed, cursor, count]);
+            return Effect.succeed(
+              cursor === "page-2"
+                ? {
+                    cursor: { bottom: "page-3" },
+                    results: [post],
+                  }
+                : { cursor: { bottom: "page-2" }, results: [] }
+            );
+          },
+        })
+      )
     );
-    expect(result.markdown).toContain(
-      "/search?q=hello+world&feed=latest&page=3"
-    );
+    expect(calls).toStrictEqual([
+      ["effect", "latest", undefined, 7],
+      ["effect", "latest", "page-2", 7],
+    ]);
+    expect(result.nextCursor).toBe("page-3");
+    expect(result.markdown).toContain("q=effect&feed=latest");
+    expect(result.markdown).toContain("full=true");
+    expect(result.markdown).toContain("limit=7");
+    expect(result.markdown).toContain("cursor=page-3");
+    expect(result.markdown).toContain("page=3");
   });
 
-  test.each([
-    { expected: false, full: "false" },
-    { expected: true, full: "true" },
-  ])(
-    "parses full=$full when building both continuation links",
-    async ({ full, expected }) => {
-      stubFetch((url) =>
-        respond(url, {
-          code: 200,
-          cursor: { bottom: "next" },
-          results: [post],
+  test("uses an explicit cursor as a single-page continuation", async () => {
+    const cursors: Array<string | undefined> = [];
+    const result = requireSuccess(
+      await runBrowse(
+        {
+          cursor: "opaque",
+          page: 4,
+          q: "effect",
+          resource: "search",
+        },
+        makeFxTwitter({
+          searchStatuses: (_query, _feed, cursor) => {
+            cursors.push(cursor);
+            return Effect.succeed({
+              cursor: { bottom: "next" },
+              results: [post],
+            });
+          },
         })
+      )
+    );
+    expect(cursors).toStrictEqual(["opaque"]);
+    expect(result.page).toBe(4);
+    expect(result.nextCursor).toBe("next");
+  });
+
+  test.each(["followers", "following"] as const)(
+    "dispatches %s with cursor handling and capped limits",
+    async (relation) => {
+      const calls: Array<[string, string, string | undefined, number | undefined]> = [];
+      const result = requireSuccess(
+        await runBrowse(
+          {
+            handle: "ada",
+            limit: 999,
+            nocache: true,
+            resource: relation,
+          },
+          makeFxTwitter({
+            fetchConnections: (handle, selected, cursor, count) => {
+              calls.push([handle, selected, cursor, count]);
+              return Effect.succeed({
+                cursor: { bottom: "next" },
+                results: [{ name: "Bob", screen_name: "bob" }],
+              });
+            },
+          })
+        )
       );
-      const result = await succeed({
-        full,
-        limit: 7,
-        nocache: true,
-        page: 3,
-        q: "x-lookup",
-        resource: "search",
-      });
-      expect(result.markdown.includes("full=true")).toBe(expected);
-      expect(result.markdown).toContain("limit=7");
-      expect(result.markdown).toContain("cursor=next");
-      expect(result.markdown).toContain("page=4");
+      expect(calls).toStrictEqual([["ada", relation, undefined, 50]]);
+      expect(result.users?.[0]?.screen_name).toBe("bob");
+      expect(result.nextCursor).toBe("next");
     }
   );
 
-  test("dispatches following and caps the local limit", async () => {
-    const fetchMock = stubFetch((url) =>
-      respond(url, {
-        code: 200,
-        results: [{ name: "Bob", screen_name: "bob" }],
+  test("preserves typed upstream search refusals", async () => {
+    const result = await runBrowse(
+      { nocache: true, q: "cloudflare", resource: "search" },
+      makeFxTwitter({
+        searchStatuses: () =>
+          Effect.fail(
+            new FxTwitterSearchUnavailableError({ operation: "search" })
+          ),
       })
     );
-
-    const result = await succeed({
-      handle: "ada",
-      limit: 999,
-      nocache: true,
-      resource: "following",
+    expect(result).toMatchObject({
+      _tag: "Failure",
+      failure: { code: "search_unavailable", status: 502 },
     });
-
-    const firstCall = String(fetchMock.mock.calls[0]?.[0]);
-    expect(firstCall).toContain("/2/profile/ada/following");
-    expect(firstCall).toContain("count=50");
-    expect(result.users?.[0]?.screen_name).toBe("bob");
   });
 
-  test("propagates upstream search refusals as search_unavailable", async () => {
-    stubFetch((url) => respond(url, { code: 404, message: "NOT_FOUND" }));
-
-    const failure = await failureOf({
-      nocache: true,
-      q: "cloudflare",
-      resource: "search",
-    });
-    expect(failure).toMatchObject({ code: "search_unavailable", status: 502 });
-  });
-
-  test("produces structured JSON with response metadata headers", async () => {
-    stubFetch((url) => respond(url, { code: 200, results: [post] }));
-    const result = await succeed({
-      full: true,
-      q: "x-lookup",
-      resource: "search",
-    });
+  test("produces structured JSON and stable response metadata", async () => {
+    const result = requireSuccess(
+      await runBrowse(
+        { full: true, q: "x-lookup", resource: "search" },
+        makeFxTwitter({
+          searchStatuses: () => Effect.succeed({ results: [post] }),
+        })
+      )
+    );
     const response = browseResponse(result, true);
-    expect(response.headers["Content-Type"]).toContain("application/json");
     expect(response.headers).toMatchObject({
       "Cache-Control": "public, max-age=0, must-revalidate",
+      "Content-Type": "application/json; charset=utf-8",
       Vary: "Accept",
+      "X-Result-Count": "1",
+      "X-Source": "fxtwitter",
     });
-    expect(response.headers["X-Source"]).toBe("fxtwitter");
-    expect(response.headers["X-Result-Count"]).toBe("1");
-  });
-
-  test("embeds the query payload and compact metrics in the payload", async () => {
-    stubFetch((url) => respond(url, { code: 200, results: [post] }));
-    const result = await succeed({
-      full: true,
-      q: "x-lookup",
-      resource: "search",
-    });
-    const response = browseResponse(result, true);
     expect(JSON.parse(response.body)).toMatchObject({
       query: "x-lookup",
       resource: "search",
@@ -205,47 +219,60 @@ describe(browse, () => {
     expect(result.markdown).toContain("0 likes");
   });
 
-  test("rejects Obsidian output on browse resources", async () => {
-    const failure = await failureOf({
-      format: "obsidian",
-      handle: "ada",
-      resource: "profile",
+  test("rejects Obsidian output before touching providers", async () => {
+    let calls = 0;
+    const result = await runBrowse(
+      { format: "obsidian", handle: "ada", resource: "profile" },
+      makeFxTwitter({
+        fetchProfile: () => {
+          calls += 1;
+          return Effect.succeed({ screen_name: "ada" });
+        },
+      })
+    );
+    expect(result).toMatchObject({
+      _tag: "Failure",
+      failure: { code: "invalid_format", status: 400 },
     });
-    expect(failure).toMatchObject({
-      _tag: "InvalidBrowseFormat",
-      code: "invalid_format",
-      status: 400,
-    });
+    expect(calls).toBe(0);
   });
 
-  test("separates cache entries by output format", async () => {
-    stubFetch((url) => respond(url, { code: 200, results: [post] }));
-
-    const json = await succeed({
-      format: "json",
-      q: "x-lookup",
-      resource: "search",
+  test("separates cache entries by output format at the service seam", async () => {
+    let calls = 0;
+    const fxTwitter = makeFxTwitter({
+      searchStatuses: () => {
+        calls += 1;
+        return Effect.succeed({ results: [post] });
+      },
     });
-    expect(json.cache).toBe("miss");
-
-    const repeat = await succeed({
-      format: "json",
-      q: "x-lookup",
-      resource: "search",
-    });
-    expect(repeat.cache).toBe("hit");
-
-    const markdown = await succeed({
-      format: "markdown",
-      q: "x-lookup",
-      resource: "search",
-    });
-    expect(markdown.cache).toBe("miss");
+    const layer = browseLayer(fxTwitter);
+    const program = Effect.all([
+      Effect.result(
+        browseEffect({ format: "json", q: "x-lookup", resource: "search" })
+      ),
+      Effect.result(
+        browseEffect({ format: "json", q: "x-lookup", resource: "search" })
+      ),
+      Effect.result(
+        browseEffect({
+          format: "markdown",
+          q: "x-lookup",
+          resource: "search",
+        })
+      ),
+    ]);
+    const [json, repeat, markdown] = await Effect.runPromise(
+      Effect.provide(program, layer)
+    );
+    expect(requireSuccess(json).cache).toBe("miss");
+    expect(requireSuccess(repeat).cache).toBe("hit");
+    expect(requireSuccess(markdown).cache).toBe("miss");
+    expect(calls).toBe(2);
   });
 });
 
 describe(isOriginalPost, () => {
-  test("provider filtering identifies replies and reposts", () => {
+  test("identifies replies and reposts without provider effects", () => {
     expect(isOriginalPost(post)).toBeTruthy();
     expect(isOriginalPost({ ...post, replying_to_status: ["9"] })).toBeFalsy();
     expect(
