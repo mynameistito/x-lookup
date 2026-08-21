@@ -289,14 +289,14 @@ describe("Conversion", () => {
       ["2", "https://x.com/ada/status/2"],
       ["3", "https://x.com/ada/status/3"],
     ]);
-    expect(result.body).toBe(`## Parent · 1/2 — Ada (@ada)
+    expect(result.body).toBe(`## Parent · 1/2 — Parent · Ada (@ada)
 
 parent
 
 Source: https://x.com/ada/status/2
 ---
 
-## Post · 2/2 — Ada (@ada)
+## Post · 2/2 — Post · Ada (@ada)
 
 focal
 

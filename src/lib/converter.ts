@@ -1,12 +1,21 @@
 import { Context, Effect, Layer, Result } from "effect";
 
-import { Cache, buildCacheKey, cacheControlHeader } from "./cache.js";
+import {
+  Cache,
+  buildCacheKey,
+  cacheControlHeader,
+  layerIsolateMemory,
+} from "./cache.js";
 import type { CacheStatus } from "./cache.js";
 import type { FxTweet } from "./fxtwitter.js";
 import type { HeaderMap, HttpPayload } from "./http.js";
 import { renderThreadMarkdown } from "./markdown.js";
 import { parse as parseOutputFormat } from "./output-format.js";
 import type { InvalidOutputFormat, OutputFormat } from "./output-format.js";
+import {
+  layerFxTwitter,
+  layerSyndication,
+} from "./provider-service-adapter.js";
 import { parseConvertFlag } from "./query-flag.js";
 import { parseContext, parseReplies, parseUserinfo } from "./query-modes.js";
 import type {
@@ -21,7 +30,10 @@ import { resolve } from "./status-target.js";
 import type { ResolveError, StatusTarget } from "./status-target.js";
 import { parse as parseThreadSelection } from "./thread-selection.js";
 import type { InvalidThread, ThreadSelection } from "./thread-selection.js";
-import { PostLookup } from "./tweet-fetch.js";
+import {
+  layerPostLookupWithoutDependencies,
+  PostLookup,
+} from "./tweet-fetch.js";
 import type { FetchSource, PostLookupFailure } from "./tweet-fetch.js";
 
 /** Raw, untrusted convert query values exactly as they arrive from HTTP. */
@@ -267,6 +279,21 @@ export const convertTweetEffect = (
   input: ConvertInput
 ): Effect.Effect<ConvertSuccess, ConvertFailure, Conversion> =>
   Conversion.use((service) => service.convert(input));
+
+const legacyPostLookupLayer = layerPostLookupWithoutDependencies.pipe(
+  Layer.provide(Layer.mergeAll(layerFxTwitter, layerSyndication))
+);
+const legacyConversionLayer = layerConversionWithoutDependencies.pipe(
+  Layer.provide([layerIsolateMemory(), legacyPostLookupLayer])
+);
+
+/** Promise compatibility bridge for callers not yet migrated to Effect. */
+export const convertTweet = (input: ConvertInput) =>
+  Effect.runPromise(
+    Effect.result(
+      Effect.provide(convertTweetEffect(input), legacyConversionLayer)
+    )
+  );
 
 export const acceptPrefersHtml = (accept: string): boolean => {
   if (accept.includes("application/json") || accept.includes("text/markdown")) {
