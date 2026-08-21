@@ -16,7 +16,7 @@ jobs:
           ref: tmp/issue-3-finalize-2
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile
-      - name: Apply deterministic provider and test fixes
+      - name: Apply deterministic provider fixes
         shell: bash
         run: |
           bun run fix || true
@@ -77,19 +77,55 @@ jobs:
           source = source.replace("decodeSyndicationTweet(json, handle, id)", "decodeSyndicationTweet({ value: json }, handle, id)")
           path.write_text(source)
 
-          for path in Path("src/__tests__").glob("*.test.ts"):
-              source = path.read_text()
-              if 'vi.stubGlobal("fetch", fetchMock);' not in source:
-                  continue
-              source = source.replace(
-                  'vi.stubGlobal("fetch", fetchMock);',
-                  'vi.spyOn(globalThis, "fetch").mockImplementation((input) =>\n    fetchMock(String(input))\n  );',
+          Path("src/lib/provider-http.ts").write_text('''import { Effect } from "effect";
+          import {
+            HttpClient,
+            HttpClientError,
+            HttpClientResponse,
+          } from "effect/unstable/http";
+
+          import { ConvertError } from "./errors.js";
+          import type { HttpMappedError } from "./errors.js";
+
+          export type ProviderEffect<A, E> = Effect.Effect<A, E, HttpClient.HttpClient>;
+
+          type ProviderHttpFailure = Error & HttpMappedError;
+
+          const toConvertError = (failure: ProviderHttpFailure): ConvertError =>
+            new ConvertError(failure.status, failure.message, failure.code);
+
+          const liveHttpClient: HttpClient.HttpClient = HttpClient.make(
+            (request, url, signal) =>
+              Effect.tryPromise({
+                try: () =>
+                  globalThis.fetch(url.href, {
+                    headers: request.headers,
+                    method: request.method,
+                    signal,
+                  }),
+                catch: (cause) =>
+                  new HttpClientError.HttpClientError({
+                    reason: new HttpClientError.TransportError({ cause, request }),
+                  }),
+              }).pipe(
+                Effect.map((response) => HttpClientResponse.fromWeb(request, response))
               )
-              source = source.replace(
-                  "    vi.unstubAllGlobals();",
-                  "    vi.restoreAllMocks();\n    vi.unstubAllGlobals();",
+          );
+
+          /**
+           * Promise compatibility boundary for the existing application layer.
+           * Provider adapters remain Effect-native and testable with a supplied HttpClient.
+           */
+          export const runProviderEffect = <A, E extends ProviderHttpFailure>(
+            program: ProviderEffect<A, E>
+          ): Promise<A> =>
+            Effect.runPromise(
+              program.pipe(
+                Effect.mapError(toConvertError),
+                Effect.provideService(HttpClient.HttpClient, liveHttpClient)
               )
-              path.write_text(source)
+            );
+          '''.replace("          ", ""))
           PY
           bun run fix
       - run: bun run check
