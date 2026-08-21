@@ -484,7 +484,7 @@ const decodeTweet = (
       Effect.mapError((cause) => schemaFailure(operation, cause))
     );
     const quote =
-      raw.quote === undefined
+      raw.quote === undefined || raw.quote === null
         ? undefined
         : yield* decodeTweet({ value: raw.quote }, operation);
     return {
@@ -680,7 +680,10 @@ export const fetchFxConnectionsEffect = Effect.fn("FxTwitter.fetchConnections")(
 export const fetchFxStatusEffect = Effect.fn("FxTwitter.fetchStatus")(
   function* fetchFxStatusEffectGenerator(id: string) {
     const operation = "status";
-    const data = yield* fxFetchJson(`2/status/${id}`, operation);
+    const data = yield* fxFetchJson(
+      `2/status/${encodeURIComponent(id)}`,
+      operation
+    );
     const raw = data.status ?? data.tweet;
     if (raw === undefined) {
       return yield* Effect.fail(
@@ -725,7 +728,10 @@ export const fetchFxConversationChainEffect = (
 export const fetchFxThreadEffect = Effect.fn("FxTwitter.fetchThread")(
   function* fetchFxThreadEffectGenerator(id: string) {
     const operation = "thread";
-    const data = yield* fxFetchJson(`2/thread/${id}`, operation);
+    const data = yield* fxFetchJson(
+      `2/thread/${encodeURIComponent(id)}`,
+      operation
+    );
     if (data.thread?.length) {
       return yield* Effect.all(
         data.thread.map((item) => decodeTweet({ value: item }, operation))
