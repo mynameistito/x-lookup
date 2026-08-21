@@ -2,20 +2,20 @@
 import * as Cloudflare from "alchemy/Cloudflare";
 import { Effect, Layer, Option, Schema } from "effect";
 
-import { envSchema } from "./env.js";
-import type { Env } from "./env.js";
-import { Browse, layerBrowseWithoutDependencies } from "./lib/browse.js";
-import { layerWorker } from "./lib/cache.js";
+import { envSchema } from "@/env.ts";
+import type { Env } from "@/env.ts";
+import { Browse, layerBrowseWithoutDependencies } from "@/lib/browse.ts";
+import { layerWorker } from "@/lib/cache.ts";
 import {
   Conversion,
   layerConversionWithoutDependencies,
-} from "./lib/converter.js";
+} from "@/lib/converter.ts";
 import {
   layerFxTwitter,
   layerSyndication,
-} from "./lib/provider-service-adapter.js";
-import { layerPostLookupWithoutDependencies } from "./lib/tweet-fetch.js";
-import { makeHttpApplication } from "./router.js";
+} from "@/lib/provider-service-adapter.ts";
+import { layerPostLookupWithoutDependencies } from "@/lib/tweet-fetch.ts";
+import { makeHttpApplication } from "@/router.ts";
 
 interface WorkerEnvBindings {
   readonly CACHE_TTL_SECONDS: string;

@@ -8,7 +8,7 @@ import {
   parsePage,
   parseResource,
   parseSearchQuery,
-} from "./browse-query.js";
+} from "@/lib/browse-query.ts";
 import type {
   BrowseFeed,
   BrowseFormat,
@@ -18,16 +18,20 @@ import type {
   InvalidBrowseFormat,
   InvalidBrowseResource,
   MissingSearchQuery,
-} from "./browse-query.js";
-import { Cache, buildCacheKey, cacheControlHeader } from "./cache.js";
-import type { CacheStatus } from "./cache.js";
-import type { FxAuthor, FxListResponse, FxTweet } from "./fxtwitter-types.js";
-import type { HeaderMap, HttpPayload } from "./http.js";
-import type { FxTwitterFailure } from "./provider-errors.js";
-import { FxTwitter } from "./provider-service.js";
-import { parseBrowseFlag } from "./query-flag.js";
-import { parse as parseXHandle } from "./x-handle.js";
-import type { InvalidXHandle, XHandle } from "./x-handle.js";
+} from "@/lib/browse-query.ts";
+import { Cache, buildCacheKey, cacheControlHeader } from "@/lib/cache.ts";
+import type { CacheStatus } from "@/lib/cache.ts";
+import type {
+  FxAuthor,
+  FxListResponse,
+  FxTweet,
+} from "@/lib/fxtwitter-types.ts";
+import type { HeaderMap, HttpPayload } from "@/lib/http.ts";
+import type { FxTwitterFailure } from "@/lib/provider-errors.ts";
+import { FxTwitter } from "@/lib/provider-service.ts";
+import { parseBrowseFlag } from "@/lib/query-flag.ts";
+import { parse as parseXHandle } from "@/lib/x-handle.ts";
+import type { InvalidXHandle, XHandle } from "@/lib/x-handle.ts";
 
 /** Raw, untrusted browse query values exactly as they arrive from HTTP. */
 export interface BrowseInput {

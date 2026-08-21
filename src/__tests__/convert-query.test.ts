@@ -1,8 +1,8 @@
 import { Result } from "effect";
 import { describe, expect, test } from "vitest";
 
-import { parseConvertRequest } from "../lib/converter.js";
-import type { ConvertInput, ConvertRequest } from "../lib/converter.js";
+import { parseConvertRequest } from "@/lib/converter.ts";
+import type { ConvertInput, ConvertRequest } from "@/lib/converter.ts";
 
 const succeed = (input: ConvertInput): ConvertRequest => {
   const result = parseConvertRequest(input);

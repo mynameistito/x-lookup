@@ -15,9 +15,9 @@ import { describe, expect, expectTypeOf, test } from "vitest";
 import XLookupStack, {
   buildXLookupStack,
   makeXLookupWorker,
-} from "../../alchemy.run.js";
-import type { XLookupEnv } from "../../alchemy.run.js";
-import { resolveWorkerIdentity } from "../worker.js";
+} from "@/alchemy.run.ts";
+import type { XLookupEnv } from "@/alchemy.run.ts";
+import { resolveWorkerIdentity } from "@/worker.ts";
 
 describe("alchemy stack", () => {
   test("exports a well-formed stack program", () => {

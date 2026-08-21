@@ -1,13 +1,13 @@
 import { Clock, Context, Effect, Layer, Option, Result, Schema } from "effect";
 
-import type { Env } from "../env.js";
+import type { Env } from "@/env.ts";
 import {
   defaultCacheApi,
   layerWebCrypto,
   makeCacheApiStore,
-} from "./cache-api-store.js";
-import type { MinimalCache } from "./cache-api-store.js";
-import type { CacheEntry, CacheStore } from "./cache-store.js";
+} from "@/lib/cache-api-store.ts";
+import type { MinimalCache } from "@/lib/cache-api-store.ts";
+import type { CacheEntry, CacheStore } from "@/lib/cache-store.ts";
 
 export type CacheStatus = "hit" | "miss" | "bypass";
 

@@ -1,7 +1,7 @@
 import { Effect, Schema } from "effect";
 import { HttpClient } from "effect/unstable/http";
 
-import { getParentStatusId } from "./fxtwitter-types.js";
+import { getParentStatusId } from "@/lib/fxtwitter-types.ts";
 import type {
   FxArticle,
   FxAuthor,
@@ -12,7 +12,7 @@ import type {
   FxReplyRanking,
   FxReplyingTo,
   FxTweet,
-} from "./fxtwitter-types.js";
+} from "@/lib/fxtwitter-types.ts";
 import {
   FxTwitterNetworkError,
   FxTwitterNonJsonError,
@@ -21,9 +21,9 @@ import {
   FxTwitterSchemaError,
   FxTwitterSearchUnavailableError,
   FxTwitterUpstreamError,
-} from "./provider-errors.js";
-import type { FxTwitterFailure } from "./provider-errors.js";
-import type { ProviderEffect } from "./provider-http.js";
+} from "@/lib/provider-errors.ts";
+import type { FxTwitterFailure } from "@/lib/provider-errors.ts";
+import type { ProviderEffect } from "@/lib/provider-http.ts";
 
 const FX_BASE = "https://api.fxtwitter.com";
 const UA = "x-lookup/1.0";

@@ -1,11 +1,11 @@
-import type { ConvertSuccess } from "./converter.js";
+import type { ConvertSuccess } from "@/lib/converter.ts";
 import type {
   FxMedia,
   FxMediaItem,
   FxPoll,
   FxTweet,
-} from "./fxtwitter-types.js";
-import type { HeaderMap, HttpPayload } from "./http.js";
+} from "@/lib/fxtwitter-types.ts";
+import type { HeaderMap, HttpPayload } from "@/lib/http.ts";
 
 export const SITE_NAME = "x-lookup";
 export const THEME_COLOR = "#146c43";

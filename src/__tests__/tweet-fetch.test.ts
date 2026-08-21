@@ -6,24 +6,24 @@ import type {
   FxAuthor,
   FxListResponse,
   FxTweet,
-} from "../lib/fxtwitter-types.js";
-import { parse as parsePostId } from "../lib/post-id.js";
+} from "@/lib/fxtwitter-types.ts";
+import { parse as parsePostId } from "@/lib/post-id.ts";
 import {
   FxTwitterNetworkError,
   FxTwitterNotFoundError,
   FxTwitterPrivateTweetError,
   SyndicationNetworkError,
-} from "../lib/provider-errors.js";
-import { layerFxTwitterWithoutDependencies } from "../lib/provider-service-adapter.js";
-import { FxTwitter, Syndication } from "../lib/provider-service.js";
+} from "@/lib/provider-errors.ts";
+import { layerFxTwitterWithoutDependencies } from "@/lib/provider-service-adapter.ts";
+import { FxTwitter, Syndication } from "@/lib/provider-service.ts";
 import type {
   FxTwitterService,
   SyndicationService,
-} from "../lib/provider-service.js";
+} from "@/lib/provider-service.ts";
 import {
   fetchPostsEffect,
   layerPostLookupWithoutDependencies,
-} from "../lib/tweet-fetch.js";
+} from "@/lib/tweet-fetch.ts";
 
 const postId = (value: string) => Option.getOrThrow(parsePostId(value));
 

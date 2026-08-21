@@ -7,14 +7,14 @@ import type {
   FxMedia,
   FxMediaItem,
   FxTweet,
-} from "./fxtwitter-types.js";
+} from "@/lib/fxtwitter-types.ts";
 import {
   SyndicationEmptyError,
   SyndicationNetworkError,
   SyndicationNonJsonError,
   SyndicationSchemaError,
   SyndicationUpstreamError,
-} from "./provider-errors.js";
+} from "@/lib/provider-errors.ts";
 
 const SYNDICATION_BASE = "https://cdn.syndication.twimg.com/tweet-result";
 const UA = "Mozilla/5.0 (compatible; x-lookup/1.0)";

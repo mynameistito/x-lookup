@@ -4,9 +4,9 @@ import type {
   FxMedia,
   FxMediaItem,
   FxTweet,
-} from "./fxtwitter-types.js";
-import type { OutputFormat } from "./output-format.js";
-import type { UserinfoLevel } from "./query-modes.js";
+} from "@/lib/fxtwitter-types.ts";
+import type { OutputFormat } from "@/lib/output-format.ts";
+import type { UserinfoLevel } from "@/lib/query-modes.ts";
 
 export interface RenderOptions {
   format: OutputFormat;

@@ -6,10 +6,10 @@ import { Stage } from "alchemy/Stage";
 // oxlint-disable-next-line sonarjs/no-wildcard-import -- SAFETY: namespace import matches Effect's recommended style and keeps the stack readable as Effect.gen.
 import * as Effect from "effect/Effect";
 
-import { makeXLookupWorker } from "./src/worker.js";
+import { makeXLookupWorker } from "@/worker.ts";
 
-export { makeXLookupWorker, resolveWorkerIdentity } from "./src/worker.js";
-export type { WorkerIdentity, XLookupEnv } from "./src/worker.js";
+export { makeXLookupWorker, resolveWorkerIdentity } from "@/worker.ts";
+export type { WorkerIdentity, XLookupEnv } from "@/worker.ts";
 
 /**
  * The stack's build program: resolves the current stage so the Worker

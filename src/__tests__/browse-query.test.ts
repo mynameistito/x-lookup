@@ -1,8 +1,8 @@
 import { Result } from "effect";
 import { describe, expect, test } from "vitest";
 
-import { parseBrowseRequest } from "../lib/browse.js";
-import type { BrowseInput, BrowseRequest } from "../lib/browse.js";
+import { parseBrowseRequest } from "@/lib/browse.ts";
+import type { BrowseInput, BrowseRequest } from "@/lib/browse.ts";
 
 const succeed = (input: BrowseInput): BrowseRequest => {
   const result = parseBrowseRequest(input);

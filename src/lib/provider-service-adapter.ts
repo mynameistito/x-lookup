@@ -9,12 +9,12 @@ import {
   fetchFxProfileStatusesEffect,
   fetchFxStatusEffect,
   searchFxStatusesEffect,
-} from "./fxtwitter-adapter.js";
-import type { FxReplyRanking } from "./fxtwitter-types.js";
-import type { ProviderEffect } from "./provider-http.js";
-import { layerLiveHttpClient } from "./provider-http.js";
-import { FxTwitter, Syndication } from "./provider-service.js";
-import { fetchSyndicationStatusEffect } from "./syndication-adapter.js";
+} from "@/lib/fxtwitter-adapter.ts";
+import type { FxReplyRanking } from "@/lib/fxtwitter-types.ts";
+import type { ProviderEffect } from "@/lib/provider-http.ts";
+import { layerLiveHttpClient } from "@/lib/provider-http.ts";
+import { FxTwitter, Syndication } from "@/lib/provider-service.ts";
+import { fetchSyndicationStatusEffect } from "@/lib/syndication-adapter.ts";
 
 const provideClient = <A, E>(
   program: ProviderEffect<A, E>,

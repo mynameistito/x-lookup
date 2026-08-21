@@ -1,31 +1,31 @@
 import { Effect, Result } from "effect";
 import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 
-import { ROOT_MARKDOWN } from "./docs.js";
-import { browseResponse, parseBrowseRequest } from "./lib/browse.js";
+import { ROOT_MARKDOWN } from "@/docs.ts";
+import { browseResponse, parseBrowseRequest } from "@/lib/browse.ts";
 import type {
   BrowseFailure,
   BrowseInput,
   BrowseService,
-} from "./lib/browse.js";
+} from "@/lib/browse.ts";
 import {
   acceptPrefersHtml,
   markdownResponse,
   parseConvertRequest,
-} from "./lib/converter.js";
+} from "@/lib/converter.ts";
 import type {
   ConversionService,
   ConvertFailure,
   ConvertInput,
-} from "./lib/converter.js";
+} from "@/lib/converter.ts";
 import {
   embedResponse,
   isEmbedUserAgent,
   oembedResponse,
-} from "./lib/embed.js";
-import type { OEmbedQuery } from "./lib/embed.js";
-import type { HttpPayload } from "./lib/http.js";
-import { requestOrigin, wantsJson, wantsMarkdown } from "./lib/http.js";
+} from "@/lib/embed.ts";
+import type { OEmbedQuery } from "@/lib/embed.ts";
+import type { HttpPayload } from "@/lib/http.ts";
+import { requestOrigin, wantsJson, wantsMarkdown } from "@/lib/http.ts";
 
 const HANDLE = "([A-Za-z0-9_]{1,15})";
 const STATUS_ROUTE = new RegExp(`^/${HANDLE}/status/(\\d+)$`, "u");
