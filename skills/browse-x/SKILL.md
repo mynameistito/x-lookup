@@ -1,0 +1,99 @@
+---
+name: browse-x
+description: >-
+  Reads public X (Twitter) statuses and conversations, profiles, search results,
+  followers, and following through x.mynameistito.com. Use when an agent needs X
+  content as compact or full Markdown or JSON without cloning a repository.
+allowed-tools:
+  - Bash(skills/browse-x/scripts/browse-x.sh *)
+  - Bash(curl *x.mynameistito.com*)
+---
+
+# Browse X through x.mynameistito.com
+
+Use the hosted, read-only API. It needs no repository checkout, install, X
+login, cookies, or API key. Only public X content is available.
+
+## Read statuses and conversations
+
+```bash
+skills/browse-x/scripts/browse-x.sh \
+  "https://x.com/handle/status/1234567890"
+
+skills/browse-x/scripts/browse-x.sh status \
+  "https://x.com/handle/status/1234567890" \
+  --thread full --context full --replies top --userinfo author --full
+```
+
+The default is a compact Markdown conversation (`thread=full`), including the
+parent context and selected replies. Use `--thread off` for one status,
+`--thread 20` to cap the conversation, `--context thread` for only the direct
+author chain, or `--replies recent|off` to change reply inclusion.
+
+The equivalent API request is:
+
+```bash
+curl -sS -G "https://x.mynameistito.com/api/convert" \
+  --data-urlencode "url=https://x.com/handle/status/1234567890" \
+  --data-urlencode "thread=full" -H "Accept: text/markdown"
+```
+
+Direct status rewrites also work at
+`https://x.mynameistito.com/:handle/status/:id`.
+
+## Browse profiles and people
+
+```bash
+skills/browse-x/scripts/browse-x.sh profile @handle --limit 20
+skills/browse-x/scripts/browse-x.sh "https://x.com/handle" --full
+skills/browse-x/scripts/browse-x.sh followers handle --limit 50
+skills/browse-x/scripts/browse-x.sh following handle --page 2 --full
+```
+
+Profiles return profile details and original recent posts. The upstream API
+does not expose pinned-post markers. Followers and following return users.
+`--full` adds metrics, dates, descriptions, and counts; compact Markdown is
+the default.
+
+## Search and pagination
+
+```bash
+skills/browse-x/scripts/browse-x.sh search "from:handle release" --feed latest
+skills/browse-x/scripts/browse-x.sh search "typescript" --feed media --page 3 --limit 10
+skills/browse-x/scripts/browse-x.sh search "typescript" --cursor '<opaque cursor>'
+```
+
+Search feeds are `latest` (default), `top`, and `media`. `--page` walks from the
+first page and is capped at 10; `--limit` is capped at 50. Prefer the opaque
+cursor from the Markdown `Continue` link or JSON `nextCursor` for reliable
+continuation. When a cursor is supplied, the API fetches that continuation
+directly and ignores page walking.
+
+If upstream refuses datacenter egress for search, the API returns HTTP 502 with
+code `search_unavailable`. Treat that as "search temporarily unavailable" — do
+not interpret it as missing content.
+
+## Output, source, and video
+
+- Markdown is compact by default. `--full` expands metadata, while `--format
+  obsidian` adds frontmatter and post headings for statuses.
+- `--json` returns the complete response object rather than extracting its
+  Markdown field. Use JSON when an agent needs structured posts, users, media,
+  `nextCursor`, warnings, or the status `source` provider.
+- Status responses expose the fetch provider in JSON `source` and the
+  `X-Source` header. Add `--headers` to print response headers before the body;
+  it also exposes `X-Cache`, status count, and browse resource metadata.
+- Video isn't downloaded or transcoded. Markdown preserves video/media links
+  supplied by the source, while JSON preserves the structured media and source
+  URLs an agent should inspect or hand to a separate downloader.
+- `--nocache` bypasses the hosted cache. Set `X_API_BASE` (or legacy
+  `X_MD_API_BASE`) to target another compatible deployment — for example the
+  previous hosted instance at `https://x.pcstyle.dev`.
+
+## Errors and limits
+
+The helper exits 2 for invalid CLI usage and 1 for network or non-2xx API
+responses, printing the API error body to stderr. Private, deleted, gated, or
+unavailable posts can't be read. Fallback sources can omit conversation posts,
+articles, quotes, or media; check JSON `warnings` and `source` rather than
+inventing missing content.
