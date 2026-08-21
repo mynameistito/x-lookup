@@ -16,12 +16,13 @@
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260821.1",
+    "@typescript/native": "npm:typescript@^7.0.2",
     "eslint-plugin-github": "6.1.2",
     "eslint-plugin-sonarjs": "^4.2.0",
     "lefthook": "^2.1.10",
     "oxfmt": "^0.64.0",
     "oxlint": "^1.79.0",
-    "typescript": "~7.0.2",
+    "typescript": "npm:@typescript/typescript6@^6.0.2",
     "ultracite": "7.10.6",
     "vitest": "^4.1.11",
     "wrangler": "^4.125.0"
