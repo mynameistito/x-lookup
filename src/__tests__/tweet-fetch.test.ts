@@ -1,8 +1,5 @@
 import { Effect, Layer, Option, Result } from "effect";
-import {
-  HttpClient,
-  HttpClientResponse,
-} from "effect/unstable/http";
+import { HttpClient, HttpClientResponse } from "effect/unstable/http";
 import { describe, expect, test } from "vitest";
 
 import type { FxAuthor, FxListResponse, FxTweet } from "../lib/fxtwitter.js";
@@ -14,10 +11,7 @@ import {
   SyndicationNetworkError,
 } from "../lib/provider-errors.js";
 import { layerFxTwitterWithoutDependencies } from "../lib/provider-service-adapter.js";
-import {
-  FxTwitter,
-  Syndication,
-} from "../lib/provider-service.js";
+import { FxTwitter, Syndication } from "../lib/provider-service.js";
 import type {
   FxTwitterService,
   SyndicationService,
@@ -238,7 +232,9 @@ describe("PostLookup", () => {
         )
       )
     );
-    expect(result.tweets.map((tweet) => [tweet.id, tweet.context])).toStrictEqual([
+    expect(
+      result.tweets.map((tweet) => [tweet.id, tweet.context])
+    ).toStrictEqual([
       ["1", "parent"],
       ["2", "parent"],
       ["3", "post"],
@@ -261,7 +257,9 @@ describe("PostLookup", () => {
         { context: "thread", thread: "full" }
       )
     );
-    expect(result.tweets.map((tweet) => [tweet.id, tweet.context])).toStrictEqual([
+    expect(
+      result.tweets.map((tweet) => [tweet.id, tweet.context])
+    ).toStrictEqual([
       ["1", "parent"],
       ["3", "post"],
       ["5", "thread"],
@@ -272,16 +270,18 @@ describe("PostLookup", () => {
     const result = requireSuccess(
       await runLookup(
         makeFxTwitter({
-          fetchFullThread: () =>
-            Effect.succeed([makeTweet("2"), makeTweet("3")]),
           fetchConversationReplies: () =>
             Effect.succeed([makeTweet("3"), makeTweet("4"), makeTweet("5")]),
+          fetchFullThread: () =>
+            Effect.succeed([makeTweet("2"), makeTweet("3")]),
         }),
         makeSyndication(),
         { id: "2", thread: "full" }
       )
     );
-    expect(result.tweets.map((tweet) => [tweet.id, tweet.context])).toStrictEqual([
+    expect(
+      result.tweets.map((tweet) => [tweet.id, tweet.context])
+    ).toStrictEqual([
       ["2", "post"],
       ["3", "thread"],
       ["4", "reply"],
@@ -292,37 +292,40 @@ describe("PostLookup", () => {
   test.each([
     { mode: "top" as const, ranking: "likes" },
     { mode: "recent" as const, ranking: "recency" },
-    { mode: "off" as const, ranking: undefined },
-  ])("maps replies=$mode to the preserved ranking policy", async ({ mode, ranking }) => {
-    const rankings: string[] = [];
-    const result = requireSuccess(
-      await runLookup(
-        makeFxTwitter({
-          fetchFullThread: () => Effect.succeed([makeTweet("3")]),
-          fetchConversationReplies: (_id, replyRanking) => {
-            rankings.push(replyRanking ?? "likes");
-            return Effect.succeed([makeTweet("4")]);
-          },
-        }),
-        makeSyndication(),
-        { replies: mode, thread: "full" }
-      )
-    );
-    expect(rankings[0]).toBe(ranking);
-    expect(result.tweets.some((tweet) => tweet.context === "reply")).toBe(
-      mode !== "off"
-    );
-  });
+    { mode: "off" as const, ranking: null },
+  ])(
+    "maps replies=$mode to the preserved ranking policy",
+    async ({ mode, ranking }) => {
+      const rankings: string[] = [];
+      const result = requireSuccess(
+        await runLookup(
+          makeFxTwitter({
+            fetchConversationReplies: (_id, replyRanking) => {
+              rankings.push(replyRanking ?? "likes");
+              return Effect.succeed([makeTweet("4")]);
+            },
+            fetchFullThread: () => Effect.succeed([makeTweet("3")]),
+          }),
+          makeSyndication(),
+          { replies: mode, thread: "full" }
+        )
+      );
+      expect(rankings[0] ?? null).toBe(ranking);
+      expect(result.tweets.some((tweet) => tweet.context === "reply")).toBe(
+        mode !== "off"
+      );
+    }
+  );
 
   test("keeps reply-fetch failure additive and non-fatal", async () => {
     const result = requireSuccess(
       await runLookup(
         makeFxTwitter({
-          fetchFullThread: () => Effect.succeed([makeTweet("3")]),
           fetchConversationReplies: () =>
             Effect.fail(
               new FxTwitterNetworkError({ operation: "conversation" })
             ),
+          fetchFullThread: () => Effect.succeed([makeTweet("3")]),
         }),
         makeSyndication(),
         { thread: "full" }

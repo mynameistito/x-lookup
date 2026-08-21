@@ -78,16 +78,23 @@ describe("Browse", () => {
         })
       )
     );
-    expect(result.profile?.screen_name).toBe("ada");
-    expect(result.posts?.map((tweet) => tweet.id)).toStrictEqual(["1"]);
-    expect(result.markdown).toContain("[@ada](https://x.com/ada)");
-    expect(result.markdown).toContain("[Source](https://x.com/ada/status/1)");
-    expect(result.markdown).toContain("/ada?cursor=next");
-    expect(result.markdown).toContain("/ada?page=2");
+    expect({
+      postIds: result.posts?.map((tweet) => tweet.id),
+      profile: result.profile?.screen_name,
+    }).toStrictEqual({ postIds: ["1"], profile: "ada" });
+    expect(
+      [
+        "[@ada](https://x.com/ada)",
+        "[Source](https://x.com/ada/status/1)",
+        "/ada?cursor=next",
+        "/ada?page=2",
+      ].every((value) => result.markdown.includes(value))
+    ).toBeTruthy();
   });
 
   test("walks search cursors sequentially while preserving feed, limits, and continuation metadata", async () => {
-    const calls: Array<[string, string, string | undefined, number | undefined]> = [];
+    const calls: [string, string, string | undefined, number | undefined][] =
+      [];
     const result = requireSuccess(
       await runBrowse(
         {
@@ -112,20 +119,26 @@ describe("Browse", () => {
         })
       )
     );
-    expect(calls).toStrictEqual([
-      ["effect", "latest", undefined, 7],
-      ["effect", "latest", "page-2", 7],
-    ]);
-    expect(result.nextCursor).toBe("page-3");
-    expect(result.markdown).toContain("q=effect&feed=latest");
-    expect(result.markdown).toContain("full=true");
-    expect(result.markdown).toContain("limit=7");
-    expect(result.markdown).toContain("cursor=page-3");
-    expect(result.markdown).toContain("page=3");
+    expect({ calls, nextCursor: result.nextCursor }).toStrictEqual({
+      calls: [
+        ["effect", "latest", undefined, 7],
+        ["effect", "latest", "page-2", 7],
+      ],
+      nextCursor: "page-3",
+    });
+    expect(
+      [
+        "q=effect&feed=latest",
+        "full=true",
+        "limit=7",
+        "cursor=page-3",
+        "page=3",
+      ].every((value) => result.markdown.includes(value))
+    ).toBeTruthy();
   });
 
   test("uses an explicit cursor as a single-page continuation", async () => {
-    const cursors: Array<string | undefined> = [];
+    const cursors: (string | undefined)[] = [];
     const result = requireSuccess(
       await runBrowse(
         {
@@ -153,7 +166,8 @@ describe("Browse", () => {
   test.each(["followers", "following"] as const)(
     "dispatches %s with cursor handling and capped limits",
     async (relation) => {
-      const calls: Array<[string, string, string | undefined, number | undefined]> = [];
+      const calls: [string, string, string | undefined, number | undefined][] =
+        [];
       const result = requireSuccess(
         await runBrowse(
           {

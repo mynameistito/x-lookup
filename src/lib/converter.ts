@@ -4,6 +4,7 @@ import {
   Cache,
   buildCacheKey,
   cacheControlHeader,
+  layerIsolateMemory,
 } from "./cache.js";
 import type { CacheStatus } from "./cache.js";
 import type { FxTweet } from "./fxtwitter.js";
@@ -11,6 +12,10 @@ import type { HeaderMap, HttpPayload } from "./http.js";
 import { renderThreadMarkdown } from "./markdown.js";
 import { parse as parseOutputFormat } from "./output-format.js";
 import type { InvalidOutputFormat, OutputFormat } from "./output-format.js";
+import {
+  layerFxTwitter,
+  layerSyndication,
+} from "./provider-service-adapter.js";
 import { parseConvertFlag } from "./query-flag.js";
 import { parseContext, parseReplies, parseUserinfo } from "./query-modes.js";
 import type {
@@ -90,9 +95,10 @@ export interface ConversionService {
 }
 
 /** Owns parsed conversion policy, post lookup, caching, truncation, and metadata. */
-export class Conversion extends Context.Service<Conversion, ConversionService>()(
-  "x-lookup/application/Conversion"
-) {}
+export class Conversion extends Context.Service<
+  Conversion,
+  ConversionService
+>()("x-lookup/application/Conversion") {}
 
 /**
  * Parse raw convert query values into a {@link ConvertRequest}.
@@ -273,6 +279,21 @@ export const convertTweetEffect = (
   input: ConvertInput
 ): Effect.Effect<ConvertSuccess, ConvertFailure, Conversion> =>
   Conversion.use((service) => service.convert(input));
+
+const legacyPostLookupLayer = layerPostLookupWithoutDependencies.pipe(
+  Layer.provide(Layer.mergeAll(layerFxTwitter, layerSyndication))
+);
+const legacyConversionLayer = layerConversionWithoutDependencies.pipe(
+  Layer.provide([layerIsolateMemory(), legacyPostLookupLayer])
+);
+
+/** Promise compatibility bridge for callers not yet migrated to Effect. */
+export const convertTweet = (input: ConvertInput) =>
+  Effect.runPromise(
+    Effect.result(
+      Effect.provide(convertTweetEffect(input), legacyConversionLayer)
+    )
+  );
 
 export const acceptPrefersHtml = (accept: string): boolean => {
   if (accept.includes("application/json") || accept.includes("text/markdown")) {

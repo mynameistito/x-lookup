@@ -33,9 +33,10 @@ export interface PostLookupService {
 }
 
 /** Owns provider fallback plus status/thread/reply assembly policy. */
-export class PostLookup extends Context.Service<PostLookup, PostLookupService>()(
-  "x-lookup/application/PostLookup"
-) {}
+export class PostLookup extends Context.Service<
+  PostLookup,
+  PostLookupService
+>()("x-lookup/application/PostLookup") {}
 
 const annotateAndDedupe = (
   thread: FxTweet[],
@@ -105,40 +106,40 @@ const makePostLookup = Effect.gen(function* makePostLookupService() {
   const fxTwitter = yield* FxTwitter;
   const syndication = yield* Syndication;
 
-  const fetchStatusWithFallback = Effect.fn("PostLookup.fetchStatusWithFallback")(
-    function* fetchStatusWithFallbackEffect(handle: string, id: string) {
-      const fxResult = yield* Effect.result(fxTwitter.fetchStatus(id));
-      if (Result.isSuccess(fxResult)) {
-        return {
-          source: "fxtwitter" as const,
-          tweets: [fxResult.success],
-        };
-      }
-      if (isPrivateTweet(fxResult.failure)) {
-        return yield* Effect.fail(fxResult.failure);
-      }
+  const fetchStatusWithFallback = Effect.fn(
+    "PostLookup.fetchStatusWithFallback"
+  )(function* fetchStatusWithFallbackEffect(handle: string, id: string) {
+    const fxResult = yield* Effect.result(fxTwitter.fetchStatus(id));
+    if (Result.isSuccess(fxResult)) {
+      return {
+        source: "fxtwitter" as const,
+        tweets: [fxResult.success],
+      };
+    }
+    if (isPrivateTweet(fxResult.failure)) {
+      return yield* Effect.fail(fxResult.failure);
+    }
 
-      const syndicationResult = yield* Effect.result(
-        syndication.fetchStatus(handle, id)
-      );
-      if (Result.isSuccess(syndicationResult)) {
-        return {
-          source: "syndication" as const,
-          tweets: [syndicationResult.success],
-        };
-      }
+    const syndicationResult = yield* Effect.result(
+      syndication.fetchStatus(handle, id)
+    );
+    if (Result.isSuccess(syndicationResult)) {
+      return {
+        source: "syndication" as const,
+        tweets: [syndicationResult.success],
+      };
+    }
 
-      // Preserve the first truthful not-found verdict over later upstream
-      // failures; otherwise the final classified provider failure wins.
-      if (fxResult.failure.status === 404) {
-        return yield* Effect.fail(fxResult.failure);
-      }
-      if (syndicationResult.failure.status === 404) {
-        return yield* Effect.fail(syndicationResult.failure);
-      }
+    // Preserve the first truthful not-found verdict over later upstream
+    // failures; otherwise the final classified provider failure wins.
+    if (fxResult.failure.status === 404) {
+      return yield* Effect.fail(fxResult.failure);
+    }
+    if (syndicationResult.failure.status === 404) {
       return yield* Effect.fail(syndicationResult.failure);
     }
-  );
+    return yield* Effect.fail(syndicationResult.failure);
+  });
 
   const lookup = Effect.fn("PostLookup.lookup")(function* lookupEffect(
     input: PostLookupInput

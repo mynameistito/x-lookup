@@ -9,10 +9,7 @@ import {
 } from "../lib/converter.js";
 import type { FxTweet } from "../lib/fxtwitter.js";
 import { PostLookup } from "../lib/tweet-fetch.js";
-import type {
-  FetchResult,
-  PostLookupService,
-} from "../lib/tweet-fetch.js";
+import type { FetchResult, PostLookupService } from "../lib/tweet-fetch.js";
 
 const validUrl = "https://x.com/testuser/status/1234567890";
 
@@ -35,9 +32,7 @@ const defaultLookup: PostLookupService["lookup"] = (input) =>
     ],
   });
 
-const conversionLayer = (
-  lookup: PostLookupService["lookup"] = defaultLookup
-) =>
+const conversionLayer = (lookup: PostLookupService["lookup"] = defaultLookup) =>
   layerConversionWithoutDependencies.pipe(
     Layer.provide([
       layerMemory(),
@@ -184,20 +179,32 @@ describe("Conversion", () => {
       return defaultLookup(input);
     };
     const layer = conversionLayer(lookup);
-    const request = (thread?: string) =>
-      Effect.result(
-        convertTweetEffect({
-          thread,
-          url: "https://x.com/cacheuser/status/1234567890",
-        })
-      );
     const [defaultResult, full, conversation, off] = await Effect.runPromise(
       Effect.provide(
         Effect.all([
-          request(),
-          request("full"),
-          request("conversation"),
-          request("off"),
+          Effect.result(
+            convertTweetEffect({
+              url: "https://x.com/cacheuser/status/1234567890",
+            })
+          ),
+          Effect.result(
+            convertTweetEffect({
+              thread: "full",
+              url: "https://x.com/cacheuser/status/1234567890",
+            })
+          ),
+          Effect.result(
+            convertTweetEffect({
+              thread: "conversation",
+              url: "https://x.com/cacheuser/status/1234567890",
+            })
+          ),
+          Effect.result(
+            convertTweetEffect({
+              thread: "off",
+              url: "https://x.com/cacheuser/status/1234567890",
+            })
+          ),
         ]),
         layer
       )
@@ -282,14 +289,14 @@ describe("Conversion", () => {
       ["2", "https://x.com/ada/status/2"],
       ["3", "https://x.com/ada/status/3"],
     ]);
-    expect(result.body).toBe(`## Parent · 1/2 — Ada (@ada)
+    expect(result.body).toBe(`## Parent · 1/2 — Parent · Ada (@ada)
 
 parent
 
 Source: https://x.com/ada/status/2
 ---
 
-## Post · 2/2 — Ada (@ada)
+## Post · 2/2 — Post · Ada (@ada)
 
 focal
 
