@@ -90,8 +90,8 @@ export interface ConvertSuccess {
 
 export interface ConversionService {
   readonly convert: (
-    input: ConvertInput
-  ) => Effect.Effect<ConvertSuccess, ConvertFailure>;
+    request: ConvertRequest
+  ) => Effect.Effect<ConvertSuccess, PostLookupFailure>;
 }
 
 /** Owns parsed conversion policy, post lookup, caching, truncation, and metadata. */
@@ -239,13 +239,8 @@ const makeConversion = Effect.gen(function* makeConversionService() {
   );
 
   const convert = Effect.fn("Conversion.convert")(function* convertEffect(
-    input: ConvertInput
+    request: ConvertRequest
   ) {
-    const parsed = parseConvertRequest(input);
-    if (Result.isFailure(parsed)) {
-      return yield* Effect.fail(parsed.failure);
-    }
-    const request = parsed.success;
     const cacheKey = buildCacheKey({
       compact: request.compact ? "1" : "0",
       context: request.context,
@@ -254,7 +249,7 @@ const makeConversion = Effect.gen(function* makeConversionService() {
       id: request.target.id,
       replies: request.replies,
       thread: request.thread.cacheToken,
-      userinfo: input.userinfo ?? "off",
+      userinfo: request.userinfo,
       v: 5,
     });
     const cached = yield* cache.getOrLoad(
@@ -274,11 +269,23 @@ export const layerConversionWithoutDependencies = Layer.effect(
   makeConversion
 );
 
-/** Invoke conversion orchestration through the public application service seam. */
+/** Invoke conversion orchestration with an already-parsed boundary value. */
+export const convertRequestEffect = (
+  request: ConvertRequest
+): Effect.Effect<ConvertSuccess, PostLookupFailure, Conversion> =>
+  Conversion.use((service) => service.convert(request));
+
+/** Raw-input compatibility helper for non-HTTP callers and focused parser tests. */
 export const convertTweetEffect = (
   input: ConvertInput
 ): Effect.Effect<ConvertSuccess, ConvertFailure, Conversion> =>
-  Conversion.use((service) => service.convert(input));
+  Effect.gen(function* convertTweetFromRawInput() {
+    const parsed = parseConvertRequest(input);
+    if (Result.isFailure(parsed)) {
+      return yield* Effect.fail(parsed.failure);
+    }
+    return yield* convertRequestEffect(parsed.success);
+  });
 
 const legacyPostLookupLayer = layerPostLookupWithoutDependencies.pipe(
   Layer.provide(Layer.mergeAll(layerFxTwitter, layerSyndication))
