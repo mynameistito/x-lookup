@@ -7,12 +7,13 @@ import {
   withCache,
 } from "./cache.js";
 import type { CacheStatus, RuntimeConfig } from "./cache.js";
-import { ConvertError } from "./errors.js";
 import type { FxTweet } from "./fxtwitter.js";
 import type { HeaderMap, HttpPayload } from "./http.js";
 import { renderThreadMarkdown } from "./markdown.js";
 import { parse as parseOutputFormat } from "./output-format.js";
 import type { InvalidOutputFormat, OutputFormat } from "./output-format.js";
+import { isProviderFailure } from "./provider-errors.js";
+import type { ProviderFailure } from "./provider-errors.js";
 import { parseConvertFlag } from "./query-flag.js";
 import { parseContext, parseReplies, parseUserinfo } from "./query-modes.js";
 import type {
@@ -68,7 +69,7 @@ export type ConvertParseError =
   | ResolveError;
 
 /** A convert failure: a parse refusal or an upstream provider failure. */
-export type ConvertFailure = ConvertError | ConvertParseError;
+export type ConvertFailure = ConvertParseError | ProviderFailure;
 
 export interface ConvertSuccess {
   body: string;
@@ -266,7 +267,7 @@ export const convertTweet = async (
     );
     return Result.succeed({ ...value, cache: status });
   } catch (error) {
-    if (error instanceof ConvertError) {
+    if (isProviderFailure(error)) {
       return Result.fail(error);
     }
     throw error;
