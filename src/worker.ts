@@ -31,7 +31,9 @@ const WORKER_ENV = {
  * Provider, cache/configuration, lookup, browse, and conversion Layers are
  * selected once when the Worker implementation is initialized, not per request.
  */
-export const applicationLayer = (env: Env): Layer.Layer<Browse | Conversion> => {
+export const applicationLayer = (
+  env: Env
+): Layer.Layer<Browse | Conversion> => {
   const cacheLayer = layerWorker(env);
   const providerLayer = Layer.mergeAll(layerFxTwitter, layerSyndication);
   const postLookupLayer = layerPostLookupWithoutDependencies.pipe(
