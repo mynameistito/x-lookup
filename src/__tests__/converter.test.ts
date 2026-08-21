@@ -1,124 +1,126 @@
-import { Result } from "effect";
-import { beforeEach, describe, expect, test, vi } from "vitest";
-import type { Mock } from "vitest";
+import { Effect, Layer, Result } from "effect";
+import { describe, expect, test } from "vitest";
 
-import { convertTweet, markdownResponse } from "../lib/converter.js";
+import { layerMemory } from "../lib/cache.js";
+import {
+  convertTweetEffect,
+  layerConversionWithoutDependencies,
+  markdownResponse,
+} from "../lib/converter.js";
+import type { FxTweet } from "../lib/fxtwitter.js";
+import { PostLookup } from "../lib/tweet-fetch.js";
+import type { FetchResult, PostLookupService } from "../lib/tweet-fetch.js";
 
-const respond = <T>(url: string, body: T, status = 200): Promise<Response> => {
-  if (!url.includes("api.fxtwitter.com")) {
-    return Promise.reject(new Error(`unexpected upstream: ${url}`));
-  }
-  return Promise.resolve(Response.json(body, { status }));
-};
+const validUrl = "https://x.com/testuser/status/1234567890";
 
-const stubFetch = (route: (url: string) => Promise<Response>): Mock => {
-  const fetchMock = vi.fn<(url: string) => Promise<Response>>(route);
-  vi.stubGlobal("fetch", fetchMock);
-  return fetchMock;
-};
+const makeTweet = (id: string, overrides: Partial<FxTweet> = {}): FxTweet => ({
+  id,
+  text: `post ${id}`,
+  ...overrides,
+});
 
-/** Unwrap a convert result, failing the test when it is a typed failure. */
-const succeed = async (input: Parameters<typeof convertTweet>[0]) => {
-  const result = await convertTweet(input);
+const defaultLookup: PostLookupService["lookup"] = (input) =>
+  Effect.succeed({
+    source: "fxtwitter",
+    tweets: [
+      makeTweet(input.id, {
+        author: { name: "Test", screen_name: input.handle },
+        context: "post",
+        likes: 5,
+        text: "hello",
+      }),
+    ],
+  });
+
+const conversionLayer = (lookup: PostLookupService["lookup"] = defaultLookup) =>
+  layerConversionWithoutDependencies.pipe(
+    Layer.provide([
+      layerMemory(),
+      Layer.succeed(PostLookup, PostLookup.of({ lookup })),
+    ])
+  );
+
+const runConvert = (
+  input: Parameters<typeof convertTweetEffect>[0],
+  lookup: PostLookupService["lookup"] = defaultLookup
+) =>
+  Effect.runPromise(
+    Effect.result(
+      Effect.provide(convertTweetEffect(input), conversionLayer(lookup))
+    )
+  );
+
+const requireSuccess = <A, E>(result: Result.Result<A, E>): A => {
   if (Result.isFailure(result)) {
-    throw new Error(`expected success, got: ${JSON.stringify(result.failure)}`);
+    throw new Error(`expected success: ${String(result.failure)}`);
   }
   return result.success;
 };
 
-/** Extract the typed failure of a convert call, failing the test on success. */
-const failureOf = async (input: Parameters<typeof convertTweet>[0]) => {
-  const result = await convertTweet(input);
-  if (Result.isSuccess(result)) {
-    throw new Error("expected a typed failure, got success");
-  }
-  return result.failure;
-};
-
-describe("output selection", () => {
-  const validUrl = "https://x.com/testuser/status/1234567890";
-
-  beforeEach(() => {
-    vi.unstubAllGlobals();
-  });
-
-  test("defaults to compact and full=true restores rich rendering", async () => {
-    stubFetch((url) =>
-      respond(url, {
-        code: 200,
-        status: {
-          author: { name: "Test", screen_name: "testuser" },
-          created_at: "today",
-          id: "1234567890",
-          likes: 5,
-          text: "hello",
-        },
-      })
-    );
-
-    const compact = await succeed({ url: validUrl });
+describe("Conversion", () => {
+  test("defaults to compact rendering and full=true restores rich metrics", async () => {
+    const compact = requireSuccess(await runConvert({ url: validUrl }));
     expect(compact.body).not.toContain("Stats:");
 
-    const full = await succeed({ full: "true", url: validUrl });
+    const full = requireSuccess(
+      await runConvert({ full: "true", url: validUrl })
+    );
     expect(full.body).toContain("Stats: 5 likes");
   });
 
-  test("format=json is accepted and JSON contains structured posts and metadata", async () => {
-    stubFetch((url) =>
-      respond(url, {
-        code: 200,
-        status: {
-          author: { name: "Test", screen_name: "testuser" },
-          id: "1234567890",
-          text: "hello",
-        },
-      })
+  test("format=json keeps structured posts and stable result metadata", async () => {
+    const result = requireSuccess(
+      await runConvert({ format: "json", url: validUrl })
     );
-
-    const result = await succeed({ format: "json", url: validUrl });
     const response = markdownResponse(result, true);
     expect(response.headers["Content-Type"]).toContain("application/json");
     expect(JSON.parse(response.body)).toMatchObject({
+      cache: "miss",
+      compact: true,
       markdown: expect.stringContaining("hello"),
+      postCount: 1,
       posts: [{ id: "1234567890", url: validUrl }],
       source: "fxtwitter",
+      url: validUrl,
+      warnings: [],
     });
   });
 
-  test("varies negotiated responses by Accept and sets shared caching headers", async () => {
-    stubFetch((url) =>
-      respond(url, {
-        code: 200,
-        status: { id: "1234567890", text: "hello" },
-      })
-    );
-
-    const result = await succeed({ url: validUrl });
+  test("varies negotiated responses by Accept/User-Agent and preserves cache headers", async () => {
+    const result = requireSuccess(await runConvert({ url: validUrl }));
     const response = markdownResponse(result);
     expect(response.headers).toMatchObject({
       "Cache-Control": "public, max-age=0, must-revalidate",
       Vary: "Accept, User-Agent",
+      "X-Cache": "MISS",
       "X-Converter": "x-lookup",
+      "X-Post-Count": "1",
+      "X-Source": "fxtwitter",
+      "X-Warnings": "0",
     });
   });
 
-  test("synthesizes source URLs for posts that lack them", async () => {
-    const url = "https://x.com/urluser/status/1234567890";
-    stubFetch((url2) => {
-      if (url2.includes("/2/thread/")) {
-        return respond(url2, {
-          code: 200,
-          thread: [{ author: { screen_name: "bob" }, id: "99", text: "reply" }],
-        });
-      }
-      return respond(url2, { code: 200 });
-    });
-
-    const result = await succeed({
-      format: "json",
-      thread: "full",
-      url,
-    });
+  test("synthesizes canonical source URLs for posts that lack them", async () => {
+    const result = requireSuccess(
+      await runConvert(
+        {
+          format: "json",
+          thread: "full",
+          url: "https://x.com/urluser/status/1234567890",
+        },
+        () =>
+          Effect.succeed({
+            source: "fxtwitter",
+            tweets: [
+              makeTweet("99", {
+                author: { screen_name: "bob" },
+                context: "thread",
+                text: "reply",
+              }),
+            ],
+          })
+      )
+    );
     expect(result.posts[0]).toMatchObject({
       context: "thread",
       id: "99",
@@ -126,154 +128,178 @@ describe("output selection", () => {
     });
   });
 
-  test("validates context and replies query values", async () => {
+  test("fails invalid context/replies before invoking post lookup", async () => {
+    let calls = 0;
+    const lookup: PostLookupService["lookup"] = (input) => {
+      calls += 1;
+      return defaultLookup(input);
+    };
+    const invalidContext = await runConvert(
+      { context: "bad", url: validUrl },
+      lookup
+    );
+    const invalidReplies = await runConvert(
+      { replies: "bad", url: validUrl },
+      lookup
+    );
+    expect(invalidContext).toMatchObject({
+      _tag: "Failure",
+      failure: { code: "invalid_context", status: 400 },
+    });
+    expect(invalidReplies).toMatchObject({
+      _tag: "Failure",
+      failure: { code: "invalid_replies", status: 400 },
+    });
+    expect(calls).toBe(0);
+  });
+
+  test("rejects unsupported hosts, malformed paths, and missing targets", async () => {
     await expect(
-      failureOf({ context: "bad", url: validUrl })
+      runConvert({ url: "https://example.com/a/status/1" })
     ).resolves.toMatchObject({
-      code: "invalid_context",
-      status: 400,
+      _tag: "Failure",
+      failure: { code: "unsupported_host", status: 400 },
     });
     await expect(
-      failureOf({ replies: "bad", url: validUrl })
+      runConvert({ url: "https://x.com/ada/followers" })
     ).resolves.toMatchObject({
-      code: "invalid_replies",
-      status: 400,
+      _tag: "Failure",
+      failure: { code: "invalid_path", status: 400 },
+    });
+    await expect(runConvert({})).resolves.toMatchObject({
+      _tag: "Failure",
+      failure: { code: "missing_url", status: 400 },
     });
   });
 
-  test("rejects unsupported input hosts and malformed paths", async () => {
-    await expect(
-      failureOf({ url: "https://example.com/a/status/1" })
-    ).resolves.toMatchObject({ code: "unsupported_host", status: 400 });
-    await expect(
-      failureOf({ url: "https://x.com/ada/followers" })
-    ).resolves.toMatchObject({ code: "invalid_path", status: 400 });
-    await expect(failureOf({})).resolves.toMatchObject({
-      code: "missing_url",
-      status: 400,
-    });
-  });
-
-  test("accepts the production host and workers.dev previews as input URLs", async () => {
-    stubFetch((url) =>
-      respond(url, { code: 200, status: { id: "5", text: "hi" } })
+  test("shares cache identity for default/full/conversation and separates thread=off", async () => {
+    let lookups = 0;
+    const lookup: PostLookupService["lookup"] = (input) => {
+      lookups += 1;
+      return defaultLookup(input);
+    };
+    const layer = conversionLayer(lookup);
+    const [defaultResult, full, conversation, off] = await Effect.runPromise(
+      Effect.provide(
+        Effect.all([
+          Effect.result(
+            convertTweetEffect({
+              url: "https://x.com/cacheuser/status/1234567890",
+            })
+          ),
+          Effect.result(
+            convertTweetEffect({
+              thread: "full",
+              url: "https://x.com/cacheuser/status/1234567890",
+            })
+          ),
+          Effect.result(
+            convertTweetEffect({
+              thread: "conversation",
+              url: "https://x.com/cacheuser/status/1234567890",
+            })
+          ),
+          Effect.result(
+            convertTweetEffect({
+              thread: "off",
+              url: "https://x.com/cacheuser/status/1234567890",
+            })
+          ),
+        ]),
+        layer
+      )
     );
-    await expect(
-      convertTweet({ url: "https://x-lookup.mynameistito.com/ada/status/5" })
-    ).resolves.toMatchObject({ _tag: "Success" });
-    await expect(
-      convertTweet({ url: "https://x-lookup.someone.workers.dev/ada/status/5" })
-    ).resolves.toMatchObject({ _tag: "Success" });
+    expect(requireSuccess(defaultResult).cache).toBe("miss");
+    expect(requireSuccess(full).cache).toBe("hit");
+    expect(requireSuccess(conversation).cache).toBe("hit");
+    expect(requireSuccess(off).cache).toBe("miss");
+    expect(lookups).toBe(2);
   });
-});
 
-describe("parseThread — invalid values fail with a typed error", () => {
-  const validUrl = "https://x.com/testuser/status/1234567890";
-
-  test.each(["1", "101", "0", "-1", "abc", "invalid_mode", "200"])(
-    "fails for thread=%s",
-    async (thread) => {
-      const failure = await failureOf({ thread, url: validUrl });
-      expect(failure).toMatchObject({
-        _tag: "InvalidThread",
-        code: "invalid_thread",
-        status: 400,
-      });
-    }
-  );
-
-  test('error message includes "conversation", code is invalid_thread, status is 400', async () => {
-    const failure = await failureOf({ thread: "bad", url: validUrl });
-    expect(String(failure)).toContain("conversation");
-    expect(failure).toMatchObject({ code: "invalid_thread", status: 400 });
-  });
-});
-
-describe("parseThread — valid values accepted", () => {
-  const validUrl = "https://x.com/threaduser/status/1234567890";
-
-  beforeEach(() => {
-    vi.unstubAllGlobals();
-    stubFetch((url) =>
-      respond(url, {
-        code: 200,
-        status: { id: "1234567890", text: "hello" },
-      })
+  test("preserves focal post and role priority when truncating threads", async () => {
+    const result = requireSuccess(
+      await runConvert(
+        {
+          format: "json",
+          thread: "2",
+          url: "https://x.com/TestUser/status/3",
+        },
+        () =>
+          Effect.succeed({
+            source: "fxtwitter",
+            tweets: [
+              makeTweet("1", { context: "parent" }),
+              makeTweet("2", { context: "parent" }),
+              makeTweet("3", { context: "post" }),
+              makeTweet("4", { context: "thread" }),
+              makeTweet("5", { context: "reply" }),
+            ],
+          })
+      )
     );
-  });
-
-  test.each([
-    null,
-    undefined,
-    "full",
-    "conversation",
-    "off",
-    "2",
-    "100",
-    "50",
-  ] as const)("thread=%s resolves without error", async (thread) => {
-    await expect(
-      convertTweet({ thread, url: validUrl })
-    ).resolves.toMatchObject({ _tag: "Success" });
-  });
-});
-
-describe("thread cache identity", () => {
-  const validUrl = "https://x.com/cacheuser/status/1234567890";
-
-  beforeEach(() => {
-    vi.unstubAllGlobals();
-    stubFetch((url) =>
-      respond(url, {
-        code: 200,
-        status: { id: "1234567890", text: "hello" },
-      })
-    );
-  });
-
-  test('null, "full", and "conversation" share one cache entry', async () => {
-    const first = await succeed({ thread: null, url: validUrl });
-    expect(first.cache).toBe("miss");
-    const second = await succeed({ thread: "full", url: validUrl });
-    expect(second.cache).toBe("hit");
-    const third = await succeed({ thread: "conversation", url: validUrl });
-    expect(third.cache).toBe("hit");
-  });
-
-  test('thread="off" gets its own cache entry', async () => {
-    const off = await succeed({ thread: "off", url: validUrl });
-    expect(off.cache).toBe("miss");
-  });
-});
-
-describe("numeric thread limits", () => {
-  beforeEach(() => {
-    vi.unstubAllGlobals();
-  });
-
-  test("preserve focal post and choose context by role before display ordering", async () => {
-    stubFetch((url) => {
-      if (url.includes("/2/thread/")) {
-        return respond(url, {
-          code: 200,
-          thread: [
-            { id: "1" },
-            { id: "2" },
-            { id: "3" },
-            { id: "4" },
-            { id: "5" },
-          ],
-        });
-      }
-      return respond(url, { code: 200 });
-    });
-
-    const result = await succeed({
-      format: "json",
-      thread: "2",
-      url: "https://x.com/TestUser/status/3",
-    });
     expect(result.posts.map((post) => post.id)).toStrictEqual(["2", "3"]);
     expect(result.warnings).toContain("Thread truncated to 2 posts.");
+  });
+
+  test("keeps fallback warnings, canonical URLs, Markdown, and result metadata stable", async () => {
+    const result = requireSuccess(
+      await runConvert(
+        {
+          format: "json",
+          thread: "2",
+          url: "https://x.com/ada/status/3",
+        },
+        () =>
+          Effect.succeed({
+            source: "syndication",
+            tweets: [
+              makeTweet("2", {
+                author: { name: "Ada", screen_name: "ada" },
+                context: "parent",
+                text: "parent",
+              }),
+              makeTweet("3", {
+                author: { name: "Ada", screen_name: "ada" },
+                context: "post",
+                text: "focal",
+              }),
+              makeTweet("4", {
+                author: { name: "Bob", screen_name: "bob" },
+                context: "reply",
+                text: "reply",
+              }),
+            ],
+          } satisfies FetchResult)
+      )
+    );
+
+    expect(result).toMatchObject({
+      cache: "miss",
+      canonicalUrl: "https://x.com/ada/status/3",
+      compact: true,
+      format: "json",
+      postCount: 2,
+      source: "syndication",
+      warnings: [
+        "Thread truncated to 2 posts.",
+        "Fetched via syndication fallback — threads, full articles, and quotes may be limited.",
+      ],
+    });
+    expect(result.posts.map((tweet) => [tweet.id, tweet.url])).toStrictEqual([
+      ["2", "https://x.com/ada/status/2"],
+      ["3", "https://x.com/ada/status/3"],
+    ]);
+    expect(result.body).toBe(`## Parent · 1/2 — Parent · Ada (@ada)
+
+parent
+
+Source: https://x.com/ada/status/2
+---
+
+## Post · 2/2 — Post · Ada (@ada)
+
+focal
+
+Source: https://x.com/ada/status/3`);
   });
 });

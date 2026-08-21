@@ -1,20 +1,42 @@
-import { ConvertError } from "./errors.js";
-import {
-  fetchFxConversationReplies,
-  fetchFxFullThread,
-  fetchFxStatus,
-} from "./fxtwitter.js";
+import { Context, Effect, Layer, Result } from "effect";
+
 import type { FxReplyRanking, FxTweet } from "./fxtwitter.js";
 import type { PostId } from "./post-id.js";
+import type {
+  FxTwitterFailure,
+  SyndicationFailure,
+} from "./provider-errors.js";
+import { FxTwitter, Syndication } from "./provider-service.js";
 import type { ContextMode, RepliesMode } from "./query-modes.js";
-import { fetchSyndicationStatus } from "./syndication.js";
 
 export type FetchSource = "fxtwitter" | "syndication";
 
 export interface FetchResult {
-  tweets: FxTweet[];
-  source: FetchSource;
+  readonly tweets: FxTweet[];
+  readonly source: FetchSource;
 }
+
+export interface PostLookupInput {
+  readonly context: ContextMode;
+  readonly handle: string;
+  readonly id: PostId;
+  readonly replies: RepliesMode;
+  readonly thread: "off" | "full";
+}
+
+export type PostLookupFailure = FxTwitterFailure | SyndicationFailure;
+
+export interface PostLookupService {
+  readonly lookup: (
+    input: PostLookupInput
+  ) => Effect.Effect<FetchResult, PostLookupFailure>;
+}
+
+/** Owns provider fallback plus status/thread/reply assembly policy. */
+export class PostLookup extends Context.Service<
+  PostLookup,
+  PostLookupService
+>()("x-lookup/application/PostLookup") {}
 
 const annotateAndDedupe = (
   thread: FxTweet[],
@@ -73,109 +95,117 @@ const focalAuthorThread = (
   });
 };
 
-/** Free providers only: FxTwitter first, then Twitter's syndication endpoint. */
-const fetchStatusWithFallback = (
-  handle: string,
-  id: string
-): Promise<FetchResult> => {
-  const attempts: (() => Promise<FetchResult>)[] = [
-    async () => ({ source: "fxtwitter", tweets: [await fetchFxStatus(id)] }),
-    async () => ({
-      source: "syndication",
-      tweets: [await fetchSyndicationStatus(handle, id)],
-    }),
-  ];
+const isPrivateTweet = (
+  failure: PostLookupFailure
+): failure is Extract<
+  PostLookupFailure,
+  { readonly _tag: "FxTwitterPrivateTweetError" }
+> => failure._tag === "FxTwitterPrivateTweetError";
 
-  const run = async (
-    index: number,
-    notFound?: ConvertError,
-    lastError?: ConvertError
-  ): Promise<FetchResult> => {
-    const attempt = attempts[index];
-    if (!attempt) {
-      throw (
-        notFound ??
-        lastError ??
-        new ConvertError(
-          502,
-          "All fetch providers failed.",
-          "all_providers_failed"
-        )
-      );
+const makePostLookup = Effect.gen(function* makePostLookupService() {
+  const fxTwitter = yield* FxTwitter;
+  const syndication = yield* Syndication;
+
+  const fetchStatusWithFallback = Effect.fn(
+    "PostLookup.fetchStatusWithFallback"
+  )(function* fetchStatusWithFallbackEffect(handle: string, id: string) {
+    const fxResult = yield* Effect.result(fxTwitter.fetchStatus(id));
+    if (Result.isSuccess(fxResult)) {
+      return {
+        source: "fxtwitter" as const,
+        tweets: [fxResult.success],
+      };
     }
-    try {
-      return await attempt();
-    } catch (error) {
-      if (error instanceof ConvertError && error.code === "private_tweet") {
-        throw error;
+    if (isPrivateTweet(fxResult.failure)) {
+      return yield* Effect.fail(fxResult.failure);
+    }
+
+    const syndicationResult = yield* Effect.result(
+      syndication.fetchStatus(handle, id)
+    );
+    if (Result.isSuccess(syndicationResult)) {
+      return {
+        source: "syndication" as const,
+        tweets: [syndicationResult.success],
+      };
+    }
+
+    // Preserve the first truthful not-found verdict over later upstream
+    // failures; otherwise the final classified provider failure wins.
+    if (fxResult.failure.status === 404) {
+      return yield* Effect.fail(fxResult.failure);
+    }
+    if (syndicationResult.failure.status === 404) {
+      return yield* Effect.fail(syndicationResult.failure);
+    }
+    return yield* Effect.fail(syndicationResult.failure);
+  });
+
+  const lookup = Effect.fn("PostLookup.lookup")(function* lookupEffect(
+    input: PostLookupInput
+  ) {
+    const { context, handle, id, replies, thread } = input;
+    if (thread === "off") {
+      const result = yield* fetchStatusWithFallback(handle, id);
+      return {
+        ...result,
+        tweets: annotateAndDedupe(result.tweets, id, []),
+      };
+    }
+
+    const threadResult = yield* Effect.result(fxTwitter.fetchFullThread(id));
+    if (Result.isSuccess(threadResult)) {
+      const assembledThread =
+        context === "thread"
+          ? focalAuthorThread(threadResult.success, id, handle)
+          : threadResult.success;
+      if (replies === "off" || context === "thread") {
+        return {
+          source: "fxtwitter" as const,
+          tweets: annotateAndDedupe(assembledThread, id, []),
+        };
       }
-      // Prefer a truthful "missing" verdict from any provider over later
-      // upstream failures when everything else failed.
-      const nextNotFound =
-        notFound ??
-        (error instanceof ConvertError && error.status === 404
-          ? error
-          : undefined);
-      return run(
-        index + 1,
-        nextNotFound,
-        error instanceof ConvertError ? error : lastError
+
+      const ranking: FxReplyRanking =
+        replies === "recent" ? "recency" : "likes";
+      const replyResult = yield* Effect.result(
+        fxTwitter.fetchConversationReplies(id, ranking, 10)
       );
+      const replyTweets = Result.isSuccess(replyResult)
+        ? replyResult.success
+        : [];
+      return {
+        source: "fxtwitter" as const,
+        tweets: annotateAndDedupe(assembledThread, id, replyTweets),
+      };
     }
-  };
 
-  return run(0);
-};
+    if (isPrivateTweet(threadResult.failure)) {
+      return yield* Effect.fail(threadResult.failure);
+    }
 
-/**
- * Fetch the posts for a resolved status target.
- *
- * @param handle - The target handle token (used for the syndication fallback).
- * @param id - The parsed numeric post id.
- * @param threadMode - Whether to assemble the full thread or only the focal post.
- * @param contextMode - How much conversation context to include.
- * @param repliesMode - Which replies to accompany the focal post with.
- */
-export const fetchPosts = async (
+    const fallback = yield* fetchStatusWithFallback(handle, id);
+    return {
+      ...fallback,
+      tweets: annotateAndDedupe(fallback.tweets, id, []),
+    };
+  });
+
+  return PostLookup.of({ lookup });
+});
+
+export const layerPostLookupWithoutDependencies = Layer.effect(
+  PostLookup,
+  makePostLookup
+);
+
+export const fetchPostsEffect = (
   handle: string,
   id: PostId,
-  threadMode: "off" | "full",
-  contextMode: ContextMode = "full",
-  repliesMode: RepliesMode = "top"
-): Promise<FetchResult> => {
-  if (threadMode === "off") {
-    const result = await fetchStatusWithFallback(handle, id);
-    return { ...result, tweets: annotateAndDedupe(result.tweets, id, []) };
-  }
-
-  try {
-    const assembledThread = await fetchFxFullThread(id);
-    const thread =
-      contextMode === "thread"
-        ? focalAuthorThread(assembledThread, id, handle)
-        : assembledThread;
-    if (repliesMode === "off" || contextMode === "thread") {
-      return { source: "fxtwitter", tweets: annotateAndDedupe(thread, id, []) };
-    }
-
-    let replies: FxTweet[] = [];
-    try {
-      const ranking: FxReplyRanking =
-        repliesMode === "recent" ? "recency" : "likes";
-      replies = (await fetchFxConversationReplies(id, ranking, 10)) ?? [];
-    } catch {
-      // Reply context is additive; preserve the existing thread/provider behavior.
-    }
-    return {
-      source: "fxtwitter",
-      tweets: annotateAndDedupe(thread, id, replies),
-    };
-  } catch (error) {
-    if (error instanceof ConvertError && error.code === "private_tweet") {
-      throw error;
-    }
-  }
-
-  const result = await fetchStatusWithFallback(handle, id);
-  return { ...result, tweets: annotateAndDedupe(result.tweets, id, []) };
-};
+  thread: "off" | "full",
+  context: ContextMode = "full",
+  replies: RepliesMode = "top"
+): Effect.Effect<FetchResult, PostLookupFailure, PostLookup> =>
+  PostLookup.use((service) =>
+    service.lookup({ context, handle, id, replies, thread })
+  );
