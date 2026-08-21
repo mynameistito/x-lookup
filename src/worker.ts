@@ -1,9 +1,9 @@
 // oxlint-disable-next-line sonarjs/no-wildcard-import -- SAFETY: namespace import is the documented Alchemy Effect-native Worker style.
 import * as Cloudflare from "alchemy/Cloudflare";
-import { Effect, Layer } from "effect";
+import { Effect, Layer, Option, Schema } from "effect";
 
+import { envSchema } from "./env.js";
 import type { Env } from "./env.js";
-import { parseEnv } from "./env.js";
 import { Browse, layerBrowseWithoutDependencies } from "./lib/browse.js";
 import { layerWorker } from "./lib/cache.js";
 import {
@@ -64,7 +64,11 @@ export const XLookupWorker = Cloudflare.Worker(
   },
   Effect.gen(function* makeXLookupWorker() {
     const workerEnv = yield* Cloudflare.WorkerEnvironment;
-    const services = yield* makeApplicationServices(parseEnv(workerEnv));
+    const env = Option.getOrElse(
+      Schema.decodeUnknownOption(envSchema)(workerEnv),
+      () => ({})
+    );
+    const services = yield* makeApplicationServices(env);
 
     return {
       fetch: makeHttpApplication(services),
