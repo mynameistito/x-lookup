@@ -13,6 +13,10 @@ jobs:
       - uses: actions/checkout@v5
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile
+      - name: Temporarily apply Ultracite fixes
+        run: bun run fix
+      - name: Show formatter changes
+        run: git diff -- src/__tests__/router.test.ts src/lib/browse.ts src/lib/converter.ts src/router.ts src/worker.ts
       - run: bun run check
       - run: bun run typecheck
       - run: bun run test
