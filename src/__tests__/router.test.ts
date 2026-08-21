@@ -167,3 +167,117 @@ describe("router documentation routes", () => {
     await expect(response.text()).resolves.toContain("/api/convert");
   });
 });
+
+describe("router typed-error mapping", () => {
+  beforeEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  /**
+   * Every migrated parse refusal must keep its exact external contract:
+   * truthful status, stable code, and the historical message.
+   */
+  test.each([
+    [
+      "/api/convert?url=not%20a%20url",
+      400,
+      "invalid_url",
+      "Invalid URL. Provide a public X/Twitter status URL.",
+    ],
+    [
+      "/api/convert?url=https%3A%2F%2Fexample.com%2Fa%2Fstatus%2F1",
+      400,
+      "unsupported_host",
+      "Only x.com or twitter.com status URLs are supported.",
+    ],
+    [
+      "/api/convert?url=https%3A%2F%2Fx.com%2Fada",
+      400,
+      "invalid_path",
+      "URL must be a status permalink like https://x.com/handle/status/1234567890.",
+    ],
+    [
+      "/api/convert",
+      400,
+      "missing_url",
+      "Missing required `url` query parameter.",
+    ],
+    [
+      "/api/convert?handle=ada&id=abc",
+      400,
+      "invalid_params",
+      "Missing or invalid handle/status id.",
+    ],
+    [
+      "/api/convert?url=https%3A%2F%2Fx.com%2Fada%2Fstatus%2F1&format=rss",
+      400,
+      "invalid_format",
+      "`format` must be `markdown`, `obsidian`, or `json`.",
+    ],
+    [
+      "/api/convert?url=https%3A%2F%2Fx.com%2Fada%2Fstatus%2F1&thread=999",
+      400,
+      "invalid_thread",
+      "`thread` must be `off`, `full`, `conversation`, or a number from 2 to 100.",
+    ],
+    [
+      "/api/convert?url=https%3A%2F%2Fx.com%2Fada%2Fstatus%2F1&userinfo=both",
+      400,
+      "invalid_userinfo",
+      "`userinfo` must be `off`, `author`, or `all`.",
+    ],
+    [
+      "/api/convert?url=https%3A%2F%2Fx.com%2Fada%2Fstatus%2F1&context=bad",
+      400,
+      "invalid_context",
+      "`context` must be `full` or `thread`.",
+    ],
+    [
+      "/api/convert?url=https%3A%2F%2Fx.com%2Fada%2Fstatus%2F1&replies=bad",
+      400,
+      "invalid_replies",
+      "`replies` must be `top`, `recent`, or `off`.",
+    ],
+    ["/api/browse", 400, "invalid_resource", "Unsupported browse resource."],
+    [
+      "/api/browse?resource=profile",
+      400,
+      "invalid_handle",
+      "A valid X handle is required.",
+    ],
+    [
+      "/api/browse?resource=search",
+      400,
+      "missing_query",
+      "Search query q is required.",
+    ],
+    [
+      "/api/browse?resource=search&q=x&format=obsidian",
+      400,
+      "invalid_format",
+      "Browse `format` must be `markdown` or `json`.",
+    ],
+  ])("maps %s to %i %s", async (path, status, code, message) => {
+    const response = await handleRequest(get(path));
+    expect(response.status).toBe(status);
+    expect(response.headers.get("Access-Control-Allow-Origin")).toBe("*");
+    await expect(response.json()).resolves.toMatchObject({
+      code,
+      error: message,
+    });
+  });
+
+  test("path status routes keep their 404 for non-numeric ids", async () => {
+    const response = await handleRequest(get("/ada/status/abc"));
+    expect(response.status).toBe(404);
+    await expect(response.json()).resolves.toMatchObject({ code: "not_found" });
+  });
+
+  test("handle-only convert requests report the missing url", async () => {
+    const response = await handleRequest(get("/api/convert?handle=ada"));
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      code: "missing_url",
+    });
+  });
+});

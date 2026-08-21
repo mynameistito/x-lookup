@@ -1,6 +1,8 @@
+import { Option } from "effect";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import type { Mock } from "vitest";
 
+import { parse as parsePostId } from "../lib/post-id.js";
 import { fetchPosts } from "../lib/tweet-fetch.js";
 
 const respond = <T>(url: string, body: T, status = 200): Promise<Response> => {
@@ -15,6 +17,9 @@ const stubFetch = (route: (url: string) => Promise<Response>): Mock => {
   vi.stubGlobal("fetch", fetchMock);
   return fetchMock;
 };
+
+/** Build a PostId through the real parser for tests. */
+const pid = (raw: string): string => Option.getOrThrow(parsePostId(raw));
 
 describe("fetchPosts provider fallbacks", () => {
   beforeEach(() => {
@@ -33,7 +38,7 @@ describe("fetchPosts provider fallbacks", () => {
           })
     );
 
-    const result = await fetchPosts("alice", "123", "off");
+    const result = await fetchPosts("alice", pid("123"), "off");
 
     expect(result.source).toBe("syndication");
     expect(result.tweets[0]).toMatchObject({
@@ -49,7 +54,7 @@ describe("fetchPosts provider fallbacks", () => {
       respond(url, { code: 200, status: { id: "123", text: "from fx" } })
     );
 
-    const result = await fetchPosts("alice", "123", "off");
+    const result = await fetchPosts("alice", pid("123"), "off");
 
     expect(result.source).toBe("fxtwitter");
     expect(result.tweets[0]).toMatchObject({ context: "post", id: "123" });
@@ -62,7 +67,7 @@ describe("fetchPosts provider fallbacks", () => {
       respond(url, { code: 403, message: "PRIVATE_TWEET" })
     );
 
-    await expect(fetchPosts("alice", "123", "off")).rejects.toMatchObject({
+    await expect(fetchPosts("alice", pid("123"), "off")).rejects.toMatchObject({
       code: "private_tweet",
     });
     expect(fetchMock).toHaveBeenCalledOnce();
@@ -71,7 +76,7 @@ describe("fetchPosts provider fallbacks", () => {
   test("surfaces the last provider error when every attempt fails", async () => {
     stubFetch((url) => respond(url, {}, 500));
 
-    await expect(fetchPosts("alice", "123", "off")).rejects.toMatchObject({
+    await expect(fetchPosts("alice", pid("123"), "off")).rejects.toMatchObject({
       code: "syndication_error",
     });
   });
@@ -83,7 +88,7 @@ describe("fetchPosts provider fallbacks", () => {
         : respond(url, {}, 500)
     );
 
-    await expect(fetchPosts("alice", "123", "off")).rejects.toMatchObject({
+    await expect(fetchPosts("alice", pid("123"), "off")).rejects.toMatchObject({
       code: "not_found",
       status: 404,
     });
@@ -100,7 +105,7 @@ describe("fetchPosts provider fallbacks", () => {
       return respond(url, { code: 200 });
     });
 
-    const result = await fetchPosts("alice", "123", "full");
+    const result = await fetchPosts("alice", pid("123"), "full");
 
     expect(result.source).toBe("fxtwitter");
     expect(result.tweets).toHaveLength(1);
@@ -135,7 +140,7 @@ describe("fetchPosts provider fallbacks", () => {
       });
     });
 
-    const result = await fetchPosts("alice", "2", "full");
+    const result = await fetchPosts("alice", pid("2"), "full");
 
     expect(String(fetchMock.mock.calls.at(-1)?.[0])).toContain(
       "/2/conversation/2?ranking_mode=likes"
@@ -161,7 +166,13 @@ describe("fetchPosts provider fallbacks", () => {
       return respond(url, { code: 200 });
     });
 
-    const result = await fetchPosts("alice", "2", "full", "full", "recent");
+    const result = await fetchPosts(
+      "alice",
+      pid("2"),
+      "full",
+      "full",
+      "recent"
+    );
 
     expect(String(fetchMock.mock.calls.at(-1)?.[0])).toContain(
       "/2/conversation/2?ranking_mode=recency"
@@ -181,8 +192,8 @@ describe("fetchPosts provider fallbacks", () => {
       return respond(url, { code: 200 });
     });
 
-    await fetchPosts("alice", "2", "full", "thread", "top");
-    await fetchPosts("alice", "2", "full", "full", "off");
+    await fetchPosts("alice", pid("2"), "full", "thread", "top");
+    await fetchPosts("alice", pid("2"), "full", "full", "off");
 
     const urls = fetchMock.mock.calls.map((call) => String(call[0]));
     expect(urls.some((url) => url.includes("/2/conversation/"))).toBeFalsy();
@@ -215,7 +226,13 @@ describe("fetchPosts provider fallbacks", () => {
       "3",
     ]);
 
-    const noReplies = await fetchPosts("alice", "2", "full", "full", "off");
+    const noReplies = await fetchPosts(
+      "alice",
+      pid("2"),
+      "full",
+      "full",
+      "off"
+    );
     expect(noReplies.tweets.map((tweet) => tweet.id)).toStrictEqual([
       "1",
       "2",
@@ -238,7 +255,7 @@ describe("fetchPosts provider fallbacks", () => {
       return respond(url, { code: 200 });
     });
 
-    const result = await fetchPosts("alice", "2", "full", "thread", "top");
+    const result = await fetchPosts("alice", pid("2"), "full", "thread", "top");
     expect(result.tweets.map((tweet) => tweet.id)).toStrictEqual(["2", "3"]);
   });
 });

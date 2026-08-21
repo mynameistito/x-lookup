@@ -180,6 +180,11 @@ describe("cache configuration helpers", () => {
     expect(parseTtlSeconds("abc")).toBe(3600);
   });
 
+  test("parseTtlSeconds truncates fractions and refuses zero", () => {
+    expect(parseTtlSeconds("0")).toBe(3600);
+    expect(parseTtlSeconds("2.9")).toBe(2);
+  });
+
   test("memoryConfig exposes a single memory layer", () => {
     const config = memoryConfig(120);
     expect(config.ttlSeconds).toBe(120);
