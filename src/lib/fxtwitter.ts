@@ -1,275 +1,301 @@
-import { ConvertError } from './errors.js'
+import { ConvertError } from "./errors.js";
 
-const FX_BASE = 'https://api.fxtwitter.com'
-const UA = 'x-lookup/1.0'
+const FX_BASE = "https://api.fxtwitter.com";
+const UA = "x-lookup/1.0";
 
 export interface FxAuthor {
-  id?: string
-  name?: string
-  screen_name?: string
-  url?: string
-  description?: string
-  location?: string
-  followers?: number
-  following?: number
-  likes?: number
-  media_count?: number
-  statuses?: number
-  joined?: string
-  avatar_url?: string
-  banner_url?: string
-  protected?: boolean
-  website?: { url?: string; display_url?: string }
-  verification?: { verified?: boolean; type?: string }
+  id?: string;
+  name?: string;
+  screen_name?: string;
+  url?: string;
+  description?: string;
+  location?: string;
+  followers?: number;
+  following?: number;
+  likes?: number;
+  media_count?: number;
+  statuses?: number;
+  joined?: string;
+  avatar_url?: string;
+  banner_url?: string;
+  protected?: boolean;
+  website?: { url?: string; display_url?: string };
+  verification?: { verified?: boolean; type?: string };
 }
 
 export interface FxMediaItem {
-  type?: string
-  url?: string
-  thumbnail_url?: string
-  width?: number
-  height?: number
-  duration?: number
+  type?: string;
+  url?: string;
+  thumbnail_url?: string;
+  width?: number;
+  height?: number;
+  duration?: number;
   /** Normalized duration. FxTwitter sends seconds; syndication sends milliseconds. */
-  duration_ms?: number
-  format?: string
-  bitrate?: number
-  alt?: string
-  altText?: string
-  variants?: Array<{
-    url: string
-    content_type?: string
-    bitrate?: number
-  }>
-  formats?: Array<{
-    url: string
-    container?: string
-    codec?: string
-    bitrate?: number
-  }>
+  duration_ms?: number;
+  format?: string;
+  bitrate?: number;
+  alt?: string;
+  altText?: string;
+  variants?: {
+    url: string;
+    content_type?: string;
+    bitrate?: number;
+  }[];
+  formats?: {
+    url: string;
+    container?: string;
+    codec?: string;
+    bitrate?: number;
+  }[];
 }
 
 export interface FxMosaic {
-  type?: string
-  photos?: FxMediaItem[]
-  formats?: { jpeg?: string; webp?: string }
+  type?: string;
+  photos?: FxMediaItem[];
+  formats?: { jpeg?: string; webp?: string };
 }
 
 export interface FxMedia {
-  photos?: FxMediaItem[]
-  videos?: FxMediaItem[]
-  animated?: FxMediaItem[]
-  mosaic?: FxMosaic
-  all?: FxMediaItem[]
+  photos?: FxMediaItem[];
+  videos?: FxMediaItem[];
+  animated?: FxMediaItem[];
+  mosaic?: FxMosaic;
+  all?: FxMediaItem[];
 }
 
 export interface FxPollChoice {
-  label?: string
-  count?: number
-  percentage?: number
+  label?: string;
+  count?: number;
+  percentage?: number;
 }
 
 export interface FxPoll {
-  choices?: FxPollChoice[]
-  total_votes?: number
-  time_left_en?: string
-  ends_at?: string
+  choices?: FxPollChoice[];
+  total_votes?: number;
+  time_left_en?: string;
+  ends_at?: string;
 }
 
 export interface FxArticleBlock {
-  type?: string
-  text?: string
-  inlineStyleRanges?: Array<{ offset: number; length: number; style: string }>
-  data?: { urls?: Array<{ fromIndex: number; toIndex: number; text: string }> }
+  type?: string;
+  text?: string;
+  inlineStyleRanges?: { offset: number; length: number; style: string }[];
+  data?: { urls?: { fromIndex: number; toIndex: number; text: string }[] };
 }
 
 export interface FxArticle {
-  title?: string
-  preview_text?: string
-  content?: { blocks?: FxArticleBlock[] }
+  title?: string;
+  preview_text?: string;
+  content?: { blocks?: FxArticleBlock[] };
   cover_media?: {
-    media_info?: { original_img_url?: string }
-  }
+    media_info?: { original_img_url?: string };
+  };
 }
 
 /** FxTwitter may return a single parent object or legacy string[] handles. */
 export type FxReplyingTo =
   | string[]
   | {
-      screen_name?: string
-      status?: string
-      url?: string
-      profile_url?: string
+      screen_name?: string;
+      status?: string;
+      url?: string;
+      profile_url?: string;
     }
-  | null
+  | null;
 
 export interface FxTweet {
-  url?: string
-  id?: string
-  text?: string
-  created_at?: string
-  created_timestamp?: number
-  author?: FxAuthor
-  replies?: number
-  retweets?: number
-  reposts?: number
-  likes?: number
-  views?: number | null
-  bookmarks?: number
-  quotes?: number
-  lang?: string
-  source?: string
-  replying_to?: FxReplyingTo
-  replying_to_status?: string[] | null
-  possibly_sensitive?: boolean
-  media?: FxMedia
-  quote?: FxTweet
-  reposted_by?: FxAuthor | null
-  article?: FxArticle
-  poll?: FxPoll
-  community_note?: unknown
+  url?: string;
+  id?: string;
+  text?: string;
+  created_at?: string;
+  created_timestamp?: number;
+  author?: FxAuthor;
+  replies?: number;
+  retweets?: number;
+  reposts?: number;
+  likes?: number;
+  views?: number | null;
+  bookmarks?: number;
+  quotes?: number;
+  lang?: string;
+  source?: string;
+  replying_to?: FxReplyingTo;
+  replying_to_status?: string[] | null;
+  possibly_sensitive?: boolean;
+  media?: FxMedia;
+  quote?: FxTweet;
+  reposted_by?: FxAuthor | null;
+  article?: FxArticle;
+  poll?: FxPoll;
+  community_note?: unknown;
   /** How this post relates to the status requested by the caller. */
-  context?: 'parent' | 'post' | 'thread' | 'reply'
+  context?: "parent" | "post" | "thread" | "reply";
 }
 
 interface FxApiResponse {
-  code?: number
-  message?: string
-  tweet?: FxTweet
-  status?: FxTweet
-  thread?: FxTweet[]
+  code?: number;
+  message?: string;
+  tweet?: FxTweet;
+  status?: FxTweet;
+  thread?: FxTweet[];
 }
 
 interface FxConversationResponse {
-  results?: FxTweet[]
-  tweets?: FxTweet[]
-  conversation?: FxTweet[]
-  replies?: FxTweet[] | null
+  results?: FxTweet[];
+  tweets?: FxTweet[];
+  conversation?: FxTweet[];
+  replies?: FxTweet[] | null;
 }
 
 export interface FxCursor {
-  top?: string
-  bottom?: string
+  top?: string;
+  bottom?: string;
 }
 
 export interface FxListResponse<T> {
-  results: T[]
-  cursor?: FxCursor
+  results: T[];
+  cursor?: FxCursor;
 }
 
 function normalizeMediaItem(item: FxMediaItem): FxMediaItem {
-  const formatVariants = item.formats?.filter((format) => format.url).map((format) => ({
-    url: format.url,
-    content_type: format.container?.includes('/')
-      ? format.container
-      : format.container === 'mp4'
-        ? 'video/mp4'
-        : format.container === 'webm'
-          ? 'video/webm'
-          : format.container === 'm3u8'
-            ? 'application/vnd.apple.mpegurl'
-            : undefined,
-    bitrate: format.bitrate,
-  }))
+  const formatVariants = item.formats
+    ?.filter((format) => format.url)
+    .map((format) => ({
+      bitrate: format.bitrate,
+      content_type: format.container?.includes("/")
+        ? format.container
+        : format.container === "mp4"
+          ? "video/mp4"
+          : format.container === "webm"
+            ? "video/webm"
+            : format.container === "m3u8"
+              ? "application/vnd.apple.mpegurl"
+              : undefined,
+      url: format.url,
+    }));
   return {
     ...item,
     alt: item.alt ?? item.altText,
-    duration_ms: item.duration_ms ?? (item.duration != null ? item.duration * 1000 : undefined),
+    duration_ms:
+      item.duration_ms ??
+      (item.duration == null ? undefined : item.duration * 1000),
     variants: item.variants ?? formatVariants,
-  }
+  };
 }
 
 function normalizeMedia(media?: FxMedia): FxMedia | undefined {
-  if (!media || Object.keys(media).length === 0) return undefined
-  const map = (items?: FxMediaItem[]) => items?.map(normalizeMediaItem)
+  if (!media || Object.keys(media).length === 0) {return undefined;}
+  const map = (items?: FxMediaItem[]) => items?.map(normalizeMediaItem);
   return {
     ...media,
+    all: map(media.all),
+    animated: map(media.animated),
+    mosaic: media.mosaic
+      ? { ...media.mosaic, photos: map(media.mosaic.photos) }
+      : undefined,
     photos: map(media.photos),
     videos: map(media.videos),
-    animated: map(media.animated),
-    all: map(media.all),
-    mosaic: media.mosaic ? { ...media.mosaic, photos: map(media.mosaic.photos) } : undefined,
-  }
+  };
 }
 
 function normalizeTweet(raw: FxTweet): FxTweet {
   return {
     ...raw,
-    retweets: raw.retweets ?? raw.reposts,
     media: normalizeMedia(raw.media),
     quote: raw.quote ? normalizeTweet(raw.quote) : undefined,
-  }
+    retweets: raw.retweets ?? raw.reposts,
+  };
 }
 
 function pickTweet(data: FxApiResponse): FxTweet | undefined {
-  const raw = data.status ?? data.tweet
-  return raw ? normalizeTweet(raw) : undefined
+  const raw = data.status ?? data.tweet;
+  return raw ? normalizeTweet(raw) : undefined;
 }
 
 async function fxFetchJson<T>(path: string): Promise<T> {
-  let response: Response
+  let response: Response;
   try {
     response = await fetch(`${FX_BASE}/${path}`, {
-      headers: { Accept: 'application/json', 'User-Agent': UA },
-    })
+      headers: { Accept: "application/json", "User-Agent": UA },
+    });
   } catch {
-    throw new ConvertError(502, 'Failed to reach FxTwitter API.', 'fxtwitter_network')
+    throw new ConvertError(
+      502,
+      "Failed to reach FxTwitter API.",
+      "fxtwitter_network"
+    );
   }
 
-  let data: FxApiResponse & T
+  let data: FxApiResponse & T;
   try {
-    data = (await response.json()) as FxApiResponse & T
+    data = (await response.json()) as FxApiResponse & T;
   } catch {
-    throw new ConvertError(502, 'FxTwitter API returned a non-JSON response.', 'fxtwitter_error')
+    throw new ConvertError(
+      502,
+      "FxTwitter API returned a non-JSON response.",
+      "fxtwitter_error"
+    );
   }
 
-  if (data.code === 404 || data.message === 'NOT_FOUND') {
-    throw new ConvertError(404, 'Post not found or unavailable.', 'not_found')
+  if (data.code === 404 || data.message === "NOT_FOUND") {
+    throw new ConvertError(404, "Post not found or unavailable.", "not_found");
   }
 
-  if (data.message === 'PRIVATE_TWEET') {
-    throw new ConvertError(404, 'Post is private and cannot be fetched.', 'private_tweet')
+  if (data.message === "PRIVATE_TWEET") {
+    throw new ConvertError(
+      404,
+      "Post is private and cannot be fetched.",
+      "private_tweet"
+    );
   }
 
   if (!response.ok || (data.code && data.code >= 400)) {
     throw new ConvertError(
       502,
       `FxTwitter API error: ${data.message ?? response.status}.`,
-      'fxtwitter_error',
-    )
+      "fxtwitter_error"
+    );
   }
 
-  return data as T
+  return data as T;
 }
 
 async function fxFetch(path: string): Promise<FxApiResponse> {
-  return fxFetchJson<FxApiResponse>(path)
+  return fxFetchJson<FxApiResponse>(path);
 }
 
-function encodeQuery(params: Record<string, string | number | undefined>): string {
-  const query = new URLSearchParams()
+function encodeQuery(
+  params: Record<string, string | number | undefined>
+): string {
+  const query = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
-    if (value !== undefined && value !== '') query.set(key, String(value))
+    if (value !== undefined && value !== "") {query.set(key, String(value));}
   }
-  return query.toString()
+  return query.toString();
 }
 
 export async function fetchFxProfile(handle: string): Promise<FxAuthor> {
-  const data = await fxFetchJson<{ user?: FxAuthor }>(`2/profile/${encodeURIComponent(handle)}`)
-  if (!data.user) throw new ConvertError(404, 'Profile not found.', 'not_found')
-  return data.user
+  const data = await fxFetchJson<{ user?: FxAuthor }>(
+    `2/profile/${encodeURIComponent(handle)}`
+  );
+  if (!data.user)
+    {throw new ConvertError(404, "Profile not found.", "not_found");}
+  return data.user;
 }
 
 export async function fetchFxProfileStatuses(
   handle: string,
   cursor?: string,
-  count = 20,
+  count = 20
 ): Promise<FxListResponse<FxTweet>> {
-  const query = encodeQuery({ cursor, count, with_replies: 'false' })
+  const query = encodeQuery({ count, cursor, with_replies: "false" });
   const data = await fxFetchJson<Partial<FxListResponse<FxTweet>>>(
-    `2/profile/${encodeURIComponent(handle)}/statuses?${query}`,
-  )
-  return { results: (data.results ?? []).map(normalizeTweet), cursor: data.cursor }
+    `2/profile/${encodeURIComponent(handle)}/statuses?${query}`
+  );
+  return {
+    cursor: data.cursor,
+    results: (data.results ?? []).map(normalizeTweet),
+  };
 }
 
 /**
@@ -281,112 +307,134 @@ export async function searchFxStatuses(
   queryText: string,
   feed: string,
   cursor?: string,
-  count = 20,
+  count = 20
 ): Promise<FxListResponse<FxTweet>> {
-  const query = encodeQuery({ q: queryText, feed, cursor, count })
+  const query = encodeQuery({ count, cursor, feed, q: queryText });
   try {
-    const data = await fxFetchJson<Partial<FxListResponse<FxTweet>>>(`2/search?${query}`)
-    return { results: (data.results ?? []).map(normalizeTweet), cursor: data.cursor }
+    const data = await fxFetchJson<Partial<FxListResponse<FxTweet>>>(
+      `2/search?${query}`
+    );
+    return {
+      cursor: data.cursor,
+      results: (data.results ?? []).map(normalizeTweet),
+    };
   } catch (error) {
-    if (error instanceof ConvertError && error.code === 'not_found') {
-      throw new ConvertError(502, 'X search is unavailable upstream.', 'search_unavailable')
+    if (error instanceof ConvertError && error.code === "not_found") {
+      throw new ConvertError(
+        502,
+        "X search is unavailable upstream.",
+        "search_unavailable"
+      );
     }
-    throw error
+    throw error;
   }
 }
 
 export async function fetchFxConnections(
   handle: string,
-  relation: 'followers' | 'following',
+  relation: "followers" | "following",
   cursor?: string,
-  count = 20,
+  count = 20
 ): Promise<FxListResponse<FxAuthor>> {
-  const query = encodeQuery({ cursor, count })
+  const query = encodeQuery({ count, cursor });
   const data = await fxFetchJson<Partial<FxListResponse<FxAuthor>>>(
-    `2/profile/${encodeURIComponent(handle)}/${relation}?${query}`,
-  )
-  return { results: data.results ?? [], cursor: data.cursor }
+    `2/profile/${encodeURIComponent(handle)}/${relation}?${query}`
+  );
+  return { cursor: data.cursor, results: data.results ?? [] };
 }
 
 export async function fetchFxStatus(id: string): Promise<FxTweet> {
-  const data = await fxFetch(`2/status/${id}`)
-  const tweet = pickTweet(data)
+  const data = await fxFetch(`2/status/${id}`);
+  const tweet = pickTweet(data);
   if (!tweet) {
-    throw new ConvertError(404, 'Post not found.', 'not_found')
+    throw new ConvertError(404, "Post not found.", "not_found");
   }
-  return tweet
+  return tweet;
 }
 
 export function getParentStatusId(tweet: FxTweet): string | undefined {
-  const replyingTo = tweet.replying_to
+  const replyingTo = tweet.replying_to;
   if (replyingTo && !Array.isArray(replyingTo)) {
-    const status = replyingTo.status
-    if (status) return String(status)
+    const {status} = replyingTo;
+    if (status) {return String(status);}
   }
 
-  const fromStatus = tweet.replying_to_status?.[0]
-  if (fromStatus) return String(fromStatus)
+  const fromStatus = tweet.replying_to_status?.[0];
+  if (fromStatus) {return String(fromStatus);}
 
-  return undefined
+  return undefined;
 }
 
 /** Walk parent replies from root through the given status id (inclusive). */
 export async function fetchFxConversationChain(id: string): Promise<FxTweet[]> {
-  const walked: FxTweet[] = []
-  const seen = new Set<string>()
-  let currentId: string | undefined = id
+  const walked: FxTweet[] = [];
+  const seen = new Set<string>();
+  let currentId: string | undefined = id;
 
   while (currentId && walked.length < 100) {
-    if (seen.has(currentId)) break
-    seen.add(currentId)
+    if (seen.has(currentId)) {break;}
+    seen.add(currentId);
 
     try {
-      const tweet = await fetchFxStatus(currentId)
-      walked.push(tweet)
-      currentId = getParentStatusId(tweet)
+      const tweet = await fetchFxStatus(currentId);
+      walked.push(tweet);
+      currentId = getParentStatusId(tweet);
     } catch (error) {
-      if (error instanceof ConvertError && error.code === 'private_tweet') throw error
-      break
+      if (error instanceof ConvertError && error.code === "private_tweet")
+        {throw error;}
+      break;
     }
   }
 
-  walked.reverse()
-  return walked
+  walked.reverse();
+  return walked;
 }
 
 export async function fetchFxThread(id: string): Promise<FxTweet[]> {
-  const data = await fxFetch(`2/thread/${id}`)
+  const data = await fxFetch(`2/thread/${id}`);
   if (data.thread?.length) {
-    return data.thread.map(normalizeTweet)
+    return data.thread.map(normalizeTweet);
   }
-  return [await fetchFxStatus(id)]
+  return [await fetchFxStatus(id)];
 }
 
-export type FxReplyRanking = 'likes' | 'recency'
+export type FxReplyRanking = "likes" | "recency";
 
 /** Fetch ranked replies from FxTwitter's v2 conversation endpoint. */
 export async function fetchFxConversationReplies(
   id: string,
-  rankingMode: FxReplyRanking = 'likes',
-  limit = 10,
+  rankingMode: FxReplyRanking = "likes",
+  limit = 10
 ): Promise<FxTweet[]> {
-  const query = encodeQuery({ ranking_mode: rankingMode })
+  const query = encodeQuery({ ranking_mode: rankingMode });
   const data = await fxFetchJson<FxConversationResponse>(
-    `2/conversation/${encodeURIComponent(id)}?${query}`,
+    `2/conversation/${encodeURIComponent(id)}?${query}`
+  );
+  const results = (
+    data.replies ??
+    data.results ??
+    data.tweets ??
+    data.conversation ??
+    []
   )
-  const results = (data.replies ?? data.results ?? data.tweets ?? data.conversation ?? [])
     .map(normalizeTweet)
-    .filter((tweet) => getParentStatusId(tweet) === id)
-  const timestamp = (tweet: FxTweet) => tweet.created_timestamp != null
-    ? tweet.created_timestamp
-    : Date.parse(tweet.created_at ?? '') || 0
+    .filter((tweet) => getParentStatusId(tweet) === id);
+  const timestamp = (tweet: FxTweet) =>
+    tweet.created_timestamp == null
+      ? Date.parse(tweet.created_at ?? "") || 0
+      : tweet.created_timestamp;
   results.sort((a, b) => {
-    const primary = rankingMode === 'likes'
-      ? (b.likes ?? 0) - (a.likes ?? 0)
-      : timestamp(b) - timestamp(a)
-    return primary || timestamp(b) - timestamp(a) || String(a.id ?? '').localeCompare(String(b.id ?? ''))
-  })
-  return results.slice(0, limit)
+    const primary =
+      rankingMode === "likes"
+        ? (b.likes ?? 0) - (a.likes ?? 0)
+        : timestamp(b) - timestamp(a);
+    return (
+      primary ||
+      timestamp(b) - timestamp(a) ||
+      String(a.id ?? "").localeCompare(String(b.id ?? ""))
+    );
+  });
+  return results.slice(0, limit);
 }
 
 /**
@@ -394,16 +442,16 @@ export async function fetchFxConversationReplies(
  * parent-walk fallback when the endpoint returns only the requested status.
  */
 export async function fetchFxFullThread(id: string): Promise<FxTweet[]> {
-  const fromThread = await fetchFxThread(id)
+  const fromThread = await fetchFxThread(id);
   if (fromThread.length > 1) {
-    return fromThread
+    return fromThread;
   }
 
-  const tweet = fromThread[0] ?? (await fetchFxStatus(id))
+  const tweet = fromThread[0] ?? (await fetchFxStatus(id));
   if (!getParentStatusId(tweet)) {
-    return [tweet]
+    return [tweet];
   }
 
-  const chain = await fetchFxConversationChain(id)
-  return chain.length > 0 ? chain : [tweet]
+  const chain = await fetchFxConversationChain(id);
+  return chain.length > 0 ? chain : [tweet];
 }

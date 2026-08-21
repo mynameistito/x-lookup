@@ -1,296 +1,383 @@
-import {
-  buildCacheKey,
-  cacheControlHeader,
-  type CacheStatus,
-  type RuntimeConfig,
-  memoryConfig,
-  withCache,
-} from './cache.js'
-import { ConvertError } from './errors.js'
-import { fetchPosts, type ContextMode, type FetchSource, type RepliesMode } from './tweet-fetch.js'
-import { renderThreadMarkdown, type UserinfoLevel } from './markdown.js'
+import { buildCacheKey, cacheControlHeader, memoryConfig, withCache } from './cache.js';
+import type { CacheStatus, RuntimeConfig } from './cache.js';
+import { ConvertError } from "./errors.js";
+import { renderThreadMarkdown } from './markdown.js';
+import type { UserinfoLevel } from './markdown.js';
+import { fetchPosts } from './tweet-fetch.js';
+import type { ContextMode, FetchSource, RepliesMode } from './tweet-fetch.js';
 
-export type OutputFormat = 'markdown' | 'obsidian' | 'json'
+export type OutputFormat = "markdown" | "obsidian" | "json";
 
-export { ConvertError }
+export { ConvertError };
 
 export interface ConvertInput {
-  url?: string | null
-  handle?: string | null
-  id?: string | null
-  format?: string | null
-  thread?: string | null
-  userinfo?: string | null
-  nocache?: boolean | string | null
-  full?: boolean | string | null
-  context?: string | null
-  replies?: string | null
+  url?: string | null;
+  handle?: string | null;
+  id?: string | null;
+  format?: string | null;
+  thread?: string | null;
+  userinfo?: string | null;
+  nocache?: boolean | string | null;
+  full?: boolean | string | null;
+  context?: string | null;
+  replies?: string | null;
 }
 
 export interface ConvertSuccess {
-  body: string
-  warnings: string[]
-  canonicalUrl: string
-  format: OutputFormat
-  postCount: number
-  source: FetchSource
-  cache: CacheStatus
-  posts: FxTweet[]
-  compact: boolean
+  body: string;
+  warnings: string[];
+  canonicalUrl: string;
+  format: OutputFormat;
+  postCount: number;
+  source: FetchSource;
+  cache: CacheStatus;
+  posts: FxTweet[];
+  compact: boolean;
 }
 
-import type { FxTweet } from './fxtwitter.js'
+import type { FxTweet } from "./fxtwitter.js";
 
 const ALLOWED_HOSTS = new Set([
-  'x.com',
-  'twitter.com',
-  'www.twitter.com',
-  'mobile.twitter.com',
-  'x-lookup.mynameistito.com',
-])
-const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1'])
-const STATUS_PATH = /^\/([^/?#]+)\/status\/(\d+)\/?$/
+  "x.com",
+  "twitter.com",
+  "www.twitter.com",
+  "mobile.twitter.com",
+  "x-lookup.mynameistito.com",
+]);
+const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1"]);
+const STATUS_PATH = /^\/([^/?#]+)\/status\/(\d+)\/?$/;
 
 function hostAllowed(host: string): boolean {
-  return ALLOWED_HOSTS.has(host) || LOCAL_HOSTS.has(host) || host.endsWith('.workers.dev')
+  return (
+    ALLOWED_HOSTS.has(host) ||
+    LOCAL_HOSTS.has(host) ||
+    host.endsWith(".workers.dev")
+  );
 }
 
-export function parseStatusUrl(raw: string): { handle: string; id: string; canonicalUrl: string } {
-  let parsed: URL
+export function parseStatusUrl(raw: string): {
+  handle: string;
+  id: string;
+  canonicalUrl: string;
+} {
+  let parsed: URL;
   try {
-    parsed = new URL(raw.trim())
+    parsed = new URL(raw.trim());
   } catch {
-    throw new ConvertError(400, 'Invalid URL. Provide a public X/Twitter status URL.', 'invalid_url')
+    throw new ConvertError(
+      400,
+      "Invalid URL. Provide a public X/Twitter status URL.",
+      "invalid_url"
+    );
   }
 
-  const host = parsed.hostname.replace(/^www\./, '')
+  const host = parsed.hostname.replace(/^www\./, "");
 
   if (!hostAllowed(host)) {
     throw new ConvertError(
       400,
-      'Only x.com or twitter.com status URLs are supported.',
-      'unsupported_host',
-    )
+      "Only x.com or twitter.com status URLs are supported.",
+      "unsupported_host"
+    );
   }
 
-  const match = STATUS_PATH.exec(parsed.pathname)
+  const match = STATUS_PATH.exec(parsed.pathname);
   if (!match) {
     throw new ConvertError(
       400,
-      'URL must be a status permalink like https://x.com/handle/status/1234567890.',
-      'invalid_path',
-    )
+      "URL must be a status permalink like https://x.com/handle/status/1234567890.",
+      "invalid_path"
+    );
   }
 
-  const handle = match[1]
-  const id = match[2]
+  const handle = match[1];
+  const id = match[2];
   return {
+    canonicalUrl: `https://x.com/${handle}/status/${id}`,
     handle,
     id,
-    canonicalUrl: `https://x.com/${handle}/status/${id}`,
-  }
+  };
 }
 
-export function resolveTarget(input: ConvertInput): { canonicalUrl: string; handle: string; id: string } {
+export function resolveTarget(input: ConvertInput): {
+  canonicalUrl: string;
+  handle: string;
+  id: string;
+} {
   if (input.url) {
-    return parseStatusUrl(input.url)
+    return parseStatusUrl(input.url);
   }
 
   if (input.handle && input.id) {
-    const handle = input.handle.replace(/^@/, '')
-    const id = input.id.replace(/\D/g, '')
+    const handle = input.handle.replace(/^@/, "");
+    const id = input.id.replaceAll(/\D/g, "");
     if (!handle || !id) {
-      throw new ConvertError(400, 'Missing or invalid handle/status id.', 'invalid_params')
+      throw new ConvertError(
+        400,
+        "Missing or invalid handle/status id.",
+        "invalid_params"
+      );
     }
     return {
+      canonicalUrl: `https://x.com/${handle}/status/${id}`,
       handle,
       id,
-      canonicalUrl: `https://x.com/${handle}/status/${id}`,
-    }
-  }
-
-  throw new ConvertError(400, 'Missing required `url` query parameter.', 'missing_url')
-}
-
-function parseFormat(raw: string | null | undefined): OutputFormat {
-  if (!raw || raw === 'markdown') return 'markdown'
-  if (raw === 'obsidian') return 'obsidian'
-  if (raw === 'json') return 'json'
-  throw new ConvertError(400, '`format` must be `markdown`, `obsidian`, or `json`.', 'invalid_format')
-}
-
-const DEFAULT_THREAD = 'full'
-
-function canonicalThreadCacheValue(raw: string | null | undefined): string {
-  if (raw === 'off') return 'off'
-  if (!raw || raw === 'full' || raw === 'conversation') return DEFAULT_THREAD
-  return raw
-}
-
-function parseThread(raw: string | null | undefined): { mode: 'off' | 'full'; limit: number } {
-  if (raw === 'off') return { mode: 'off', limit: 1 }
-
-  if (!raw || raw === 'full' || raw === 'conversation') return { mode: 'full', limit: 100 }
-
-  const n = Number.parseInt(raw, 10)
-  if (Number.isFinite(n) && n >= 2 && n <= 100) {
-    return { mode: 'full', limit: n }
+    };
   }
 
   throw new ConvertError(
     400,
-    '`thread` must be `off`, `full`, `conversation`, or a number from 2 to 100.',
-    'invalid_thread',
-  )
+    "Missing required `url` query parameter.",
+    "missing_url"
+  );
+}
+
+function parseFormat(raw: string | null | undefined): OutputFormat {
+  if (!raw || raw === "markdown") {return "markdown";}
+  if (raw === "obsidian") {return "obsidian";}
+  if (raw === "json") {return "json";}
+  throw new ConvertError(
+    400,
+    "`format` must be `markdown`, `obsidian`, or `json`.",
+    "invalid_format"
+  );
+}
+
+const DEFAULT_THREAD = "full";
+
+function canonicalThreadCacheValue(raw: string | null | undefined): string {
+  if (raw === "off") {return "off";}
+  if (!raw || raw === "full" || raw === "conversation") {return DEFAULT_THREAD;}
+  return raw;
+}
+
+function parseThread(raw: string | null | undefined): {
+  mode: "off" | "full";
+  limit: number;
+} {
+  if (raw === "off") {return { mode: "off", limit: 1 };}
+
+  if (!raw || raw === "full" || raw === "conversation")
+    {return { mode: "full", limit: 100 };}
+
+  const n = Number.parseInt(raw, 10);
+  if (Number.isFinite(n) && n >= 2 && n <= 100) {
+    return { limit: n, mode: "full" };
+  }
+
+  throw new ConvertError(
+    400,
+    "`thread` must be `off`, `full`, `conversation`, or a number from 2 to 100.",
+    "invalid_thread"
+  );
 }
 
 function parseUserinfo(raw: string | null | undefined): UserinfoLevel {
-  if (!raw || raw === 'off') return 'off'
-  if (raw === 'author') return 'author'
-  if (raw === 'all') return 'all'
-  throw new ConvertError(400, '`userinfo` must be `off`, `author`, or `all`.', 'invalid_userinfo')
+  if (!raw || raw === "off") {return "off";}
+  if (raw === "author") {return "author";}
+  if (raw === "all") {return "all";}
+  throw new ConvertError(
+    400,
+    "`userinfo` must be `off`, `author`, or `all`.",
+    "invalid_userinfo"
+  );
 }
 
 function parseBoolean(raw: string | boolean | null | undefined): boolean {
-  if (raw === true) return true
-  if (raw === false || raw == null) return false
-  return raw === '1' || raw === 'true' || raw === 'yes'
+  if (raw === true) {return true;}
+  if (raw === false || raw == null) {return false;}
+  return raw === "1" || raw === "true" || raw === "yes";
 }
 
 function parseContext(raw: string | null | undefined): ContextMode {
-  if (!raw || raw === 'full') return 'full'
-  if (raw === 'thread') return 'thread'
-  throw new ConvertError(400, '`context` must be `full` or `thread`.', 'invalid_context')
+  if (!raw || raw === "full") {return "full";}
+  if (raw === "thread") {return "thread";}
+  throw new ConvertError(
+    400,
+    "`context` must be `full` or `thread`.",
+    "invalid_context"
+  );
 }
 
 function parseReplies(raw: string | null | undefined): RepliesMode {
-  if (!raw || raw === 'top') return 'top'
-  if (raw === 'recent' || raw === 'off') return raw
-  throw new ConvertError(400, '`replies` must be `top`, `recent`, or `off`.', 'invalid_replies')
+  if (!raw || raw === "top") {return "top";}
+  if (raw === "recent" || raw === "off") {return raw;}
+  throw new ConvertError(
+    400,
+    "`replies` must be `top`, `recent`, or `off`.",
+    "invalid_replies"
+  );
 }
 
 function withSourceUrls(tweet: FxTweet, fallback?: string): FxTweet {
-  const handle = tweet.author?.screen_name
-  const url = tweet.url ?? (handle && tweet.id ? `https://x.com/${handle}/status/${tweet.id}` : fallback)
-  return { ...tweet, url, quote: tweet.quote ? withSourceUrls(tweet.quote) : undefined }
+  const handle = tweet.author?.screen_name;
+  const url =
+    tweet.url ??
+    (handle && tweet.id
+      ? `https://x.com/${handle}/status/${tweet.id}`
+      : fallback);
+  return {
+    ...tweet,
+    quote: tweet.quote ? withSourceUrls(tweet.quote) : undefined,
+    url,
+  };
 }
 
-function limitPostsByRole(posts: FxTweet[], requestedId: string, limit: number): FxTweet[] {
-  if (posts.length <= limit) return posts
-  const focalIndex = posts.findIndex((post) => post.id === requestedId)
-  const candidates = posts.map((post, index) => ({ post, index, priority:
-    post.id === requestedId ? 0 : post.context === 'parent' || post.context === 'thread' ? 1 : 2,
-  }))
+function limitPostsByRole(
+  posts: FxTweet[],
+  requestedId: string,
+  limit: number
+): FxTweet[] {
+  if (posts.length <= limit) {return posts;}
+  const focalIndex = posts.findIndex((post) => post.id === requestedId);
+  const candidates = posts.map((post, index) => ({
+    index,
+    post,
+    priority:
+      post.id === requestedId
+        ? 0
+        : post.context === "parent" || post.context === "thread"
+          ? 1
+          : 2,
+  }));
   candidates.sort((a, b) => {
-    if (a.priority !== b.priority) return a.priority - b.priority
+    if (a.priority !== b.priority) {return a.priority - b.priority;}
     // Closest parent first; continuations and ranked replies retain provider order.
-    if (a.post.context === 'parent' && b.post.context === 'parent') {
-      return Math.abs(focalIndex - a.index) - Math.abs(focalIndex - b.index)
+    if (a.post.context === "parent" && b.post.context === "parent") {
+      return Math.abs(focalIndex - a.index) - Math.abs(focalIndex - b.index);
     }
-    return a.index - b.index
-  })
-  const selected = new Set(candidates.slice(0, limit).map(({ index }) => index))
-  return posts.filter((_post, index) => selected.has(index))
+    return a.index - b.index;
+  });
+  const selected = new Set(
+    candidates.slice(0, limit).map(({ index }) => index)
+  );
+  return posts.filter((_post, index) => selected.has(index));
 }
 
-type ConvertPayload = Omit<ConvertSuccess, 'cache'>
+type ConvertPayload = Omit<ConvertSuccess, "cache">;
 
 async function convertTweetUncached(
   format: OutputFormat,
-  thread: { mode: 'off' | 'full'; limit: number },
+  thread: { mode: "off" | "full"; limit: number },
   userinfo: UserinfoLevel,
   canonicalUrl: string,
   handle: string,
   id: string,
   compact: boolean,
   context: ContextMode,
-  replies: RepliesMode,
+  replies: RepliesMode
 ): Promise<ConvertPayload> {
-  const warnings: string[] = []
+  const warnings: string[] = [];
 
-  const { tweets, source } = await fetchPosts(handle, id, thread.mode, context, replies)
+  const { tweets, source } = await fetchPosts(
+    handle,
+    id,
+    thread.mode,
+    context,
+    replies
+  );
 
-  let posts = tweets
-  if (thread.mode === 'full' && posts.length > thread.limit) {
-    posts = limitPostsByRole(posts, id, thread.limit)
-    warnings.push(`Thread truncated to ${thread.limit} posts.`)
+  let posts = tweets;
+  if (thread.mode === "full" && posts.length > thread.limit) {
+    posts = limitPostsByRole(posts, id, thread.limit);
+    warnings.push(`Thread truncated to ${thread.limit} posts.`);
   }
   posts = posts.map((post) =>
-    withSourceUrls(post, post.id === id || posts.length === 1 ? canonicalUrl : undefined),
-  )
-
-  if (source !== 'fxtwitter') {
-    warnings.push(
-      `Fetched via ${source} fallback — threads, full articles, and quotes may be limited.`,
+    withSourceUrls(
+      post,
+      post.id === id || posts.length === 1 ? canonicalUrl : undefined
     )
+  );
+
+  if (source !== "fxtwitter") {
+    warnings.push(
+      `Fetched via ${source} fallback — threads, full articles, and quotes may be limited.`
+    );
   }
 
   const body = renderThreadMarkdown(posts, {
-    format: format === 'json' ? 'markdown' : format,
-    userinfo,
     canonicalUrl,
-    compact: compact && format !== 'obsidian',
-  })
+    compact: compact && format !== "obsidian",
+    format: format === "json" ? "markdown" : format,
+    userinfo,
+  });
 
   return {
     body,
-    warnings,
     canonicalUrl,
+    compact: compact && format !== "obsidian",
     format,
     postCount: posts.length,
-    source,
     posts,
-    compact: compact && format !== 'obsidian',
-  }
+    source,
+    warnings,
+  };
 }
 
-export async function convertTweet(input: ConvertInput, config: RuntimeConfig = memoryConfig()): Promise<ConvertSuccess> {
-  const format = parseFormat(input.format)
-  const thread = parseThread(input.thread)
-  const userinfo = parseUserinfo(input.userinfo)
-  const nocache = parseBoolean(input.nocache)
-  const compact = !parseBoolean(input.full)
-  const context = parseContext(input.context)
-  const replies = parseReplies(input.replies)
-  const { canonicalUrl, handle, id } = resolveTarget(input)
+export async function convertTweet(
+  input: ConvertInput,
+  config: RuntimeConfig = memoryConfig()
+): Promise<ConvertSuccess> {
+  const format = parseFormat(input.format);
+  const thread = parseThread(input.thread);
+  const userinfo = parseUserinfo(input.userinfo);
+  const nocache = parseBoolean(input.nocache);
+  const compact = !parseBoolean(input.full);
+  const context = parseContext(input.context);
+  const replies = parseReplies(input.replies);
+  const { canonicalUrl, handle, id } = resolveTarget(input);
 
   const cacheKey = buildCacheKey({
-    v: 5,
-    id,
-    handle: handle.toLowerCase(),
-    format,
-    thread: canonicalThreadCacheValue(input.thread),
-    userinfo: input.userinfo ?? 'off',
-    compact: compact ? '1' : '0',
+    compact: compact ? "1" : "0",
     context,
+    format,
+    handle: handle.toLowerCase(),
+    id,
     replies,
-  })
+    thread: canonicalThreadCacheValue(input.thread),
+    userinfo: input.userinfo ?? "off",
+    v: 5,
+  });
 
   const { value, status } = await withCache(
     cacheKey,
     nocache,
     async () =>
-      convertTweetUncached(format, thread, userinfo, canonicalUrl, handle, id, compact, context, replies),
-    config,
-  )
+      convertTweetUncached(
+        format,
+        thread,
+        userinfo,
+        canonicalUrl,
+        handle,
+        id,
+        compact,
+        context,
+        replies
+      ),
+    config
+  );
 
-  return { ...value, cache: status }
+  return { ...value, cache: status };
 }
 
 export function acceptPrefersHtml(accept: string): boolean {
-  if (accept.includes('application/json') || accept.includes('text/markdown')) return false
-  return accept.includes('text/html')
+  if (accept.includes("application/json") || accept.includes("text/markdown"))
+    {return false;}
+  return accept.includes("text/html");
 }
 
 function escapeHtml(value: string): string {
   return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
+    .replaceAll('&', "&amp;")
+    .replaceAll('<', "&lt;")
+    .replaceAll('>', "&gt;")
+    .replaceAll('"', "&quot;");
 }
 
-export function htmlMarkdownPage(markdown: string, canonicalUrl: string): string {
+export function htmlMarkdownPage(
+  markdown: string,
+  canonicalUrl: string
+): string {
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -303,31 +390,33 @@ export function htmlMarkdownPage(markdown: string, canonicalUrl: string): string
   </style>
 </head>
 <body><pre>${escapeHtml(markdown)}</pre></body>
-</html>`
+</html>`;
 }
 
-export function markdownResponse(result: ConvertSuccess, asJson = false, asHtml = false): {
-  status: number
-  headers: Record<string, string>
-  body: string
+export function markdownResponse(
+  result: ConvertSuccess,
+  asJson = false,
+  asHtml = false
+): {
+  status: number;
+  headers: Record<string, string>;
+  body: string;
 } {
   const sharedHeaders: Record<string, string> = {
-    Vary: 'Accept, User-Agent',
-    'X-Converter': 'x-lookup',
-    'X-Source': result.source,
-    'X-Post-Count': String(result.postCount),
-    'X-Warnings': String(result.warnings.length),
-    'X-Cache': result.cache.toUpperCase(),
-  }
+    Vary: "Accept, User-Agent",
+    "X-Cache": result.cache.toUpperCase(),
+    "X-Converter": "x-lookup",
+    "X-Post-Count": String(result.postCount),
+    "X-Source": result.source,
+    "X-Warnings": String(result.warnings.length),
+  };
 
-  if (result.cache !== 'bypass') {
-    sharedHeaders['Cache-Control'] = cacheControlHeader()
+  if (result.cache !== "bypass") {
+    sharedHeaders["Cache-Control"] = cacheControlHeader();
   }
 
   if (asJson) {
     return {
-      status: 200,
-      headers: { 'Content-Type': 'application/json; charset=utf-8', ...sharedHeaders },
       body: JSON.stringify({
         format: result.format,
         url: result.canonicalUrl,
@@ -339,23 +428,28 @@ export function markdownResponse(result: ConvertSuccess, asJson = false, asHtml 
         source: result.source,
         cache: result.cache,
       }),
-    }
+      headers: {
+        "Content-Type": "application/json; charset=utf-8",
+        ...sharedHeaders,
+      },
+      status: 200,
+    };
   }
 
   if (asHtml) {
     return {
-      status: 200,
-      headers: { 'Content-Type': 'text/html; charset=utf-8', ...sharedHeaders },
       body: htmlMarkdownPage(result.body, result.canonicalUrl),
-    }
+      headers: { "Content-Type": "text/html; charset=utf-8", ...sharedHeaders },
+      status: 200,
+    };
   }
 
   return {
-    status: 200,
+    body: result.body,
     headers: {
-      'Content-Type': 'text/markdown; charset=utf-8',
+      "Content-Type": "text/markdown; charset=utf-8",
       ...sharedHeaders,
     },
-    body: result.body,
-  }
+    status: 200,
+  };
 }

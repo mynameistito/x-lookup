@@ -5,15 +5,15 @@
   "account_id": "402722ab1f598e783cd6dcdedc37e1d0",
   "compatibility_date": "2026-08-01",
   "observability": {
-    "enabled": true
+    "enabled": true,
   },
   "vars": {
-    "CACHE_TTL_SECONDS": "3600"
+    "CACHE_TTL_SECONDS": "3600",
   },
   "routes": [
     {
       "pattern": "x-lookup.mynameistito.com",
-      "custom_domain": true
-    }
-  ]
+      "custom_domain": true,
+    },
+  ],
 }

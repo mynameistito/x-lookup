@@ -1,3 +1,3 @@
 export interface Env {
-  CACHE_TTL_SECONDS?: string
+  CACHE_TTL_SECONDS?: string;
 }

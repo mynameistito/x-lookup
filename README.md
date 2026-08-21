@@ -1,13 +1,8 @@
 # x-lookup
 
-Read-only, no-auth browser for public X/Twitter content, purpose-built for AI
-agents. Statuses and threads, profiles, search, followers/following — served as
-compact Markdown by default, structured JSON on request, Open Graph HTML for
-chat-app preview bots, plus an oEmbed endpoint.
+Read-only, no-auth browser for public X/Twitter content, purpose-built for AI agents. Statuses and threads, profiles, search, followers/following — served as compact Markdown by default, structured JSON on request, Open Graph HTML for chat-app preview bots, plus an oEmbed endpoint.
 
-Hosted at [https://x-lookup.mynameistito.com](https://x-lookup.mynameistito.com) as a single
-Cloudflare Worker. No database, no login, no API keys — the only upstreams are
-the free FxTwitter API and Twitter's syndication endpoint.
+Hosted at [https://x-lookup.mynameistito.com](https://x-lookup.mynameistito.com) as a single Cloudflare Worker. No database, no login, no API keys — the only upstreams are the free FxTwitter API and Twitter's syndication endpoint.
 
 **Not affiliated with X Corp.**
 
@@ -26,8 +21,7 @@ curl -sS -H "Accept: text/markdown" "https://x-lookup.mynameistito.com/handle/st
 curl -sS -G "https://x-lookup.mynameistito.com/api/convert" --data-urlencode "url=https://x.com/handle/status/1234567890"
 ```
 
-Browsers that request HTML get a readable page containing the Markdown.
-Discord, Telegram, Slack, and other preview bots receive Open Graph embed HTML.
+Browsers that request HTML get a readable page containing the Markdown. Discord, Telegram, Slack, and other preview bots receive Open Graph embed HTML.
 
 ## Routes
 
@@ -43,10 +37,7 @@ Discord, Telegram, Slack, and other preview bots receive Open Graph embed HTML.
 | `GET /oembed?url=…` | oEmbed JSON | `url`; optional `text`, `author`, `status`, `provider` overrides |
 | `GET /` (also `/docs`) | Full usage documentation (Markdown) | — |
 
-All API responses send CORS `*`, support `OPTIONS` (204) and `HEAD`; other
-methods get 405. Errors are always `{ "error": string, "code": string }` with a
-truthful status: 400 bad input, 404 genuinely missing content, 502 upstream
-refusal or failure.
+All API responses send CORS `*`, support `OPTIONS` (204) and `HEAD`; other methods get 405. Errors are always `{ "error": string, "code": string }` with a truthful status: 400 bad input, 404 genuinely missing content, 502 upstream refusal or failure.
 
 ## Post conversion parameters
 
@@ -62,9 +53,7 @@ Both `GET /:handle/status/:id` and `GET /api/convert?url=…` support:
 | `userinfo` | `off` | `off`, `author`, `all` |
 | `nocache` | false | `true`, `1`, or `yes` bypasses the cache |
 
-Content negotiation: `format=json` or `Accept: application/json` → JSON;
-preview-bot User-Agents with no explicit format → OG HTML; `Accept: text/html`
-→ HTML page; otherwise Markdown.
+Content negotiation: `format=json` or `Accept: application/json` → JSON; preview-bot User-Agents with no explicit format → OG HTML; `Accept: text/html` → HTML page; otherwise Markdown.
 
 ## Browse parameters
 
@@ -81,20 +70,15 @@ preview-bot User-Agents with no explicit format → OG HTML; `Accept: text/html`
 | `format` | `markdown` | `markdown`, `json` |
 | `nocache` | false | `true`, `1`, or `yes` bypasses the cache |
 
-Prefer the opaque cursor from the Markdown `Continue →` link or JSON
-`nextCursor` over page walking.
+Prefer the opaque cursor from the Markdown `Continue →` link or JSON `nextCursor` over page walking.
 
 ## Meaningful response headers
 
-`X-Source` (fetch provider), `X-Cache` (`HIT`|`MISS`|`BYPASS`),
-`X-Browse-Resource`, `X-Result-Count`, `X-Converter`, `X-Post-Count`,
-`X-Warnings`, `X-Embed`.
+`X-Source` (fetch provider), `X-Cache` (`HIT`|`MISS`|`BYPASS`), `X-Browse-Resource`, `X-Result-Count`, `X-Converter`, `X-Post-Count`, `X-Warnings`, `X-Embed`.
 
 ## Search availability note
 
-FxTwitter refuses some datacenter egress IPs. When that happens, search returns
-**502** with code `search_unavailable` — never a fake "post not found". Status
-lookups fall back from FxTwitter to Twitter's syndication endpoint.
+FxTwitter refuses some datacenter egress IPs. When that happens, search returns **502** with code `search_unavailable` — never a fake "post not found". Status lookups fall back from FxTwitter to Twitter's syndication endpoint.
 
 ## Development
 
@@ -106,9 +90,6 @@ bun run typecheck  # tsc --noEmit
 bun run deploy     # wrangler deploy (attaches x-lookup.mynameistito.com)
 ```
 
-Configuration lives in `wrangler.jsonc`. The only var is `CACHE_TTL_SECONDS`
-(default 3600). There are no secrets. Caching is two-tier: in-isolate memory L1
-plus Cloudflare Cache API L2.
+Configuration lives in `wrangler.jsonc`. The only var is `CACHE_TTL_SECONDS` (default 3600). There are no secrets. Caching is two-tier: in-isolate memory L1 plus Cloudflare Cache API L2.
 
-The bundled agent skill in `skills/browse-x/` wraps this API for CLI use;
-override its target with `X_API_BASE` when testing another deployment.
+The bundled agent skill in `skills/browse-x/` wraps this API for CLI use; override its target with `X_API_BASE` when testing another deployment.

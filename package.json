@@ -1,17 +1,10 @@
 {
-  "devDependencies": {
-    "@cloudflare/workers-types": "^4.20250810.0",
-    "eslint-plugin-github": "6.1.2",
-    "eslint-plugin-sonarjs": "^4.2.0",
-    "lefthook": "^2.1.10",
-    "oxfmt": "^0.64.0",
-    "oxlint": "^1.79.0",
-    "typescript": "~6.0.2",
-    "ultracite": "7.10.6",
-    "vitest": "^4.1.8",
-    "wrangler": "^4.0.0"
-  },
   "name": "x-lookup",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Read-only, no-auth Cloudflare Worker that turns public X/Twitter statuses, threads, profiles, search, and social graphs into compact Markdown or JSON for AI agents",
+  "license": "MIT",
+  "type": "module",
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
@@ -21,9 +14,16 @@
     "fix": "ultracite fix",
     "prepare": "lefthook install"
   },
-  "type": "module",
-  "version": "0.1.0",
-  "description": "Read-only, no-auth Cloudflare Worker that turns public X/Twitter statuses, threads, profiles, search, and social graphs into compact Markdown or JSON for AI agents",
-  "license": "MIT",
-  "private": true
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260821.1",
+    "eslint-plugin-github": "6.1.2",
+    "eslint-plugin-sonarjs": "^4.2.0",
+    "lefthook": "^2.1.10",
+    "oxfmt": "^0.64.0",
+    "oxlint": "^1.79.0",
+    "typescript": "~7.0.2",
+    "ultracite": "7.10.6",
+    "vitest": "^4.1.11",
+    "wrangler": "^4.125.0"
+  }
 }

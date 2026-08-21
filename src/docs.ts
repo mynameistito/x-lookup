@@ -166,4 +166,4 @@ Made by **[mynameistito](https://github.com/mynameistito)**
 · Source: [github.com/mynameistito/x-lookup](https://github.com/mynameistito/x-lookup)
 · Hosted at [x-lookup.mynameistito.com](https://x-lookup.mynameistito.com)
 · Not affiliated with X Corp.
-`
+`;

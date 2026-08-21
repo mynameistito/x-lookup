@@ -1,61 +1,75 @@
-import { describe, expect, test } from 'vitest'
-import { DEFAULT_ORIGIN, requestOrigin, wantsJson, wantsMarkdown } from '../lib/http.js'
+import { describe, expect, test } from "vitest";
 
-describe('requestOrigin', () => {
-  test('uses the request host for the production and local hosts', () => {
+import {
+  DEFAULT_ORIGIN,
+  requestOrigin,
+  wantsJson,
+  wantsMarkdown,
+} from "../lib/http.js";
+
+describe(requestOrigin, () => {
+  test("uses the request host for the production and local hosts", () => {
     expect(
       requestOrigin({
-        headers: { 'x-forwarded-proto': 'https', host: 'x-lookup.mynameistito.com' },
-      }),
-    ).toBe('https://x-lookup.mynameistito.com')
+        headers: {
+          host: "x-lookup.mynameistito.com",
+          "x-forwarded-proto": "https",
+        },
+      })
+    ).toBe("https://x-lookup.mynameistito.com");
     expect(
       requestOrigin({
-        headers: { host: 'localhost:8787' },
-        protocol: 'http',
-      }),
-    ).toBe('http://localhost:8787')
+        headers: { host: "localhost:8787" },
+        protocol: "http",
+      })
+    ).toBe("http://localhost:8787");
     expect(
       requestOrigin({
-        headers: { host: '127.0.0.1:8787' },
-        protocol: 'http',
-      }),
-    ).toBe('http://127.0.0.1:8787')
-  })
+        headers: { host: "127.0.0.1:8787" },
+        protocol: "http",
+      })
+    ).toBe("http://127.0.0.1:8787");
+  });
 
-  test('ignores a forged forwarded host', () => {
+  test("ignores a forged forwarded host", () => {
     expect(
       requestOrigin({
-        headers: { 'x-forwarded-host': 'evil.example', host: 'x-lookup.mynameistito.com' },
-      }),
-    ).toBe('https://x-lookup.mynameistito.com')
-  })
+        headers: {
+          host: "x-lookup.mynameistito.com",
+          "x-forwarded-host": "evil.example",
+        },
+      })
+    ).toBe("https://x-lookup.mynameistito.com");
+  });
 
-  test('falls back to the hosted origin for unknown hosts', () => {
-    expect(requestOrigin({ headers: {} })).toBe(DEFAULT_ORIGIN)
-    expect(requestOrigin({ headers: { host: 'evil.example' } })).toBe(DEFAULT_ORIGIN)
-  })
-})
+  test("falls back to the hosted origin for unknown hosts", () => {
+    expect(requestOrigin({ headers: {} })).toBe(DEFAULT_ORIGIN);
+    expect(requestOrigin({ headers: { host: "evil.example" } })).toBe(
+      DEFAULT_ORIGIN
+    );
+  });
+});
 
-describe('wantsMarkdown', () => {
-  test('gives an explicit format precedence over Accept', () => {
-    expect(wantsMarkdown('json', 'text/markdown')).toBe(false)
-    expect(wantsMarkdown('markdown', 'application/json')).toBe(true)
-  })
+describe(wantsMarkdown, () => {
+  test("gives an explicit format precedence over Accept", () => {
+    expect(wantsMarkdown("json", "text/markdown")).toBeFalsy();
+    expect(wantsMarkdown("markdown", "application/json")).toBeTruthy();
+  });
 
-  test('uses Accept when no format is explicit', () => {
-    expect(wantsMarkdown(undefined, 'text/markdown')).toBe(true)
-    expect(wantsMarkdown(undefined, 'text/html')).toBe(false)
-  })
-})
+  test("uses Accept when no format is explicit", () => {
+    expect(wantsMarkdown(undefined, "text/markdown")).toBeTruthy();
+    expect(wantsMarkdown(undefined, "text/html")).toBeFalsy();
+  });
+});
 
-describe('wantsJson', () => {
-  test('gives an explicit format precedence over Accept', () => {
-    expect(wantsJson('markdown', 'application/json')).toBe(false)
-    expect(wantsJson('json', 'text/markdown')).toBe(true)
-  })
+describe(wantsJson, () => {
+  test("gives an explicit format precedence over Accept", () => {
+    expect(wantsJson("markdown", "application/json")).toBeFalsy();
+    expect(wantsJson("json", "text/markdown")).toBeTruthy();
+  });
 
-  test('uses Accept when no format is explicit', () => {
-    expect(wantsJson(undefined, 'application/json')).toBe(true)
-    expect(wantsJson(undefined, 'text/markdown')).toBe(false)
-  })
-})
+  test("uses Accept when no format is explicit", () => {
+    expect(wantsJson(undefined, "application/json")).toBeTruthy();
+    expect(wantsJson(undefined, "text/markdown")).toBeFalsy();
+  });
+});
