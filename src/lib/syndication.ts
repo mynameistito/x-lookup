@@ -1,4 +1,6 @@
-import { ConvertError } from "./errors.js";
+import { Effect, Schema } from "effect";
+import { HttpClient } from "effect/unstable/http";
+
 import type {
   FxArticle,
   FxArticleBlock,
@@ -6,64 +8,136 @@ import type {
   FxMediaItem,
   FxTweet,
 } from "./fxtwitter.js";
+import {
+  SyndicationEmptyError,
+  SyndicationNetworkError,
+  SyndicationNonJsonError,
+  SyndicationSchemaError,
+  SyndicationUpstreamError,
+} from "./provider-errors.js";
+import type { SyndicationFailure } from "./provider-errors.js";
+import type { ProviderEffect } from "./provider-http.js";
 
 const SYNDICATION_BASE = "https://cdn.syndication.twimg.com/tweet-result";
 const UA = "Mozilla/5.0 (compatible; x-lookup/1.0)";
 
-interface SyndicationUser {
-  name?: string;
-  screen_name?: string;
-  profile_image_url_https?: string;
-  description?: string;
-  location?: string;
-  followers_count?: number;
-  friends_count?: number;
-  statuses_count?: number;
-  created_at?: string;
-  verified?: boolean;
-  url?: string;
-  entities?: {
-    url?: { urls?: { display_url?: string; expanded_url?: string }[] };
-  };
-}
+const optionalString = Schema.optional(Schema.String);
+const optionalNumber = Schema.optional(Schema.Number);
+const optionalBoolean = Schema.optional(Schema.Boolean);
 
-interface SyndicationMedia {
-  type?: string;
-  media_url_https?: string;
-  url?: string;
-  original_info?: { width?: number; height?: number };
-  sizes?: { large?: { w?: number; h?: number } };
-  video_info?: {
-    duration_millis?: number;
-    aspect_ratio?: [number, number];
-    variants?: { url?: string; content_type?: string; bitrate?: number }[];
-  };
-}
+const SyndicationUserTransportSchema = Schema.Struct({
+  created_at: optionalString,
+  description: optionalString,
+  entities: Schema.optional(
+    Schema.Struct({
+      url: Schema.optional(
+        Schema.Struct({
+          urls: Schema.optional(
+            Schema.Array(
+              Schema.Struct({
+                display_url: optionalString,
+                expanded_url: optionalString,
+              })
+            )
+          ),
+        })
+      ),
+    })
+  ),
+  followers_count: optionalNumber,
+  friends_count: optionalNumber,
+  location: optionalString,
+  name: optionalString,
+  profile_image_url_https: optionalString,
+  screen_name: optionalString,
+  statuses_count: optionalNumber,
+  url: optionalString,
+  verified: optionalBoolean,
+});
 
-interface SyndicationArticle {
-  title?: string;
-  preview_text?: string;
-  cover_media?: { media_info?: { original_img_url?: string } };
-}
+const SyndicationVariantTransportSchema = Schema.Struct({
+  bitrate: optionalNumber,
+  content_type: optionalString,
+  url: optionalString,
+});
 
-interface SyndicationTweet {
-  id_str?: string;
-  text?: string;
-  created_at?: string;
-  favorite_count?: number;
-  conversation_count?: number;
-  lang?: string;
-  user?: SyndicationUser;
-  mediaDetails?: SyndicationMedia[];
-  photos?: SyndicationMedia[];
-  video?: SyndicationMedia;
-  quoted_status_result?: {
-    result?: { legacy?: SyndicationTweet; tweet?: SyndicationTweet };
-  };
-  quoted_tweet?: SyndicationTweet;
-  article?: SyndicationArticle;
-  entities?: { media?: SyndicationMedia[] };
-}
+const SyndicationMediaTransportSchema = Schema.Struct({
+  media_url_https: optionalString,
+  original_info: Schema.optional(
+    Schema.Struct({ height: optionalNumber, width: optionalNumber })
+  ),
+  sizes: Schema.optional(
+    Schema.Struct({
+      large: Schema.optional(
+        Schema.Struct({ h: optionalNumber, w: optionalNumber })
+      ),
+    })
+  ),
+  type: optionalString,
+  url: optionalString,
+  video_info: Schema.optional(
+    Schema.Struct({
+      aspect_ratio: Schema.optional(
+        Schema.Tuple([Schema.Number, Schema.Number])
+      ),
+      duration_millis: optionalNumber,
+      variants: Schema.optional(
+        Schema.Array(SyndicationVariantTransportSchema)
+      ),
+    })
+  ),
+});
+
+const SyndicationArticleTransportSchema = Schema.Struct({
+  cover_media: Schema.optional(
+    Schema.Struct({
+      media_info: Schema.optional(
+        Schema.Struct({ original_img_url: optionalString })
+      ),
+    })
+  ),
+  preview_text: optionalString,
+  title: optionalString,
+});
+
+const SyndicationTweetTransportSchema = Schema.Struct({
+  article: Schema.optional(SyndicationArticleTransportSchema),
+  conversation_count: optionalNumber,
+  created_at: optionalString,
+  entities: Schema.optional(
+    Schema.Struct({
+      media: Schema.optional(Schema.Array(SyndicationMediaTransportSchema)),
+    })
+  ),
+  favorite_count: optionalNumber,
+  id_str: optionalString,
+  lang: optionalString,
+  mediaDetails: Schema.optional(Schema.Array(SyndicationMediaTransportSchema)),
+  photos: Schema.optional(Schema.Array(SyndicationMediaTransportSchema)),
+  quoted_status_result: Schema.optional(
+    Schema.Struct({
+      result: Schema.optional(
+        Schema.Struct({
+          legacy: Schema.optional(Schema.Unknown),
+          tweet: Schema.optional(Schema.Unknown),
+        })
+      ),
+    })
+  ),
+  quoted_tweet: Schema.optional(Schema.Unknown),
+  text: optionalString,
+  user: Schema.optional(SyndicationUserTransportSchema),
+  video: Schema.optional(SyndicationMediaTransportSchema),
+});
+
+type SyndicationUserTransport = typeof SyndicationUserTransportSchema.Type;
+type SyndicationMediaTransport = typeof SyndicationMediaTransportSchema.Type;
+type SyndicationArticleTransport = typeof SyndicationArticleTransportSchema.Type;
+type SyndicationTweetTransport = typeof SyndicationTweetTransportSchema.Type;
+
+const decodeSyndicationTransport = Schema.decodeUnknownEffect(
+  SyndicationTweetTransportSchema
+);
 
 interface Mp4Variant {
   bitrate?: number;
@@ -71,15 +145,23 @@ interface Mp4Variant {
   url: string;
 }
 
-const bestMp4Variants = (media: SyndicationMedia): Mp4Variant[] =>
-  media.video_info?.variants
-    ?.filter((variant): variant is Mp4Variant =>
-      Boolean(variant.url && variant.content_type?.includes("video/mp4"))
+const bestMp4Variants = (media: SyndicationMediaTransport): Mp4Variant[] =>
+  (media.video_info?.variants ?? [])
+    .flatMap((variant) =>
+      variant.url && variant.content_type?.includes("video/mp4")
+        ? [
+            {
+              bitrate: variant.bitrate,
+              content_type: variant.content_type,
+              url: variant.url,
+            },
+          ]
+        : []
     )
-    .toSorted((a, b) => (b.bitrate ?? 0) - (a.bitrate ?? 0)) ?? [];
+    .toSorted((a, b) => (b.bitrate ?? 0) - (a.bitrate ?? 0));
 
 const buildVideoItem = (
-  media: SyndicationMedia,
+  media: SyndicationMediaTransport,
   type: "animated_gif" | "video"
 ): FxMediaItem => {
   const variants = bestMp4Variants(media);
@@ -97,7 +179,9 @@ const buildVideoItem = (
   };
 };
 
-const buildPhotoItem = (media: SyndicationMedia): FxMediaItem | undefined => {
+const buildPhotoItem = (
+  media: SyndicationMediaTransport
+): FxMediaItem | undefined => {
   const url = media.media_url_https ?? media.url;
   if (!url) {
     return undefined;
@@ -105,7 +189,9 @@ const buildPhotoItem = (media: SyndicationMedia): FxMediaItem | undefined => {
   return { thumbnail_url: url, type: "photo", url };
 };
 
-const buildMediaItem = (media: SyndicationMedia): FxMediaItem | undefined => {
+const buildMediaItem = (
+  media: SyndicationMediaTransport
+): FxMediaItem | undefined => {
   const type = (media.type ?? "photo").toLowerCase();
   if (type === "photo") {
     return buildPhotoItem(media);
@@ -119,7 +205,9 @@ const buildMediaItem = (media: SyndicationMedia): FxMediaItem | undefined => {
   return undefined;
 };
 
-const dedupeMedia = (candidates: SyndicationMedia[]): SyndicationMedia[] => {
+const dedupeMedia = (
+  candidates: readonly SyndicationMediaTransport[]
+): SyndicationMediaTransport[] => {
   const seen = new Set<string>();
   return candidates.filter((item) => {
     const key =
@@ -132,7 +220,7 @@ const dedupeMedia = (candidates: SyndicationMedia[]): SyndicationMedia[] => {
   });
 };
 
-const mapMedia = (raw: SyndicationTweet): FxMedia | undefined => {
+const mapMedia = (raw: SyndicationTweetTransport): FxMedia | undefined => {
   const fallbackItems = [
     ...(raw.photos ?? []),
     ...(raw.video ? [raw.video] : []),
@@ -161,7 +249,9 @@ const mapMedia = (raw: SyndicationTweet): FxMedia | undefined => {
   return Object.keys(media).length ? media : undefined;
 };
 
-const mapArticle = (raw?: SyndicationArticle): FxArticle | undefined => {
+const mapArticle = (
+  raw?: SyndicationArticleTransport
+): FxArticle | undefined => {
   if (!raw?.title && !raw?.preview_text) {
     return undefined;
   }
@@ -171,13 +261,21 @@ const mapArticle = (raw?: SyndicationArticle): FxArticle | undefined => {
   }
   return {
     content: blocks.length ? { blocks } : undefined,
-    cover_media: raw.cover_media,
+    cover_media: raw.cover_media
+      ? {
+          media_info: raw.cover_media.media_info
+            ? {
+                original_img_url: raw.cover_media.media_info.original_img_url,
+              }
+            : undefined,
+        }
+      : undefined,
     preview_text: raw.preview_text,
     title: raw.title,
   };
 };
 
-const mapUser = (user?: SyndicationUser): FxTweet["author"] => {
+const mapUser = (user?: SyndicationUserTransport): FxTweet["author"] => {
   if (!user) {
     return undefined;
   }
@@ -200,72 +298,87 @@ const mapUser = (user?: SyndicationUser): FxTweet["author"] => {
   };
 };
 
-const mapSyndicationTweet = (
-  raw: SyndicationTweet,
+const schemaFailure = (cause: unknown): SyndicationSchemaError =>
+  new SyndicationSchemaError({ cause, operation: "status" });
+
+const decodeSyndicationTweet = (
+  input: unknown,
   handle?: string,
   id?: string
-): FxTweet => {
-  const screenName = raw.user?.screen_name ?? handle;
-  const ownId = raw.id_str ?? id;
-  const quoted =
-    raw.quoted_tweet ??
-    raw.quoted_status_result?.result?.legacy ??
-    raw.quoted_status_result?.result?.tweet;
+): Effect.Effect<FxTweet, SyndicationSchemaError> =>
+  Effect.gen(function* () {
+    const raw = yield* decodeSyndicationTransport(input).pipe(
+      Effect.mapError(schemaFailure)
+    );
+    const screenName = raw.user?.screen_name ?? handle;
+    const ownId = raw.id_str ?? id;
+    const quoted =
+      raw.quoted_tweet ??
+      raw.quoted_status_result?.result?.legacy ??
+      raw.quoted_status_result?.result?.tweet;
+    const quote =
+      quoted === undefined
+        ? undefined
+        : yield* decodeSyndicationTweet(quoted);
 
-  return {
-    article: mapArticle(raw.article),
-    author: mapUser(raw.user),
-    created_at: raw.created_at,
-    id: ownId,
-    lang: raw.lang,
-    likes: raw.favorite_count,
-    media: mapMedia(raw),
-    quote: quoted ? mapSyndicationTweet(quoted) : undefined,
-    replies: raw.conversation_count,
-    text: raw.text,
-    url:
-      screenName && ownId
-        ? `https://x.com/${screenName}/status/${ownId}`
-        : undefined,
-  };
-};
+    return {
+      article: mapArticle(raw.article),
+      author: mapUser(raw.user),
+      created_at: raw.created_at,
+      id: ownId,
+      lang: raw.lang,
+      likes: raw.favorite_count,
+      media: mapMedia(raw),
+      quote,
+      replies: raw.conversation_count,
+      text: raw.text,
+      url:
+        screenName && ownId
+          ? `https://x.com/${screenName}/status/${ownId}`
+          : undefined,
+    };
+  });
 
-export const fetchSyndicationStatus = async (
+export const fetchSyndicationStatus = Effect.fn(
+  "Syndication.fetchStatus"
+)(function* (
   handle: string,
   id: string
-): Promise<FxTweet> => {
-  let response: Response;
-  try {
-    const url = `${SYNDICATION_BASE}?id=${encodeURIComponent(id)}&lang=en&token=0`;
-    response = await fetch(url, {
+): ProviderEffect<FxTweet, SyndicationFailure> {
+  const client = yield* HttpClient.HttpClient;
+  const url = `${SYNDICATION_BASE}?id=${encodeURIComponent(id)}&lang=en&token=0`;
+  const response = yield* client
+    .get(url, {
       headers: { Accept: "application/json", "User-Agent": UA },
-    });
-  } catch {
-    throw new ConvertError(
-      502,
-      "Failed to reach X syndication API.",
-      "syndication_network"
+    })
+    .pipe(
+      Effect.mapError(
+        (cause) =>
+          new SyndicationNetworkError({ cause, operation: "status" })
+      )
+    );
+
+  if (response.status < 200 || response.status >= 300) {
+    return yield* Effect.fail(
+      new SyndicationUpstreamError({
+        operation: "status",
+        status: response.status === 404 ? 404 : 502,
+        upstreamStatus: response.status,
+      })
     );
   }
 
-  if (!response.ok) {
-    throw new ConvertError(
-      response.status === 404 ? 404 : 502,
-      "Post not found via syndication API.",
-      "syndication_error"
+  const json = yield* response.json.pipe(
+    Effect.mapError(
+      (cause) =>
+        new SyndicationNonJsonError({ cause, operation: "status" })
+    )
+  );
+  const tweet = yield* decodeSyndicationTweet(json, handle, id);
+  if (!tweet.text && !tweet.article) {
+    return yield* Effect.fail(
+      new SyndicationEmptyError({ operation: "status" })
     );
   }
-
-  // SAFETY: the syndication endpoint answers with a tweet-result JSON
-  // document; the text/article presence check below validates the shape.
-  const data = (await response.json()) as SyndicationTweet;
-  if (!data?.text && !data?.article) {
-    throw new ConvertError(
-      404,
-      "Post not found via syndication API.",
-      "syndication_empty"
-    );
-  }
-
-  return mapSyndicationTweet(data, handle, id);
-};
+  return tweet;
+});
