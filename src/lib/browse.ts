@@ -2,9 +2,6 @@ import { Result } from "effect";
 
 import {
   DEFAULT_LIMIT,
-  InvalidBrowseFormat,
-  InvalidBrowseResource,
-  MissingSearchQuery,
   parseFeed,
   parseFormat,
   parseLimit,
@@ -18,6 +15,9 @@ import type {
   BrowseLimit,
   BrowsePage,
   BrowseResource,
+  InvalidBrowseFormat,
+  InvalidBrowseResource,
+  MissingSearchQuery,
 } from "./browse-query.js";
 import {
   buildCacheKey,
@@ -36,8 +36,8 @@ import {
 import type { FxAuthor, FxListResponse, FxTweet } from "./fxtwitter.js";
 import type { HeaderMap, HttpPayload } from "./http.js";
 import { parseBrowseFlag } from "./query-flag.js";
-import { InvalidXHandle, parse as parseXHandle } from "./x-handle.js";
-import type { XHandle } from "./x-handle.js";
+import { parse as parseXHandle } from "./x-handle.js";
+import type { XHandle, InvalidXHandle } from "./x-handle.js";
 
 /** Raw, untrusted browse query values exactly as they arrive from HTTP. */
 export interface BrowseInput {
@@ -113,6 +113,30 @@ export interface BrowseResult {
 }
 
 /**
+ * Parse the selection-specific values of a browse request.
+ *
+ * Search needs a non-empty trimmed `q` and a feed; every other selection
+ * needs a strict handle. Values belonging to the other selection kind are
+ * ignored, matching the historical behavior.
+ */
+const parseSelection = (
+  resource: BrowseResource,
+  input: BrowseInput
+): Result.Result<BrowseSelection, BrowseParseError> => {
+  if (resource === "search") {
+    return Result.map(parseSearchQuery(input.q), (query): BrowseSelection => ({
+      _tag: "search",
+      feed: parseFeed(input.feed),
+      query,
+    }));
+  }
+  return Result.map(
+    parseXHandle(input.handle ?? ""),
+    (handle): BrowseSelection => ({ _tag: resource, handle })
+  );
+};
+
+/**
  * Parse raw browse query values into a {@link BrowseRequest}.
  *
  * Parse order preserves the historical error precedence: resource, format,
@@ -125,7 +149,7 @@ export interface BrowseResult {
 export const parseBrowseRequest = (
   input: BrowseInput
 ): Result.Result<BrowseRequest, BrowseParseError> =>
-  Result.gen(function* () {
+  Result.gen(function* parseRequest() {
     const resource = yield* parseResource(input.resource);
     const format = yield* parseFormat(input.format);
     const page = parsePage(input.page);
@@ -144,26 +168,6 @@ export const parseBrowseRequest = (
       selection,
     };
   });
-
-const parseSelection = (
-  resource: Exclude<BrowseResource, "search"> | "search",
-  input: BrowseInput
-): Result.Result<BrowseSelection, BrowseParseError> => {
-  if (resource === "search") {
-    return Result.map(
-      parseSearchQuery(input.q),
-      (query): BrowseSelection => ({
-        _tag: "search",
-        feed: parseFeed(input.feed),
-        query,
-      })
-    );
-  }
-  return Result.map(
-    parseXHandle(input.handle ?? ""),
-    (handle): BrowseSelection => ({ _tag: resource, handle })
-  );
-};
 
 export const isOriginalPost = (post: FxTweet): boolean =>
   !post.replying_to && !post.replying_to_status?.length && !post.reposted_by;
@@ -253,7 +257,7 @@ const renderMarkdown = (
   request: BrowseRequest,
   result: Omit<BrowseResult, "markdown" | "cache">
 ): string => {
-  const full = request.full;
+  const { full } = request;
   const lines: string[] = [];
   if (result.resource === "profile" && result.profile) {
     const { profile } = result;
@@ -300,11 +304,8 @@ const browseUncached = async (
 ): Promise<BrowsePayload> => {
   const { selection } = request;
   if (selection._tag === "search") {
-    const list = await walkPages(
-      request.page,
-      request.cursor,
-      (cursor) =>
-        searchFxStatuses(selection.query, selection.feed, cursor, request.limit)
+    const list = await walkPages(request.page, request.cursor, (cursor) =>
+      searchFxStatuses(selection.query, selection.feed, cursor, request.limit)
     );
     const base = {
       feed: selection.feed,
@@ -318,7 +319,7 @@ const browseUncached = async (
     return { ...base, markdown: renderMarkdown(request, base) };
   }
 
-  const handle = selection.handle;
+  const { handle } = selection;
   if (selection._tag === "profile") {
     const [profile, list] = await Promise.all([
       fetchFxProfile(handle),

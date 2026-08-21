@@ -1,4 +1,10 @@
-import type { FxArticle, FxAuthor, FxMedia, FxMediaItem, FxTweet } from "./fxtwitter.js";
+import type {
+  FxArticle,
+  FxAuthor,
+  FxMedia,
+  FxMediaItem,
+  FxTweet,
+} from "./fxtwitter.js";
 import type { OutputFormat } from "./output-format.js";
 import type { UserinfoLevel } from "./query-modes.js";
 

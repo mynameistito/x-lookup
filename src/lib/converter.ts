@@ -11,24 +11,22 @@ import { ConvertError } from "./errors.js";
 import type { FxTweet } from "./fxtwitter.js";
 import type { HeaderMap, HttpPayload } from "./http.js";
 import { renderThreadMarkdown } from "./markdown.js";
-import { InvalidOutputFormat, parse as parseOutputFormat } from "./output-format.js";
-import type { OutputFormat } from "./output-format.js";
-import {
+import { parse as parseOutputFormat } from "./output-format.js";
+import type { InvalidOutputFormat, OutputFormat } from "./output-format.js";
+import { parseConvertFlag } from "./query-flag.js";
+import { parseContext, parseReplies, parseUserinfo } from "./query-modes.js";
+import type {
+  ContextMode,
   InvalidContext,
   InvalidReplies,
   InvalidUserinfo,
-  parseContext,
-  parseReplies,
-  parseUserinfo,
-  type ContextMode,
-  type RepliesMode,
-  type UserinfoLevel,
+  RepliesMode,
+  UserinfoLevel,
 } from "./query-modes.js";
-import { parseConvertFlag } from "./query-flag.js";
 import { resolve } from "./status-target.js";
 import type { ResolveError, StatusTarget } from "./status-target.js";
-import { InvalidThread, parse as parseThreadSelection } from "./thread-selection.js";
-import type { ThreadSelection } from "./thread-selection.js";
+import { parse as parseThreadSelection } from "./thread-selection.js";
+import type { InvalidThread, ThreadSelection } from "./thread-selection.js";
 import { fetchPosts } from "./tweet-fetch.js";
 import type { FetchSource } from "./tweet-fetch.js";
 
@@ -96,7 +94,7 @@ export interface ConvertSuccess {
 export const parseConvertRequest = (
   input: ConvertInput
 ): Result.Result<ConvertRequest, ConvertParseError> =>
-  Result.gen(function* () {
+  Result.gen(function* parseRequest() {
     const format = yield* parseOutputFormat(input.format);
     const thread = yield* parseThreadSelection(input.thread);
     const userinfo = yield* parseUserinfo(input.userinfo);

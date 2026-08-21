@@ -5,8 +5,8 @@ import {
   fetchFxStatus,
 } from "./fxtwitter.js";
 import type { FxReplyRanking, FxTweet } from "./fxtwitter.js";
-import type { ContextMode, RepliesMode } from "./query-modes.js";
 import type { PostId } from "./post-id.js";
+import type { ContextMode, RepliesMode } from "./query-modes.js";
 import { fetchSyndicationStatus } from "./syndication.js";
 
 export type FetchSource = "fxtwitter" | "syndication";

@@ -3,6 +3,7 @@ import { Result } from "effect";
 import { ROOT_MARKDOWN } from "./docs.js";
 import type { Env } from "./env.js";
 import { browse, browseResponse } from "./lib/browse.js";
+import type { BrowseFailure } from "./lib/browse.js";
 import { workerConfig } from "./lib/cache.js";
 import type { RuntimeConfig } from "./lib/cache.js";
 import {
@@ -11,7 +12,6 @@ import {
   markdownResponse,
 } from "./lib/converter.js";
 import type { ConvertFailure } from "./lib/converter.js";
-import type { BrowseFailure } from "./lib/browse.js";
 import {
   embedResponse,
   isEmbedUserAgent,
@@ -72,15 +72,6 @@ const errorResponse = (failure: ConvertFailure | BrowseFailure): Response =>
     code: failure.code,
     error: failure.message,
   });
-
-/** Defects never reach clients with details; log and answer a truthful 500. */
-const defectResponse = (error: unknown): Response => {
-  console.error(error);
-  return jsonResponse(500, {
-    code: "internal_error",
-    error: "Internal server error",
-  });
-};
 
 const originOf = (request: Request): string =>
   requestOrigin({
@@ -265,8 +256,12 @@ export const handleRequest = async (
     }
   } catch (error) {
     // Expected failures arrive as typed Result values inside the handlers;
-    // anything escaping to here is a defect.
-    return defectResponse(error);
+    // anything escaping to here is a defect: log it and answer a truthful 500.
+    console.error(error);
+    return jsonResponse(500, {
+      code: "internal_error",
+      error: "Internal server error",
+    });
   }
 
   return jsonResponse(404, { code: "not_found", error: "Not found." });
