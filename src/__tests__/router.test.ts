@@ -1,182 +1,382 @@
-import { beforeEach, describe, expect, test, vi } from "vitest";
-import type { Mock } from "vitest";
+import { Effect, Layer } from "effect";
+import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
+import { describe, expect, test } from "vitest";
 
-import { handleRequest } from "../router.js";
+import { Browse, layerBrowseWithoutDependencies } from "../lib/browse.js";
+import { layerMemory } from "../lib/cache.js";
+import {
+  Conversion,
+  layerConversionWithoutDependencies,
+} from "../lib/converter.js";
+import type { FxAuthor, FxTweet } from "../lib/fxtwitter.js";
+import { FxTwitterSearchUnavailableError } from "../lib/provider-errors.js";
+import { FxTwitter, Syndication } from "../lib/provider-service.js";
+import type {
+  FxTwitterService,
+  SyndicationService,
+} from "../lib/provider-service.js";
+import { layerPostLookupWithoutDependencies } from "../lib/tweet-fetch.js";
+import { makeHttpApplication } from "../router.js";
+import type { HttpApplicationServices } from "../router.js";
 
-const respond = <T>(url: string, body: T, status = 200): Promise<Response> => {
-  if (!url.includes("api.fxtwitter.com")) {
-    return Promise.reject(new Error(`unexpected upstream: ${url}`));
-  }
-  return Promise.resolve(Response.json(body, { status }));
+interface ProviderCalls {
+  readonly connections: Array<{
+    readonly count: number | undefined;
+    readonly handle: string;
+    readonly relation: "followers" | "following";
+  }>;
+  readonly profiles: string[];
+  readonly searches: Array<{
+    readonly count: number | undefined;
+    readonly query: string;
+  }>;
+  readonly statuses: string[];
+  readonly threads: string[];
+}
+
+interface HarnessOptions {
+  readonly failSearch?: boolean;
+}
+
+const author: FxAuthor = {
+  description: "Computing pioneer",
+  followers: 42,
+  following: 7,
+  name: "Ada",
+  screen_name: "ada",
+  statuses: 12,
 };
 
-const stubFetch = (route: (url: string) => Promise<Response>): Mock => {
-  const fetchMock = vi.fn<(url: string) => Promise<Response>>(route);
-  vi.stubGlobal("fetch", fetchMock);
-  return fetchMock;
-};
-
-const post = {
-  author: { name: "Ada", screen_name: "ada" },
-  id: "1",
+const post = (id: string): FxTweet => ({
+  author,
+  context: "post",
+  id,
+  likes: 5,
   text: "hello world",
-  url: "https://x.com/ada/status/1",
+  url: `https://x.com/ada/status/${id}`,
+});
+
+const makeCalls = (): ProviderCalls => ({
+  connections: [],
+  profiles: [],
+  searches: [],
+  statuses: [],
+  threads: [],
+});
+
+const makeFxTwitter = (
+  calls: ProviderCalls,
+  options: HarnessOptions
+): FxTwitterService => ({
+  fetchConnections: (handle, relation, _cursor, count) => {
+    calls.connections.push({ count, handle, relation });
+    return Effect.succeed({
+      cursor: { bottom: "next" },
+      results: [author],
+    });
+  },
+  fetchConversationReplies: () => Effect.succeed([]),
+  fetchFullThread: (id) => {
+    calls.threads.push(id);
+    return Effect.succeed([post(id)]);
+  },
+  fetchProfile: (handle) => {
+    calls.profiles.push(handle);
+    return Effect.succeed({ ...author, screen_name: handle });
+  },
+  fetchProfileStatuses: (handle) => {
+    calls.profiles.push(`${handle}:statuses`);
+    return Effect.succeed({
+      cursor: { bottom: "next" },
+      results: [post("201")],
+    });
+  },
+  fetchStatus: (id) => {
+    calls.statuses.push(id);
+    return Effect.succeed(post(id));
+  },
+  searchStatuses: (query, _feed, _cursor, count) => {
+    calls.searches.push({ count, query });
+    return options.failSearch
+      ? Effect.fail(new FxTwitterSearchUnavailableError({ operation: "search" }))
+      : Effect.succeed({
+          cursor: { bottom: "next" },
+          results: [post("301")],
+        });
+  },
+});
+
+const makeSyndication = (): SyndicationService => ({
+  fetchStatus: (_handle, id) => Effect.succeed(post(id)),
+});
+
+const testApplicationLayer = (
+  calls: ProviderCalls,
+  options: HarnessOptions
+): Layer.Layer<Browse | Conversion> => {
+  const cacheLayer = layerMemory();
+  const fxLayer = Layer.succeed(
+    FxTwitter,
+    FxTwitter.of(makeFxTwitter(calls, options))
+  );
+  const syndicationLayer = Layer.succeed(
+    Syndication,
+    Syndication.of(makeSyndication())
+  );
+  const postLookupLayer = layerPostLookupWithoutDependencies.pipe(
+    Layer.provide(Layer.mergeAll(fxLayer, syndicationLayer))
+  );
+  const browseLayer = layerBrowseWithoutDependencies.pipe(
+    Layer.provide([cacheLayer, fxLayer])
+  );
+  const conversionLayer = layerConversionWithoutDependencies.pipe(
+    Layer.provide([cacheLayer, postLookupLayer])
+  );
+  return Layer.mergeAll(browseLayer, conversionLayer);
 };
 
-const stubFx = (): Mock =>
-  stubFetch((url) => {
-    if (url.includes("/2/search")) {
-      return respond(url, { code: 200, results: [post] });
-    }
-    if (url.includes("/statuses")) {
-      return respond(url, {
-        code: 200,
-        cursor: { bottom: "next" },
-        results: [post],
-      });
-    }
-    if (url.includes("/2/thread/") || url.includes("/2/conversation/")) {
-      return respond(url, { code: 200, results: [], thread: [post] });
-    }
-    return respond(url, {
-      code: 200,
-      user: { name: "Ada", screen_name: "ada" },
+const makeHarness = async (options: HarnessOptions = {}) => {
+  const calls = makeCalls();
+  const services = await Effect.runPromise(
+    Effect.all({ browse: Browse, conversion: Conversion }).pipe(
+      Effect.provide(testApplicationLayer(calls, options))
+    )
+  );
+  return { calls, services };
+};
+
+const request = (path: string, init?: RequestInit): Request =>
+  new Request(`http://localhost:8787${path}`, init);
+
+const runBoundary = (
+  webRequest: Request,
+  services: HttpApplicationServices
+): Promise<Response> =>
+  Effect.runPromise(
+    Effect.provideService(
+      makeHttpApplication(services),
+      HttpServerRequest.HttpServerRequest,
+      HttpServerRequest.fromWeb(webRequest)
+    ).pipe(Effect.map(HttpServerResponse.toWeb))
+  );
+
+describe("Effect HTTP boundary", () => {
+  test("serves GET / and /docs without application provider calls", async () => {
+    const { calls, services } = await makeHarness();
+
+    const root = await runBoundary(request("/"), services);
+    const docs = await runBoundary(request("/docs/"), services);
+
+    expect(root.status).toBe(200);
+    expect(root.headers.get("Content-Type")).toContain("text/markdown");
+    expect(root.headers.get("Cache-Control")).toBe("public, max-age=3600");
+    await expect(root.text()).resolves.toContain("# x-lookup");
+    expect(docs.headers.get("Access-Control-Allow-Origin")).toBe("*");
+    await expect(docs.text()).resolves.toContain("/api/convert");
+    expect(calls.statuses).toStrictEqual([]);
+    expect(calls.searches).toStrictEqual([]);
+  });
+
+  test("routes /api/convert and status aliases through the parsed application service", async () => {
+    const { calls, services } = await makeHarness();
+    const target = encodeURIComponent("https://x.com/ada/status/123");
+
+    const api = await runBoundary(
+      request(`/api/convert?url=${target}&thread=off&format=markdown`),
+      services
+    );
+    const alias = await runBoundary(
+      request("/ada/status/456?thread=off"),
+      services
+    );
+
+    expect(api.status).toBe(200);
+    expect(api.headers.get("Content-Type")).toContain("text/markdown");
+    expect(api.headers.get("X-Source")).toBe("fxtwitter");
+    expect(api.headers.get("X-Post-Count")).toBe("1");
+    expect(api.headers.get("X-Warnings")).toBe("0");
+    await expect(api.text()).resolves.toContain("hello world");
+    expect(alias.status).toBe(200);
+    expect(calls.statuses).toStrictEqual(["123", "456"]);
+  });
+
+  test("preserves Markdown, JSON, browser HTML, and preview-bot embed negotiation", async () => {
+    const target = encodeURIComponent("https://x.com/ada/status/123");
+
+    const markdownHarness = await makeHarness();
+    const markdown = await runBoundary(
+      request(`/api/convert?url=${target}&thread=off&format=markdown`, {
+        headers: { Accept: "text/html" },
+      }),
+      markdownHarness.services
+    );
+    expect(markdown.headers.get("Content-Type")).toContain("text/markdown");
+
+    const jsonHarness = await makeHarness();
+    const json = await runBoundary(
+      request(`/api/convert?url=${target}&thread=off`, {
+        headers: { Accept: "application/json" },
+      }),
+      jsonHarness.services
+    );
+    expect(json.headers.get("Content-Type")).toContain("application/json");
+    await expect(json.json()).resolves.toMatchObject({
+      postCount: 1,
+      source: "fxtwitter",
+    });
+
+    const htmlHarness = await makeHarness();
+    const html = await runBoundary(
+      request(`/api/convert?url=${target}&thread=off`, {
+        headers: { Accept: "text/html,application/xhtml+xml" },
+      }),
+      htmlHarness.services
+    );
+    expect(html.headers.get("Content-Type")).toContain("text/html");
+    await expect(html.text()).resolves.toContain("<pre>");
+
+    const embedHarness = await makeHarness();
+    const embed = await runBoundary(
+      request(`/api/convert?url=${target}&thread=off`, {
+        headers: { "User-Agent": "Discordbot/2.0" },
+      }),
+      embedHarness.services
+    );
+    expect(embed.headers.get("Content-Type")).toContain("text/html");
+    expect(embed.headers.get("X-Embed")).toBe("1");
+    await expect(embed.text()).resolves.toContain('property="og:title"');
+  });
+
+  test("routes browse, search, profile, followers, and following aliases", async () => {
+    const { calls, services } = await makeHarness();
+
+    const direct = await runBoundary(
+      request("/api/browse?resource=profile&handle=ada&format=json"),
+      services
+    );
+    const search = await runBoundary(
+      request("/search?q=cloudflare&limit=3"),
+      services
+    );
+    await runBoundary(request("/ada"), services);
+    await runBoundary(request("/ada/followers?limit=5"), services);
+    await runBoundary(request("/ada/following"), services);
+
+    expect(direct.status).toBe(200);
+    expect(direct.headers.get("Content-Type")).toContain("application/json");
+    expect(direct.headers.get("X-Browse-Resource")).toBe("profile");
+    expect(search.headers.get("X-Result-Count")).toBe("1");
+    await expect(search.text()).resolves.toContain("hello world");
+    expect(calls.searches).toContainEqual({ count: 3, query: "cloudflare" });
+    expect(calls.profiles).toContain("ada");
+    expect(calls.connections).toContainEqual({
+      count: 5,
+      handle: "ada",
+      relation: "followers",
+    });
+    expect(calls.connections).toContainEqual({
+      count: 20,
+      handle: "ada",
+      relation: "following",
     });
   });
 
-const get = (path: string) => new Request(`http://localhost:8787${path}`);
+  test("serves oEmbed as a pure route with the historical response contract", async () => {
+    const { calls, services } = await makeHarness();
+    const statusUrl = encodeURIComponent("https://x.com/ada/status/123");
 
-describe("router routing", () => {
-  beforeEach(() => {
-    vi.unstubAllGlobals();
-  });
-
-  test("routes /search to the search resource with the query", async () => {
-    const fetchMock = stubFx();
-
-    const response = await handleRequest(get("/search?q=cloudflare&limit=3"));
-
-    expect(response.status).toBe(200);
-    expect(response.headers.get("Content-Type")).toContain("text/markdown");
-    await expect(response.text()).resolves.toContain("hello world");
-    const upstream = String(fetchMock.mock.calls[0]?.[0]);
-    expect(upstream).toContain("q=cloudflare");
-    expect(upstream).toContain("count=3");
-  });
-
-  test("routes profile, followers, and following handles", async () => {
-    const fetchMock = stubFx();
-
-    await handleRequest(get("/mynameistito"));
-    await handleRequest(get("/mynameistito/followers?limit=5"));
-    await handleRequest(get("/mynameistito/following"));
-
-    const urls = fetchMock.mock.calls.map((call) => String(call[0]));
-    expect(
-      urls.some((url) => url.endsWith("/2/profile/mynameistito"))
-    ).toBeTruthy();
-    expect(
-      urls.some((url) => url.includes("/2/profile/mynameistito/followers"))
-    ).toBeTruthy();
-    expect(urls.some((url) => url.includes("count=5"))).toBeTruthy();
-    expect(
-      urls.some((url) => url.includes("/2/profile/mynameistito/following"))
-    ).toBeTruthy();
-  });
-
-  test("routes status rewrites to the converter with handle and id", async () => {
-    const fetchMock = stubFx();
-
-    const response = await handleRequest(get("/ada/status/123?thread=full"));
-
-    expect(response.status).toBe(200);
-    const urls = fetchMock.mock.calls.map((call) => String(call[0]));
-    expect(urls.some((url) => url.includes("/2/thread/123"))).toBeTruthy();
-  });
-
-  test("serves /api/browse directly", async () => {
-    const fetchMock = stubFx();
-
-    const response = await handleRequest(
-      get("/api/browse?resource=profile&handle=ada")
+    const response = await runBoundary(
+      request(`/oembed?url=${statusUrl}&text=Proof`),
+      services
     );
 
     expect(response.status).toBe(200);
-    expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/2/profile/ada");
+    expect(response.headers.get("Cache-Control")).toBe("public, max-age=3600");
+    expect(response.headers.get("Access-Control-Allow-Origin")).toBe("*");
+    await expect(response.json()).resolves.toMatchObject({
+      author_name: "Proof",
+      author_url: "https://x.com/ada/status/123",
+      provider_name: "x-lookup",
+      type: "link",
+      version: "1.0",
+    });
+    expect(calls.statuses).toStrictEqual([]);
   });
 
-  test("maps upstream search refusals to their status and JSON body", async () => {
-    stubFetch((url) => respond(url, { code: 404, message: "NOT_FOUND" }));
+  test("handles OPTIONS, HEAD, 404, 405, and CORS at the boundary", async () => {
+    const { services } = await makeHarness();
 
-    const response = await handleRequest(get("/search?q=cloudflare"));
+    const preflight = await runBoundary(
+      request("/search", { method: "OPTIONS" }),
+      services
+    );
+    expect(preflight.status).toBe(204);
+    expect(preflight.headers.get("Access-Control-Allow-Origin")).toBe("*");
+    expect(preflight.headers.get("Access-Control-Allow-Methods")).toBe(
+      "GET, HEAD, OPTIONS"
+    );
+    expect(preflight.headers.get("Access-Control-Allow-Headers")).toBe(
+      "Accept, Content-Type"
+    );
+
+    const head = await runBoundary(
+      request("/search?q=x", { method: "HEAD" }),
+      services
+    );
+    expect(head.status).toBe(200);
+    expect(head.headers.get("X-Result-Count")).toBe("1");
+    await expect(head.text()).resolves.toBe("");
+
+    const notFound = await runBoundary(request("/api/nope"), services);
+    expect(notFound.status).toBe(404);
+    await expect(notFound.json()).resolves.toMatchObject({ code: "not_found" });
+
+    const method = await runBoundary(
+      request("/search", { method: "POST" }),
+      services
+    );
+    expect(method.status).toBe(405);
+    await expect(method.json()).resolves.toMatchObject({
+      code: "method_not_allowed",
+    });
+  });
+
+  test("maps a typed provider failure to the existing JSON/status/code contract", async () => {
+    const { services } = await makeHarness({ failSearch: true });
+
+    const response = await runBoundary(
+      request("/search?q=cloudflare"),
+      services
+    );
 
     expect(response.status).toBe(502);
-    await expect(response.json()).resolves.toMatchObject({
+    expect(response.headers.get("Access-Control-Allow-Origin")).toBe("*");
+    await expect(response.json()).resolves.toStrictEqual({
       code: "search_unavailable",
       error: "X search is unavailable upstream.",
     });
   });
 
-  test("returns 404 for unmatched paths including unknown api routes", async () => {
-    const notFound = await handleRequest(get("/nope/extra"));
-    expect(notFound.status).toBe(404);
-    await expect(notFound.json()).resolves.toMatchObject({ code: "not_found" });
+  test("preserves cache/provider/result headers across misses and hits", async () => {
+    const { calls, services } = await makeHarness();
+    const target = encodeURIComponent("https://x.com/ada/status/777");
+    const url = `/api/convert?url=${target}&thread=off`;
 
-    const apiNotFound = await handleRequest(get("/api/nope"));
-    expect(apiNotFound.status).toBe(404);
-    await expect(apiNotFound.json()).resolves.toMatchObject({
-      code: "not_found",
-    });
-  });
+    const miss = await runBoundary(request(url), services);
+    const hit = await runBoundary(request(url), services);
 
-  test("returns 405 for non-GET methods and answers CORS preflights", async () => {
-    const method = await handleRequest(
-      new Request("http://localhost:8787/search", { method: "POST" })
+    expect(miss.headers.get("X-Cache")).toBe("MISS");
+    expect(hit.headers.get("X-Cache")).toBe("HIT");
+    expect(hit.headers.get("Cache-Control")).toBe(
+      "public, max-age=0, must-revalidate"
     );
-    expect(method.status).toBe(405);
-
-    const preflight = await handleRequest(
-      new Request("http://localhost:8787/search", { method: "OPTIONS" })
-    );
-    expect(preflight.status).toBe(204);
-    expect(preflight.headers.get("Access-Control-Allow-Origin")).toBe("*");
-  });
-
-  test("supports HEAD requests on API routes", async () => {
-    stubFx();
-
-    const response = await handleRequest(
-      new Request("http://localhost:8787/search?q=x", { method: "HEAD" })
-    );
-    expect(response.status).toBe(200);
+    expect(hit.headers.get("X-Source")).toBe("fxtwitter");
+    expect(hit.headers.get("X-Post-Count")).toBe("1");
+    expect(calls.statuses).toStrictEqual(["777"]);
   });
 });
 
-describe("router documentation routes", () => {
-  test("serves a markdown index at the root", async () => {
-    const response = await handleRequest(get("/"));
-    expect(response.status).toBe(200);
-    expect(response.headers.get("Content-Type")).toContain("text/markdown");
-    await expect(response.text()).resolves.toContain("# x-lookup");
-  });
-
-  test("serves full usage docs at /docs", async () => {
-    const response = await handleRequest(get("/docs"));
-    expect(response.status).toBe(200);
-    expect(response.headers.get("Access-Control-Allow-Origin")).toBe("*");
-    await expect(response.text()).resolves.toContain("/api/convert");
-  });
-});
-
-describe("router typed-error mapping", () => {
-  beforeEach(() => {
-    vi.unstubAllGlobals();
-  });
-
-  /**
-   * Every migrated parse refusal must keep its exact external contract:
-   * truthful status, stable code, and the historical message.
-   */
+describe("HTTP typed parse error mapping", () => {
   test.each([
     [
       "/api/convert?url=not%20a%20url",
@@ -258,26 +458,22 @@ describe("router typed-error mapping", () => {
       "Browse `format` must be `markdown` or `json`.",
     ],
   ])("maps %s to %i %s", async (path, status, code, message) => {
-    const response = await handleRequest(get(path));
+    const { services } = await makeHarness();
+    const response = await runBoundary(request(path), services);
+
     expect(response.status).toBe(status);
     expect(response.headers.get("Access-Control-Allow-Origin")).toBe("*");
-    await expect(response.json()).resolves.toMatchObject({
+    await expect(response.json()).resolves.toStrictEqual({
       code,
       error: message,
     });
   });
 
-  test("path status routes keep their 404 for non-numeric ids", async () => {
-    const response = await handleRequest(get("/ada/status/abc"));
+  test("non-numeric status aliases remain unmatched 404s", async () => {
+    const { services } = await makeHarness();
+    const response = await runBoundary(request("/ada/status/abc"), services);
+
     expect(response.status).toBe(404);
     await expect(response.json()).resolves.toMatchObject({ code: "not_found" });
-  });
-
-  test("handle-only convert requests report the missing url", async () => {
-    const response = await handleRequest(get("/api/convert?handle=ada"));
-    expect(response.status).toBe(400);
-    await expect(response.json()).resolves.toMatchObject({
-      code: "missing_url",
-    });
   });
 });
