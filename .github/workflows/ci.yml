@@ -77,42 +77,13 @@ jobs:
           source = source.replace("decodeSyndicationTweet(json, handle, id)", "decodeSyndicationTweet({ value: json }, handle, id)")
           path.write_text(source)
 
-          Path("src/lib/provider-http.ts").write_text('''import { Effect } from "effect";
-          import type { HttpClient } from "effect/unstable/http";
-          import { FetchHttpClient } from "effect/unstable/http";
-
-          import { ConvertError } from "./errors.js";
-          import type { HttpMappedError } from "./errors.js";
-
-          export type ProviderEffect<A, E> = Effect.Effect<A, E, HttpClient.HttpClient>;
-
-          type ProviderHttpFailure = Error & HttpMappedError;
-
-          const toConvertError = (failure: ProviderHttpFailure): ConvertError =>
-            new ConvertError(failure.status, failure.message, failure.code);
-
-          /**
-           * Promise compatibility boundary for the existing application layer.
-           * Provider adapters remain Effect-native and testable with a supplied HttpClient.
-           */
-          export const runProviderEffect = <A, E extends ProviderHttpFailure>(
-            program: ProviderEffect<A, E>
-          ): Promise<A> =>
-            Effect.runPromise(
-              program.pipe(
-                Effect.mapError(toConvertError),
-                Effect.provide(FetchHttpClient.layer)
-              )
-            );
-          '''.replace("          ", ""))
-
           for path in Path("src/__tests__").glob("*.test.ts"):
               source = path.read_text()
               if 'vi.stubGlobal("fetch", fetchMock);' not in source:
                   continue
               source = source.replace(
                   'vi.stubGlobal("fetch", fetchMock);',
-                  'vi.spyOn(globalThis, "fetch").mockImplementation(\n    fetchMock as unknown as typeof fetch\n  );',
+                  'vi.spyOn(globalThis, "fetch").mockImplementation((input) =>\n    fetchMock(String(input))\n  );',
               )
               source = source.replace(
                   "    vi.unstubAllGlobals();",
