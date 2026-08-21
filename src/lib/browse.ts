@@ -19,11 +19,7 @@ import type {
   InvalidBrowseResource,
   MissingSearchQuery,
 } from "./browse-query.js";
-import {
-  Cache,
-  buildCacheKey,
-  cacheControlHeader,
-} from "./cache.js";
+import { Cache, buildCacheKey, cacheControlHeader } from "./cache.js";
 import type { CacheStatus } from "./cache.js";
 import type { FxAuthor, FxListResponse, FxTweet } from "./fxtwitter.js";
 import type { HeaderMap, HttpPayload } from "./http.js";
@@ -299,8 +295,6 @@ const renderMarkdown = (
   }
   return `${lines.join("\n").trim()}\n`;
 };
-
-type BrowsePayload = Omit<BrowseResult, "cache">;
 
 const makeBrowse = Effect.gen(function* makeBrowseService() {
   const cache = yield* Cache;

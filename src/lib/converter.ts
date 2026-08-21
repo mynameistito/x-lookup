@@ -1,10 +1,6 @@
 import { Context, Effect, Layer, Result } from "effect";
 
-import {
-  Cache,
-  buildCacheKey,
-  cacheControlHeader,
-} from "./cache.js";
+import { Cache, buildCacheKey, cacheControlHeader } from "./cache.js";
 import type { CacheStatus } from "./cache.js";
 import type { FxTweet } from "./fxtwitter.js";
 import type { HeaderMap, HttpPayload } from "./http.js";
@@ -25,10 +21,7 @@ import { resolve } from "./status-target.js";
 import type { ResolveError, StatusTarget } from "./status-target.js";
 import { parse as parseThreadSelection } from "./thread-selection.js";
 import type { InvalidThread, ThreadSelection } from "./thread-selection.js";
-import {
-  layerPostLookupWithoutDependencies,
-  PostLookup,
-} from "./tweet-fetch.js";
+import { PostLookup } from "./tweet-fetch.js";
 import type { FetchSource, PostLookupFailure } from "./tweet-fetch.js";
 
 /** Raw, untrusted convert query values exactly as they arrive from HTTP. */
@@ -90,9 +83,10 @@ export interface ConversionService {
 }
 
 /** Owns parsed conversion policy, post lookup, caching, truncation, and metadata. */
-export class Conversion extends Context.Service<Conversion, ConversionService>()(
-  "x-lookup/application/Conversion"
-) {}
+export class Conversion extends Context.Service<
+  Conversion,
+  ConversionService
+>()("x-lookup/application/Conversion") {}
 
 /**
  * Parse raw convert query values into a {@link ConvertRequest}.

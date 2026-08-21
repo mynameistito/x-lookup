@@ -26,7 +26,12 @@ const makeFxTwitter = Effect.gen(function* makeFxTwitterService() {
   const client = yield* HttpClient.HttpClient;
 
   const fetchConnections = Effect.fn("FxTwitter.fetchConnections")(
-    (handle: string, relation: "followers" | "following", cursor?: string, count = 20) =>
+    (
+      handle: string,
+      relation: "followers" | "following",
+      cursor?: string,
+      count = 20
+    ) =>
       provideClient(
         fetchFxConnectionsEffect(handle, relation, cursor, count),
         client
