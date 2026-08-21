@@ -1,75 +1,196 @@
-import type { CacheEntry, CacheStore } from "./cache.js";
+import {
+  Clock,
+  Crypto as EffectCrypto,
+  Effect,
+  Layer,
+  PlatformError,
+  Schema,
+} from "effect";
 
-const sha256Hex = async (input: string): Promise<string> => {
-  const digest = await crypto.subtle.digest(
-    "SHA-256",
-    new TextEncoder().encode(input)
-  );
-  return [...new Uint8Array(digest)]
-    .map((byte) => byte.toString(16).padStart(2, "0"))
-    .join("");
-};
+import type {
+  CacheEntry,
+  CacheStore,
+  CacheStoreOperation,
+} from "./cache-store.js";
+import { CacheStoreError } from "./cache-store.js";
+
+const CACHE_PREFIX = "https://x-lookup.cache/__cache";
 
 export interface MinimalCache {
-  match: (key: string) => Promise<Response | undefined>;
-  put: (key: string, response: Response) => Promise<void>;
+  readonly match: (key: string) => Promise<Response | undefined>;
+  readonly put: (key: string, response: Response) => Promise<void>;
 }
+
+interface WorkerdCrypto {
+  readonly getRandomValues: (array: Uint8Array) => Uint8Array;
+  readonly subtle: {
+    readonly digest: (
+      algorithm: EffectCrypto.DigestAlgorithm,
+      data: Uint8Array
+    ) => Promise<ArrayBuffer>;
+  };
+}
+
+const CacheEnvelopeSchema = Schema.Struct({
+  expiresAt: Schema.Number,
+  value: Schema.Unknown,
+});
+
+const decodeCacheEnvelope = Schema.decodeUnknownEffect(
+  Schema.fromJsonString(CacheEnvelopeSchema)
+);
+
+const storeError = (
+  operation: CacheStoreOperation,
+  cause: unknown
+): CacheStoreError => new CacheStoreError({ cause, operation });
+
+const digestHex = (bytes: Uint8Array): string =>
+  [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+
+const cacheUrl = (
+  crypto: EffectCrypto.Crypto,
+  prefix: string,
+  key: string,
+  operation: CacheStoreOperation
+): Effect.Effect<string, CacheStoreError> =>
+  crypto.digest("SHA-256", new TextEncoder().encode(key)).pipe(
+    Effect.mapError((cause) => storeError(operation, cause)),
+    Effect.map((digest) => `${prefix}/${digestHex(digest)}`)
+  );
+
+const readCacheEntry = <T>(
+  cache: MinimalCache,
+  crypto: EffectCrypto.Crypto,
+  prefix: string,
+  key: string
+): Effect.Effect<CacheEntry<T> | undefined, CacheStoreError> =>
+  Effect.gen(function* cacheApiGet() {
+    const url = yield* cacheUrl(crypto, prefix, key, "get");
+    const response = yield* Effect.tryPromise({
+      catch: (cause) => storeError("get", cause),
+      try: () => cache.match(url),
+    });
+    if (!response) {
+      return;
+    }
+
+    const serialized = yield* Effect.tryPromise({
+      catch: (cause) => storeError("get", cause),
+      try: () => response.text(),
+    });
+    const payload = yield* decodeCacheEnvelope(serialized).pipe(
+      Effect.mapError((cause) => storeError("get", cause))
+    );
+    const now = yield* Clock.currentTimeMillis;
+    if (now > payload.expiresAt) {
+      return;
+    }
+
+    return {
+      expiresAt: payload.expiresAt,
+      // SAFETY: the cache authority writes and reads values under the same
+      // typed cache key; the envelope schema already validates its structure.
+      value: payload.value as T,
+    };
+  });
+
+const writeCacheEntry = <T>(
+  cache: MinimalCache,
+  crypto: EffectCrypto.Crypto,
+  prefix: string,
+  key: string,
+  value: T,
+  ttlSeconds: number
+): Effect.Effect<void, CacheStoreError> =>
+  Effect.gen(function* cacheApiSet() {
+    const now = yield* Clock.currentTimeMillis;
+    const envelope: CacheEntry<T> = {
+      expiresAt: now + ttlSeconds * 1000,
+      value,
+    };
+    const body = yield* Effect.try({
+      catch: (cause) => storeError("set", cause),
+      try: () => JSON.stringify(envelope),
+    });
+    const url = yield* cacheUrl(crypto, prefix, key, "set");
+    yield* Effect.tryPromise({
+      catch: (cause) => storeError("set", cause),
+      try: () =>
+        cache.put(
+          url,
+          new Response(body, {
+            headers: {
+              "Cache-Control": `public, max-age=${ttlSeconds}`,
+              "Content-Type": "application/json",
+            },
+          })
+        ),
+    });
+  });
 
 /**
- * L2 store backed by the Cloudflare Cache API (`caches.default`).
- * Keys are hashed into synthetic URLs under `prefix`.
+ * Build the Cloudflare Cache API store while preserving the Effect Crypto
+ * requirement for the composition root to satisfy.
  */
-export class CacheApiStore implements CacheStore {
-  private readonly cache: MinimalCache;
-  private readonly prefix: string;
+export const makeCacheApiStore = (
+  cache: MinimalCache,
+  prefix = CACHE_PREFIX
+): Effect.Effect<CacheStore, never, EffectCrypto.Crypto> =>
+  EffectCrypto.Crypto.pipe(
+    Effect.map((crypto): CacheStore => ({
+      get: <T>(key: string) => readCacheEntry<T>(cache, crypto, prefix, key),
+      set: <T>(key: string, value: T, ttlSeconds: number) =>
+        writeCacheEntry(cache, crypto, prefix, key, value, ttlSeconds),
+    }))
+  );
 
-  constructor(cache: MinimalCache, prefix = "https://x-lookup.cache/__cache") {
-    this.cache = cache;
-    this.prefix = prefix;
-  }
+const makeWebCryptoService = (): EffectCrypto.Crypto => {
+  // SAFETY: workerd provides the Web Crypto runtime even though the project
+  // intentionally omits DOM globals from tsconfig and types it at this adapter.
+  const { crypto: webCrypto } = globalThis as typeof globalThis & {
+    readonly crypto: WorkerdCrypto;
+  };
 
-  private async urlFor(key: string): Promise<string> {
-    return `${this.prefix}/${await sha256Hex(key)}`;
-  }
-
-  async get<T>(key: string): Promise<CacheEntry<T> | undefined> {
-    try {
-      const response = await this.cache.match(await this.urlFor(key));
-      if (!response) {
-        return undefined;
-      }
-      // SAFETY: the edge only holds JSON envelopes written by set() below.
-      const envelope = (await response.json()) as CacheEntry<T>;
-      if (!envelope || !Number.isFinite(envelope.expiresAt)) {
-        return undefined;
-      }
-      if (Date.now() > envelope.expiresAt) {
-        return undefined;
-      }
-      return envelope;
-    } catch {
-      return undefined;
+  const randomBytes = (size: number): Uint8Array => {
+    const bytes = new Uint8Array(size);
+    for (let index = 0; index < bytes.length; index += 65_536) {
+      webCrypto.getRandomValues(bytes.subarray(index, index + 65_536));
     }
-  }
+    return bytes;
+  };
 
-  async set<T>(key: string, value: T, ttlSeconds: number): Promise<void> {
-    try {
-      const envelope: CacheEntry<T> = {
-        expiresAt: Date.now() + ttlSeconds * 1000,
-        value,
-      };
-      const body = JSON.stringify(envelope);
-      await this.cache.put(
-        await this.urlFor(key),
-        new Response(body, {
-          headers: {
-            "Cache-Control": `public, max-age=${ttlSeconds}`,
-            "Content-Type": "application/json",
-          },
-        })
-      );
-    } catch {
-      // Best-effort edge cache.
-    }
-  }
-}
+  const digest: EffectCrypto.Crypto["digest"] = (algorithm, data) =>
+    Effect.map(
+      Effect.tryPromise({
+        catch: (cause) =>
+          PlatformError.systemError({
+            _tag: "Unknown",
+            cause,
+            description: "Could not compute digest",
+            method: "digest",
+            module: "Crypto",
+          }),
+        try: () => webCrypto.subtle.digest(algorithm, new Uint8Array(data)),
+      }),
+      (buffer) => new Uint8Array(buffer)
+    );
+
+  return EffectCrypto.make({ digest, randomBytes });
+};
+
+/** Effect Crypto backed by the Web Crypto API available in workerd. */
+export const layerWebCrypto: Layer.Layer<EffectCrypto.Crypto> = Layer.effect(
+  EffectCrypto.Crypto,
+  Effect.sync(makeWebCryptoService)
+);
+
+/** Return workerd's default Cache API binding when the runtime provides it. */
+export const defaultCacheApi = (): MinimalCache | undefined => {
+  // SAFETY: Cloudflare exposes `caches.default` at runtime; tests may omit the
+  // binding entirely, so the adapter models that runtime property as optional.
+  const runtime = globalThis as typeof globalThis & {
+    readonly caches?: { readonly default?: MinimalCache };
+  };
+  return runtime.caches?.default;
+};

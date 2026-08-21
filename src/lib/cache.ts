@@ -1,10 +1,13 @@
-import { Option, Schema } from "effect";
+import { Clock, Context, Effect, Layer, Option, Result, Schema } from "effect";
 
 import type { Env } from "../env.js";
-import { CacheApiStore } from "./cache-api-store.js";
+import {
+  defaultCacheApi,
+  layerWebCrypto,
+  makeCacheApiStore,
+} from "./cache-api-store.js";
 import type { MinimalCache } from "./cache-api-store.js";
-
-export { CacheApiStore } from "./cache-api-store.js";
+import type { CacheEntry, CacheStore } from "./cache-store.js";
 
 export type CacheStatus = "hit" | "miss" | "bypass";
 
@@ -25,159 +28,211 @@ export const DEFAULT_TTL_SECONDS: CacheTtlSeconds = Option.getOrThrow(
   decodeTtl(3600)
 );
 
-export interface CacheEntry<T> {
-  value: T;
-  expiresAt: number;
-}
-
-export interface CacheStore {
-  get: <T>(key: string) => Promise<CacheEntry<T> | undefined>;
-  set: <T>(key: string, value: T, ttlSeconds: number) => Promise<void>;
-}
-
 const MAX_MEMORY_ENTRIES = 500;
 
-interface MemoryEnvelope<T> {
-  entry: CacheEntry<T>;
-}
+const sharedMemoryMap = new Map<string, CacheEntry<unknown>>();
 
-const sharedMemoryMap = new Map<string, MemoryEnvelope<unknown>>();
-
-/** L1 store shared per isolate. Instances without an explicit map share one. */
+/** L1 store shared per isolate unless an explicit map is supplied. */
 export class MemoryStore implements CacheStore {
-  private readonly map: Map<string, MemoryEnvelope<unknown>>;
+  private readonly map: Map<string, CacheEntry<unknown>>;
 
-  constructor(map?: Map<string, MemoryEnvelope<unknown>>) {
+  constructor(map?: Map<string, CacheEntry<unknown>>) {
     this.map = map ?? sharedMemoryMap;
   }
 
-  get<T>(key: string): Promise<CacheEntry<T> | undefined> {
-    return Promise.resolve(this.lookup(key));
-  }
-
-  private lookup<T>(key: string): CacheEntry<T> | undefined {
-    // SAFETY: the shared map stores MemoryEnvelope values under cache keys.
-    const envelope = this.map.get(key) as MemoryEnvelope<T> | undefined;
-    if (!envelope) {
-      return undefined;
-    }
-    if (Date.now() > envelope.entry.expiresAt) {
-      this.map.delete(key);
-      return undefined;
-    }
-    // Refresh recency for the LRU cap.
-    this.map.delete(key);
-    this.map.set(key, envelope);
-    return envelope.entry;
-  }
-
-  set<T>(key: string, value: T, ttlSeconds: number): Promise<void> {
-    this.map.set(key, {
-      entry: { expiresAt: Date.now() + ttlSeconds * 1000, value },
-    });
-    while (this.map.size > MAX_MEMORY_ENTRIES) {
-      const oldest = this.map.keys().next().value;
-      if (oldest === undefined) {
-        break;
+  get<T>(key: string): Effect.Effect<CacheEntry<T> | undefined> {
+    const { map } = this;
+    return Effect.gen(function* memoryGet() {
+      // SAFETY: values are only inserted by set() using the same cache key.
+      const entry = map.get(key) as CacheEntry<T> | undefined;
+      if (!entry) {
+        return;
       }
-      this.map.delete(oldest);
-    }
-    return Promise.resolve();
+      const now = yield* Clock.currentTimeMillis;
+      if (now > entry.expiresAt) {
+        map.delete(key);
+        return;
+      }
+      // Refresh recency for the LRU cap.
+      map.delete(key);
+      map.set(key, entry);
+      return entry;
+    });
+  }
+
+  set<T>(key: string, value: T, ttlSeconds: number): Effect.Effect<void> {
+    const { map } = this;
+    return Effect.gen(function* memorySet() {
+      const now = yield* Clock.currentTimeMillis;
+      map.set(key, { expiresAt: now + ttlSeconds * 1000, value });
+      if (map.size > MAX_MEMORY_ENTRIES) {
+        const { value: oldest } = map.keys().next();
+        if (oldest !== undefined) {
+          map.delete(oldest);
+        }
+      }
+    });
   }
 }
 
-export const memoryStore = new MemoryStore();
-
-// SAFETY: workerd exposes caches.default; the guard covers runtimes without it.
-const defaultCacheApi = (): MinimalCache | undefined =>
-  (globalThis as { caches?: { default?: MinimalCache } }).caches?.default;
+const isolateMemoryStore = new MemoryStore();
 
 /**
  * Parse the `CACHE_TTL_SECONDS` environment value into whole seconds.
  *
  * Junk, zero, and negative values fall back to {@link DEFAULT_TTL_SECONDS};
  * this configuration parse never fails, matching the historical behavior.
- *
- * @param raw - The untrusted environment value.
- * @returns The parsed TTL in seconds.
  */
 export const parseTtlSeconds = (raw?: string): CacheTtlSeconds => {
   const parsed = Math.trunc(Number(raw ?? ""));
   return Option.getOrElse(decodeTtl(parsed), () => DEFAULT_TTL_SECONDS);
 };
 
-export interface RuntimeConfig {
-  ttlSeconds: number;
-  stores: CacheStore[];
-}
-
 export interface CacheLookup<T> {
-  status: CacheStatus;
-  value: T;
+  readonly status: CacheStatus;
+  readonly value: T;
 }
 
-/** Memory-only config used by tests and as a safe default. */
-export const memoryConfig = (
-  ttlSeconds = DEFAULT_TTL_SECONDS
-): RuntimeConfig => ({ stores: [memoryStore], ttlSeconds });
+export interface CacheService {
+  readonly getOrLoad: <A, E, R>(
+    key: string,
+    bypass: boolean,
+    load: Effect.Effect<A, E, R>
+  ) => Effect.Effect<CacheLookup<A>, E, R>;
+}
 
-/** Worker config: memory L1 plus Cache API L2 when the runtime provides it. */
-export const workerConfig = (env: Env): RuntimeConfig => {
-  const stores: CacheStore[] = [memoryStore];
+/** Owns cache lookup, backfill, expiry, write, and bypass policy. */
+export class Cache extends Context.Service<Cache, CacheService>()(
+  "x-lookup/lib/Cache"
+) {}
+
+const writeBestEffort = <T>(
+  stores: readonly CacheStore[],
+  key: string,
+  value: T,
+  ttlSeconds: number
+): Effect.Effect<void> =>
+  Effect.gen(function* writeConfiguredStores() {
+    for (const store of stores) {
+      yield* Effect.ignore(store.set(key, value, ttlSeconds));
+    }
+  });
+
+const makeCache = (
+  stores: readonly CacheStore[],
+  ttlSeconds: CacheTtlSeconds
+): Cache["Service"] => {
+  const getOrLoad: CacheService["getOrLoad"] = <A, E, R>(
+    key: string,
+    bypass: boolean,
+    load: Effect.Effect<A, E, R>
+  ): Effect.Effect<CacheLookup<A>, E, R> =>
+    Effect.gen(function* cacheGetOrLoad() {
+      if (bypass) {
+        return { status: "bypass" as const, value: yield* load };
+      }
+
+      let found:
+        | { readonly entry: CacheEntry<A>; readonly index: number }
+        | undefined;
+
+      for (const [index, store] of stores.entries()) {
+        const attempt = yield* Effect.result(store.get<A>(key));
+        if (Result.isSuccess(attempt) && attempt.success !== undefined) {
+          found = { entry: attempt.success, index };
+          break;
+        }
+      }
+
+      if (found) {
+        const now = yield* Clock.currentTimeMillis;
+        const remaining = Math.max(
+          1,
+          Math.ceil((found.entry.expiresAt - now) / 1000)
+        );
+        yield* writeBestEffort(
+          stores.slice(0, found.index),
+          key,
+          found.entry.value,
+          remaining
+        );
+        return { status: "hit" as const, value: found.entry.value };
+      }
+
+      const value = yield* load;
+      yield* writeBestEffort(stores, key, value, ttlSeconds);
+      return { status: "miss" as const, value };
+    });
+
+  return Cache.of({ getOrLoad });
+};
+
+const layerForStores = (
+  stores: readonly CacheStore[],
+  ttlSeconds: CacheTtlSeconds
+): Layer.Layer<Cache> => Layer.succeed(Cache, makeCache(stores, ttlSeconds));
+
+/** Complete isolated in-memory implementation suitable for deterministic tests. */
+export const layerMemory = (
+  ttlSeconds: CacheTtlSeconds = DEFAULT_TTL_SECONDS
+): Layer.Layer<Cache> =>
+  layerForStores([new MemoryStore(new Map())], ttlSeconds);
+
+/** Isolate-shared memory implementation used by the temporary Promise bridges. */
+export const layerIsolateMemory = (
+  ttlSeconds: CacheTtlSeconds = DEFAULT_TTL_SECONDS
+): Layer.Layer<Cache> => layerForStores([isolateMemoryStore], ttlSeconds);
+
+const layerCacheApiWithMemory = (
+  cache: MinimalCache,
+  memory: MemoryStore,
+  ttlSeconds: CacheTtlSeconds
+) =>
+  Layer.effect(
+    Cache,
+    Effect.map(makeCacheApiStore(cache), (l2) =>
+      makeCache([memory, l2], ttlSeconds)
+    )
+  );
+
+/**
+ * L1 + Cache API L2 layer that deliberately preserves its Effect Crypto
+ * requirement so composition roots can choose the platform implementation.
+ */
+export const layerCacheApiWithoutDependencies = (
+  cache: MinimalCache,
+  ttlSeconds: CacheTtlSeconds = DEFAULT_TTL_SECONDS
+) => layerCacheApiWithMemory(cache, new MemoryStore(new Map()), ttlSeconds);
+
+/** Ready L1 + Cache API L2 layer backed by the runtime Web Crypto API. */
+export const layerCacheApi = (
+  cache: MinimalCache,
+  ttlSeconds: CacheTtlSeconds = DEFAULT_TTL_SECONDS
+): Layer.Layer<Cache> =>
+  layerCacheApiWithoutDependencies(cache, ttlSeconds).pipe(
+    Layer.provide(layerWebCrypto)
+  );
+
+/**
+ * Worker composition: parse config once, keep isolate L1 state shared, and use
+ * `caches.default` as L2 when workerd exposes it.
+ */
+export const layerWorker = (env: Env): Layer.Layer<Cache> => {
+  const ttlSeconds = parseTtlSeconds(env.CACHE_TTL_SECONDS);
   const l2 = defaultCacheApi();
-  if (l2) {
-    stores.push(new CacheApiStore(l2));
+  if (!l2) {
+    return layerForStores([isolateMemoryStore], ttlSeconds);
   }
-  return { stores, ttlSeconds: parseTtlSeconds(env.CACHE_TTL_SECONDS) };
+  return layerCacheApiWithMemory(l2, isolateMemoryStore, ttlSeconds).pipe(
+    Layer.provide(layerWebCrypto)
+  );
 };
 
 export const buildCacheKey = (parts: Record<string, string | number>): string =>
   Object.entries(parts)
     .toSorted(([a], [b]) => a.localeCompare(b))
-    .map(([k, v]) => `${k}=${v}`)
+    .map(([key, value]) => `${key}=${value}`)
     .join("&");
-
-export const withCache = async <T>(
-  key: string,
-  nocache: boolean,
-  fn: () => Promise<T>,
-  config: RuntimeConfig = memoryConfig()
-): Promise<CacheLookup<T>> => {
-  if (nocache) {
-    return { status: "bypass", value: await fn() };
-  }
-
-  const findHit = async (
-    index: number
-  ): Promise<{ entry: CacheEntry<T>; index: number } | undefined> => {
-    const store = config.stores[index];
-    if (!store) {
-      return undefined;
-    }
-    const hit = await store.get<T>(key);
-    return hit === undefined ? findHit(index + 1) : { entry: hit, index };
-  };
-
-  const found = await findHit(0);
-  if (found) {
-    const remaining = Math.max(
-      1,
-      Math.ceil((found.entry.expiresAt - Date.now()) / 1000)
-    );
-    await Promise.all(
-      config.stores
-        .slice(0, found.index)
-        .map((store) => store.set(key, found.entry.value, remaining))
-    );
-    return { status: "hit", value: found.entry.value };
-  }
-
-  const value = await fn();
-  await Promise.all(
-    config.stores.map((store) => store.set(key, value, config.ttlSeconds))
-  );
-  return { status: "miss", value };
-};
 
 export const cacheControlHeader = (): string =>
   "public, max-age=0, must-revalidate";

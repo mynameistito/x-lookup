@@ -1,14 +1,14 @@
-import { Result } from "effect";
+import { Effect, Result } from "effect";
 
 import { ROOT_MARKDOWN } from "./docs.js";
 import type { Env } from "./env.js";
-import { browse, browseResponse } from "./lib/browse.js";
+import { browseEffect, browseResponse } from "./lib/browse.js";
 import type { BrowseFailure } from "./lib/browse.js";
-import { workerConfig } from "./lib/cache.js";
-import type { RuntimeConfig } from "./lib/cache.js";
+import { layerWorker } from "./lib/cache.js";
+import type { Cache } from "./lib/cache.js";
 import {
   acceptPrefersHtml,
-  convertTweet,
+  convertTweetEffect,
   markdownResponse,
 } from "./lib/converter.js";
 import type { ConvertFailure } from "./lib/converter.js";
@@ -35,6 +35,8 @@ interface ApiResponse {
   headers: Record<string, string>;
   body?: string;
 }
+
+type RoutedResponse = Effect.Effect<Response, never, Cache>;
 
 const jsonResponse = (status: number, body: ApiErrorBody): Response =>
   Response.json(body, {
@@ -79,15 +81,14 @@ const originOf = (request: Request): string =>
     protocol: new URL(request.url).protocol,
   });
 
-const handleBrowse = async (
+const handleBrowse = (
   query: URLSearchParams,
-  request: Request,
-  config: RuntimeConfig
-): Promise<Response> => {
-  const param = (key: string): string | undefined =>
-    query.get(key) ?? undefined;
-  const result = await browse(
-    {
+  request: Request
+): RoutedResponse =>
+  Effect.gen(function* handleBrowseEffect() {
+    const param = (key: string): string | undefined =>
+      query.get(key) ?? undefined;
+    const result = yield* browseEffect({
       cursor: param("cursor"),
       feed: param("feed"),
       format: param("format"),
@@ -98,37 +99,34 @@ const handleBrowse = async (
       page: param("page"),
       q: param("q"),
       resource: param("resource"),
-    },
-    config
-  );
-  if (Result.isFailure(result)) {
-    return errorResponse(result.failure);
-  }
-  const response = browseResponse(
-    result.success,
-    wantsJson(param("format"), request.headers.get("accept") ?? "")
-  );
-  return apiResponse(response);
-};
+    });
+    if (Result.isFailure(result)) {
+      return errorResponse(result.failure);
+    }
+    const response = browseResponse(
+      result.success,
+      wantsJson(param("format"), request.headers.get("accept") ?? "")
+    );
+    return apiResponse(response);
+  });
 
-const handleConvert = async (
+const handleConvert = (
   query: URLSearchParams,
-  request: Request,
-  config: RuntimeConfig
-): Promise<Response> => {
-  const param = (key: string): string | undefined =>
-    query.get(key) ?? undefined;
-  const accept = request.headers.get("accept") ?? "";
-  const userAgent = request.headers.get("user-agent") ?? "";
-  const requestedFormat = param("format");
-  const asJson = wantsJson(requestedFormat, accept);
-  const asMarkdown = wantsMarkdown(requestedFormat, accept);
-  const noExplicitFormat = !requestedFormat && !asJson && !asMarkdown;
-  const asEmbed = noExplicitFormat && isEmbedUserAgent(userAgent);
-  const asHtml = noExplicitFormat && !asEmbed && acceptPrefersHtml(accept);
+  request: Request
+): RoutedResponse =>
+  Effect.gen(function* handleConvertEffect() {
+    const param = (key: string): string | undefined =>
+      query.get(key) ?? undefined;
+    const accept = request.headers.get("accept") ?? "";
+    const userAgent = request.headers.get("user-agent") ?? "";
+    const requestedFormat = param("format");
+    const asJson = wantsJson(requestedFormat, accept);
+    const asMarkdown = wantsMarkdown(requestedFormat, accept);
+    const noExplicitFormat = !requestedFormat && !asJson && !asMarkdown;
+    const asEmbed = noExplicitFormat && isEmbedUserAgent(userAgent);
+    const asHtml = noExplicitFormat && !asEmbed && acceptPrefersHtml(accept);
 
-  const result = await convertTweet(
-    {
+    const result = yield* convertTweetEffect({
       context: param("context"),
       format: param("format"),
       full: param("full"),
@@ -139,18 +137,16 @@ const handleConvert = async (
       thread: param("thread"),
       url: param("url"),
       userinfo: param("userinfo"),
-    },
-    config
-  );
-  if (Result.isFailure(result)) {
-    return errorResponse(result.failure);
-  }
+    });
+    if (Result.isFailure(result)) {
+      return errorResponse(result.failure);
+    }
 
-  const response = asEmbed
-    ? embedResponse(result.success, { origin: originOf(request), userAgent })
-    : markdownResponse(result.success, asJson, asHtml);
-  return apiResponse(response);
-};
+    const response = asEmbed
+      ? embedResponse(result.success, { origin: originOf(request), userAgent })
+      : markdownResponse(result.success, asJson, asHtml);
+    return apiResponse(response);
+  });
 
 const handleOEmbed = (query: URLSearchParams, request: Request): Response => {
   const param = (key: string): string | undefined =>
@@ -168,24 +164,23 @@ const handleOEmbed = (query: URLSearchParams, request: Request): Response => {
 const handlePathRoutes = (
   path: string,
   query: URLSearchParams,
-  request: Request,
-  config: RuntimeConfig
-): Promise<Response> | Response | undefined => {
+  request: Request
+): RoutedResponse | undefined => {
   if (path === "/" || path === "/docs") {
-    return textResponse(ROOT_MARKDOWN);
+    return Effect.succeed(textResponse(ROOT_MARKDOWN));
   }
   if (path === "/api/browse") {
-    return handleBrowse(query, request, config);
+    return handleBrowse(query, request);
   }
   if (path === "/api/convert") {
-    return handleConvert(query, request, config);
+    return handleConvert(query, request);
   }
   if (path === "/oembed") {
-    return handleOEmbed(query, request);
+    return Effect.succeed(handleOEmbed(query, request));
   }
   if (path === "/search") {
     query.set("resource", "search");
-    return handleBrowse(query, request, config);
+    return handleBrowse(query, request);
   }
   return undefined;
 };
@@ -193,28 +188,27 @@ const handlePathRoutes = (
 const handleStatusRoutes = (
   path: string,
   query: URLSearchParams,
-  request: Request,
-  config: RuntimeConfig
-): Promise<Response> | undefined => {
+  request: Request
+): RoutedResponse | undefined => {
   const statusMatch = STATUS_ROUTE.exec(path);
   if (statusMatch) {
     query.set("handle", statusMatch[1] ?? "");
     query.set("id", statusMatch[2] ?? "");
-    return handleConvert(query, request, config);
+    return handleConvert(query, request);
   }
 
   const listMatch = LIST_ROUTE.exec(path);
   if (listMatch) {
     query.set("resource", listMatch[2] ?? "");
     query.set("handle", listMatch[1] ?? "");
-    return handleBrowse(query, request, config);
+    return handleBrowse(query, request);
   }
 
   const profileMatch = PROFILE_ROUTE.exec(path);
   if (profileMatch) {
     query.set("resource", "profile");
     query.set("handle", profileMatch[1] ?? "");
-    return handleBrowse(query, request, config);
+    return handleBrowse(query, request);
   }
   return undefined;
 };
@@ -243,16 +237,18 @@ export const handleRequest = async (
   const url = new URL(request.url);
   const path = url.pathname.replace(/\/+$/u, "") || "/";
   const query = url.searchParams;
-  const config = workerConfig(env);
+  const cacheLayer = layerWorker(env);
+  const runRoute = (route: RoutedResponse): Promise<Response> =>
+    Effect.runPromise(Effect.provide(route, cacheLayer));
 
   try {
-    const routed = handlePathRoutes(path, query, request, config);
+    const routed = handlePathRoutes(path, query, request);
     if (routed) {
-      return await routed;
+      return await runRoute(routed);
     }
-    const matched = handleStatusRoutes(path, query, request, config);
+    const matched = handleStatusRoutes(path, query, request);
     if (matched) {
-      return await matched;
+      return await runRoute(matched);
     }
   } catch (error) {
     // Expected failures arrive as typed Result values inside the handlers;

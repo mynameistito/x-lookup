@@ -1,4 +1,4 @@
-import { Result } from "effect";
+import { Effect, Result } from "effect";
 
 import {
   DEFAULT_LIMIT,
@@ -20,12 +20,12 @@ import type {
   MissingSearchQuery,
 } from "./browse-query.js";
 import {
+  Cache,
   buildCacheKey,
   cacheControlHeader,
-  memoryConfig,
-  withCache,
+  layerIsolateMemory,
 } from "./cache.js";
-import type { CacheStatus, RuntimeConfig } from "./cache.js";
+import type { CacheStatus } from "./cache.js";
 import { ConvertError } from "./errors.js";
 import {
   fetchFxConnections,
@@ -355,56 +355,64 @@ const browseUncached = async (
 };
 
 /**
- * Browse profiles, social graphs, and search as Markdown or JSON.
+ * Browse using the cache authority supplied through Effect.
  *
- * Raw query values are parsed into a {@link BrowseRequest} first; parse
- * refusals and upstream provider failures both arrive as typed failure
- * values instead of thrown exceptions.
- *
- * The cache key preserves the historical identity exactly: raw `feed`,
- * `format`, `handle`, and `q` parameter text (not the parsed values)
- * distinguish entries.
- *
- * @param input - The raw query values.
- * @param config - Cache runtime configuration.
- * @returns The browse result, or the typed failure.
+ * Only the cache seam is Effect-native here. The existing Promise-based browse
+ * orchestration stays behind the loader bridge until the application-service
+ * migration in the next issue.
  */
-export const browse = async (
-  input: BrowseInput,
-  config: RuntimeConfig = memoryConfig()
-): Promise<Result.Result<BrowseResult, BrowseFailure>> => {
-  const parsed = parseBrowseRequest(input);
-  if (Result.isFailure(parsed)) {
-    return Result.fail(parsed.failure);
-  }
-  const request = parsed.success;
-  const key = buildCacheKey({
-    cursor: input.cursor ?? "",
-    feed: input.feed ?? "",
-    format: input.format ?? "markdown",
-    full: request.full ? 1 : 0,
-    handle: input.handle ?? "",
-    limit: request.limit,
-    page: request.page,
-    q: input.q ?? "",
-    resource: request.selection._tag,
-    v: 2,
-  });
-  try {
-    const cached = await withCache(
-      key,
-      request.nocache,
-      () => browseUncached(request),
-      config
-    );
-    return Result.succeed({ ...cached.value, cache: cached.status });
-  } catch (error) {
-    if (error instanceof ConvertError) {
-      return Result.fail(error);
+export const browseEffect = (
+  input: BrowseInput
+): Effect.Effect<Result.Result<BrowseResult, BrowseFailure>, never, Cache> =>
+  Effect.gen(function* browseCached() {
+    const parsed = parseBrowseRequest(input);
+    if (Result.isFailure(parsed)) {
+      return Result.fail(parsed.failure);
     }
-    throw error;
-  }
-};
+    const request = parsed.success;
+    const key = buildCacheKey({
+      cursor: input.cursor ?? "",
+      feed: input.feed ?? "",
+      format: input.format ?? "markdown",
+      full: request.full ? 1 : 0,
+      handle: input.handle ?? "",
+      limit: request.limit,
+      page: request.page,
+      q: input.q ?? "",
+      resource: request.selection._tag,
+      v: 2,
+    });
+
+    const cache = yield* Cache;
+    const cached = yield* Effect.result(
+      cache.getOrLoad(
+        key,
+        request.nocache,
+        Effect.tryPromise({
+          catch: (cause) => cause,
+          try: () => browseUncached(request),
+        })
+      )
+    );
+    if (Result.isFailure(cached)) {
+      if (cached.failure instanceof ConvertError) {
+        return Result.fail(cached.failure);
+      }
+      return yield* Effect.die(cached.failure);
+    }
+    return Result.succeed({
+      ...cached.success.value,
+      cache: cached.success.status,
+    });
+  });
+
+const defaultCacheLayer = layerIsolateMemory();
+
+/** Temporary Promise bridge retained until browse orchestration migrates. */
+export const browse = (
+  input: BrowseInput
+): Promise<Result.Result<BrowseResult, BrowseFailure>> =>
+  Effect.runPromise(Effect.provide(browseEffect(input), defaultCacheLayer));
 
 export const browseResponse = (
   result: BrowseResult,
