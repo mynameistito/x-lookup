@@ -26,7 +26,6 @@ import {
   withCache,
 } from "./cache.js";
 import type { CacheStatus, RuntimeConfig } from "./cache.js";
-import { ConvertError } from "./errors.js";
 import {
   fetchFxConnections,
   fetchFxProfile,
@@ -35,6 +34,9 @@ import {
 } from "./fxtwitter.js";
 import type { FxAuthor, FxListResponse, FxTweet } from "./fxtwitter.js";
 import type { HeaderMap, HttpPayload } from "./http.js";
+import { isProviderFailure } from "./provider-errors.js";
+import type { ProviderFailure } from "./provider-errors.js";
+import { runProviderEffect } from "./provider-http.js";
 import { parseBrowseFlag } from "./query-flag.js";
 import { parse as parseXHandle } from "./x-handle.js";
 import type { XHandle, InvalidXHandle } from "./x-handle.js";
@@ -94,8 +96,8 @@ export type BrowseParseError =
   | InvalidXHandle
   | MissingSearchQuery;
 
-/** A browse failure: a parse refusal or an upstream provider failure. */
-export type BrowseFailure = BrowseParseError | ConvertError;
+/** A browse failure: a parse refusal or a typed upstream provider failure. */
+export type BrowseFailure = BrowseParseError | ProviderFailure;
 
 export interface BrowseResult {
   resource: BrowseResource;
@@ -305,7 +307,9 @@ const browseUncached = async (
   const { selection } = request;
   if (selection._tag === "search") {
     const list = await walkPages(request.page, request.cursor, (cursor) =>
-      searchFxStatuses(selection.query, selection.feed, cursor, request.limit)
+      runProviderEffect(
+        searchFxStatuses(selection.query, selection.feed, cursor, request.limit)
+      )
     );
     const base = {
       feed: selection.feed,
@@ -322,9 +326,9 @@ const browseUncached = async (
   const { handle } = selection;
   if (selection._tag === "profile") {
     const [profile, list] = await Promise.all([
-      fetchFxProfile(handle),
+      runProviderEffect(fetchFxProfile(handle)),
       walkPages(request.page, request.cursor, (cursor) =>
-        fetchFxProfileStatuses(handle, cursor, request.limit)
+        runProviderEffect(fetchFxProfileStatuses(handle, cursor, request.limit))
       ),
     ]);
     const posts = list.results.filter(isOriginalPost).slice(0, request.limit);
@@ -341,7 +345,9 @@ const browseUncached = async (
   }
 
   const list = await walkPages(request.page, request.cursor, (cursor) =>
-    fetchFxConnections(handle, selection._tag, cursor, request.limit)
+    runProviderEffect(
+      fetchFxConnections(handle, selection._tag, cursor, request.limit)
+    )
   );
   const base = {
     handle,
@@ -399,7 +405,7 @@ export const browse = async (
     );
     return Result.succeed({ ...cached.value, cache: cached.status });
   } catch (error) {
-    if (error instanceof ConvertError) {
+    if (isProviderFailure(error)) {
       return Result.fail(error);
     }
     throw error;
