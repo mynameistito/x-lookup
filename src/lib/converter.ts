@@ -2,7 +2,7 @@ import { Context, Effect, Layer, Result } from "effect";
 
 import { Cache, buildCacheKey, cacheControlHeader } from "./cache.js";
 import type { CacheStatus } from "./cache.js";
-import type { FxTweet } from "./fxtwitter.js";
+import type { FxTweet } from "./fxtwitter-types.js";
 import type { HeaderMap, HttpPayload } from "./http.js";
 import { renderThreadMarkdown } from "./markdown.js";
 import { parse as parseOutputFormat } from "./output-format.js";

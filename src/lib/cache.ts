@@ -178,11 +178,6 @@ export const layerMemory = (
 ): Layer.Layer<Cache> =>
   layerForStores([new MemoryStore(new Map())], ttlSeconds);
 
-/** Isolate-shared memory implementation used by the temporary Promise bridges. */
-export const layerIsolateMemory = (
-  ttlSeconds: CacheTtlSeconds = DEFAULT_TTL_SECONDS
-): Layer.Layer<Cache> => layerForStores([isolateMemoryStore], ttlSeconds);
-
 const layerCacheApiWithMemory = (
   cache: MinimalCache,
   memory: MemoryStore,

@@ -1,6 +1,6 @@
 import { Context, Effect, Layer, Result } from "effect";
 
-import type { FxReplyRanking, FxTweet } from "./fxtwitter.js";
+import type { FxReplyRanking, FxTweet } from "./fxtwitter-types.js";
 import type { PostId } from "./post-id.js";
 import type {
   FxTwitterFailure,

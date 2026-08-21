@@ -7,7 +7,7 @@ import {
   layerConversionWithoutDependencies,
   markdownResponse,
 } from "../lib/converter.js";
-import type { FxTweet } from "../lib/fxtwitter.js";
+import type { FxTweet } from "../lib/fxtwitter-types.js";
 import { PostLookup } from "../lib/tweet-fetch.js";
 import type { FetchResult, PostLookupService } from "../lib/tweet-fetch.js";
 

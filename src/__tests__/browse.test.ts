@@ -8,7 +8,11 @@ import {
   layerBrowseWithoutDependencies,
 } from "../lib/browse.js";
 import { layerMemory } from "../lib/cache.js";
-import type { FxAuthor, FxListResponse, FxTweet } from "../lib/fxtwitter.js";
+import type {
+  FxAuthor,
+  FxListResponse,
+  FxTweet,
+} from "../lib/fxtwitter-types.js";
 import { FxTwitterSearchUnavailableError } from "../lib/provider-errors.js";
 import { FxTwitter } from "../lib/provider-service.js";
 import type { FxTwitterService } from "../lib/provider-service.js";

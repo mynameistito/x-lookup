@@ -4,7 +4,7 @@ import type {
   FxMedia,
   FxMediaItem,
   FxTweet,
-} from "./fxtwitter.js";
+} from "./fxtwitter-types.js";
 import type { OutputFormat } from "./output-format.js";
 import type { UserinfoLevel } from "./query-modes.js";
 

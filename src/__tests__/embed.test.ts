@@ -13,7 +13,7 @@ import {
   socialProof,
   supportsNativeMultiImage,
 } from "../lib/embed.js";
-import type { FxTweet } from "../lib/fxtwitter.js";
+import type { FxTweet } from "../lib/fxtwitter-types.js";
 
 const photoTweet: FxTweet = {
   author: {
