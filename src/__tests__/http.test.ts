@@ -5,7 +5,7 @@ import {
   requestOrigin,
   wantsJson,
   wantsMarkdown,
-} from "../lib/http.js";
+} from "@/lib/http.ts";
 
 describe(requestOrigin, () => {
   test("uses the request host for the production and local hosts", () => {

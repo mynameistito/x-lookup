@@ -11,8 +11,8 @@ import type {
   CacheEntry,
   CacheStore,
   CacheStoreOperation,
-} from "./cache-store.js";
-import { CacheStoreError } from "./cache-store.js";
+} from "@/lib/cache-store.ts";
+import { CacheStoreError } from "@/lib/cache-store.ts";
 
 const CACHE_PREFIX = "https://x-lookup.cache/__cache";
 

@@ -6,11 +6,11 @@ import type {
   FxListResponse,
   FxReplyRanking,
   FxTweet,
-} from "./fxtwitter-types.js";
+} from "@/lib/fxtwitter-types.ts";
 import type {
   FxTwitterFailure,
   SyndicationFailure,
-} from "./provider-errors.js";
+} from "@/lib/provider-errors.ts";
 
 export interface FxTwitterService {
   readonly fetchConnections: (

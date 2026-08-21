@@ -1,7 +1,7 @@
 import { Option } from "effect";
 import { describe, expect, test } from "vitest";
 
-import { digitsOf, parse } from "../lib/post-id.js";
+import { digitsOf, parse } from "@/lib/post-id.ts";
 
 describe(parse, () => {
   test.each([

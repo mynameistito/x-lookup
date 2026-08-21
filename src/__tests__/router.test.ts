@@ -2,22 +2,22 @@ import { Effect, Layer } from "effect";
 import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 import { describe, expect, test } from "vitest";
 
-import { Browse, layerBrowseWithoutDependencies } from "../lib/browse.js";
-import { layerMemory } from "../lib/cache.js";
+import { Browse, layerBrowseWithoutDependencies } from "@/lib/browse.ts";
+import { layerMemory } from "@/lib/cache.ts";
 import {
   Conversion,
   layerConversionWithoutDependencies,
-} from "../lib/converter.js";
-import type { FxAuthor, FxTweet } from "../lib/fxtwitter-types.js";
-import { FxTwitterSearchUnavailableError } from "../lib/provider-errors.js";
-import { FxTwitter, Syndication } from "../lib/provider-service.js";
+} from "@/lib/converter.ts";
+import type { FxAuthor, FxTweet } from "@/lib/fxtwitter-types.ts";
+import { FxTwitterSearchUnavailableError } from "@/lib/provider-errors.ts";
+import { FxTwitter, Syndication } from "@/lib/provider-service.ts";
 import type {
   FxTwitterService,
   SyndicationService,
-} from "../lib/provider-service.js";
-import { layerPostLookupWithoutDependencies } from "../lib/tweet-fetch.js";
-import { makeHttpApplication } from "../router.js";
-import type { HttpApplicationServices } from "../router.js";
+} from "@/lib/provider-service.ts";
+import { layerPostLookupWithoutDependencies } from "@/lib/tweet-fetch.ts";
+import { makeHttpApplication } from "@/router.ts";
+import type { HttpApplicationServices } from "@/router.ts";
 
 interface ProviderCalls {
   readonly connections: {

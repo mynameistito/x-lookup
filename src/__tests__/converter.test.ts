@@ -1,15 +1,15 @@
 import { Effect, Layer, Result } from "effect";
 import { describe, expect, test } from "vitest";
 
-import { layerMemory } from "../lib/cache.js";
+import { layerMemory } from "@/lib/cache.ts";
 import {
   convertTweetEffect,
   layerConversionWithoutDependencies,
   markdownResponse,
-} from "../lib/converter.js";
-import type { FxTweet } from "../lib/fxtwitter-types.js";
-import { PostLookup } from "../lib/tweet-fetch.js";
-import type { FetchResult, PostLookupService } from "../lib/tweet-fetch.js";
+} from "@/lib/converter.ts";
+import type { FxTweet } from "@/lib/fxtwitter-types.ts";
+import { PostLookup } from "@/lib/tweet-fetch.ts";
+import type { FetchResult, PostLookupService } from "@/lib/tweet-fetch.ts";
 
 const validUrl = "https://x.com/testuser/status/1234567890";
 

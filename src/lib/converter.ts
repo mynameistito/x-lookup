@@ -1,14 +1,18 @@
 import { Context, Effect, Layer, Result } from "effect";
 
-import { Cache, buildCacheKey, cacheControlHeader } from "./cache.js";
-import type { CacheStatus } from "./cache.js";
-import type { FxTweet } from "./fxtwitter-types.js";
-import type { HeaderMap, HttpPayload } from "./http.js";
-import { renderThreadMarkdown } from "./markdown.js";
-import { parse as parseOutputFormat } from "./output-format.js";
-import type { InvalidOutputFormat, OutputFormat } from "./output-format.js";
-import { parseConvertFlag } from "./query-flag.js";
-import { parseContext, parseReplies, parseUserinfo } from "./query-modes.js";
+import { Cache, buildCacheKey, cacheControlHeader } from "@/lib/cache.ts";
+import type { CacheStatus } from "@/lib/cache.ts";
+import type { FxTweet } from "@/lib/fxtwitter-types.ts";
+import type { HeaderMap, HttpPayload } from "@/lib/http.ts";
+import { renderThreadMarkdown } from "@/lib/markdown.ts";
+import { parse as parseOutputFormat } from "@/lib/output-format.ts";
+import type { InvalidOutputFormat, OutputFormat } from "@/lib/output-format.ts";
+import { parseConvertFlag } from "@/lib/query-flag.ts";
+import {
+  parseContext,
+  parseReplies,
+  parseUserinfo,
+} from "@/lib/query-modes.ts";
 import type {
   ContextMode,
   InvalidContext,
@@ -16,13 +20,13 @@ import type {
   InvalidUserinfo,
   RepliesMode,
   UserinfoLevel,
-} from "./query-modes.js";
-import { resolve } from "./status-target.js";
-import type { ResolveError, StatusTarget } from "./status-target.js";
-import { parse as parseThreadSelection } from "./thread-selection.js";
-import type { InvalidThread, ThreadSelection } from "./thread-selection.js";
-import { PostLookup } from "./tweet-fetch.js";
-import type { FetchSource, PostLookupFailure } from "./tweet-fetch.js";
+} from "@/lib/query-modes.ts";
+import { resolve } from "@/lib/status-target.ts";
+import type { ResolveError, StatusTarget } from "@/lib/status-target.ts";
+import { parse as parseThreadSelection } from "@/lib/thread-selection.ts";
+import type { InvalidThread, ThreadSelection } from "@/lib/thread-selection.ts";
+import { PostLookup } from "@/lib/tweet-fetch.ts";
+import type { FetchSource, PostLookupFailure } from "@/lib/tweet-fetch.ts";
 
 /** Raw, untrusted convert query values exactly as they arrive from HTTP. */
 export interface ConvertInput {

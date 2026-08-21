@@ -9,7 +9,7 @@ import {
   StatusUrlPathInvalid,
   StatusTargetInvalid,
   StatusTargetMissing,
-} from "../lib/status-target.js";
+} from "@/lib/status-target.ts";
 
 const succeedTarget = (
   result: ReturnType<typeof parseStatusUrl> | ReturnType<typeof resolve>
