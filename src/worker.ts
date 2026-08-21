@@ -17,9 +17,13 @@ import {
 import { layerPostLookupWithoutDependencies } from "./lib/tweet-fetch.js";
 import { makeHttpApplication } from "./router.js";
 
-const WORKER_ENV: { CACHE_TTL_SECONDS: string } = {
+interface WorkerEnvBindings {
+  readonly CACHE_TTL_SECONDS: string;
+}
+
+const WORKER_ENV = {
   CACHE_TTL_SECONDS: "3600",
-};
+} satisfies WorkerEnvBindings;
 
 /**
  * Production composition root for application capabilities.
