@@ -5,7 +5,7 @@ agents. Statuses and threads, profiles, search, followers/following — served a
 compact Markdown by default, structured JSON on request, Open Graph HTML for
 chat-app preview bots, plus an oEmbed endpoint.
 
-Hosted at [https://x.mynameistito.com](https://x.mynameistito.com) as a single
+Hosted at [https://x-lookup.mynameistito.com](https://x-lookup.mynameistito.com) as a single
 Cloudflare Worker. No database, no login, no API keys — the only upstreams are
 the free FxTwitter API and Twitter's syndication endpoint.
 
@@ -13,18 +13,18 @@ the free FxTwitter API and Twitter's syndication endpoint.
 
 ## Quick start
 
-Replace `x.com` with `x.mynameistito.com` on any public status URL:
+Replace `x.com` with `x-lookup.mynameistito.com` on any public status URL:
 
 ```text
 https://x.com/handle/status/1234567890
-https://x.mynameistito.com/handle/status/1234567890
+https://x-lookup.mynameistito.com/handle/status/1234567890
 ```
 
 ```bash
 curl -sS -H 'Accept: text/markdown' \
-  'https://x.mynameistito.com/handle/status/1234567890'
+  'https://x-lookup.mynameistito.com/handle/status/1234567890'
 
-curl -sS -G 'https://x.mynameistito.com/api/convert' \
+curl -sS -G 'https://x-lookup.mynameistito.com/api/convert' \
   --data-urlencode 'url=https://x.com/handle/status/1234567890'
 ```
 
@@ -91,7 +91,7 @@ bun install
 bun run dev        # wrangler dev on http://localhost:8787
 bun run test       # vitest
 bun run typecheck  # tsc --noEmit
-bun run deploy     # wrangler deploy (attaches x.mynameistito.com)
+bun run deploy     # wrangler deploy (attaches x-lookup.mynameistito.com)
 ```
 
 Configuration lives in `wrangler.jsonc`. The only var is `CACHE_TTL_SECONDS`

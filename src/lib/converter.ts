@@ -46,7 +46,7 @@ const ALLOWED_HOSTS = new Set([
   'twitter.com',
   'www.twitter.com',
   'mobile.twitter.com',
-  'x.mynameistito.com',
+  'x-lookup.mynameistito.com',
 ])
 const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1'])
 const STATUS_PATH = /^\/([^/?#]+)\/status\/(\d+)\/?$/

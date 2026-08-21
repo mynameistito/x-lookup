@@ -81,7 +81,7 @@ describe('output selection', () => {
   })
 
   test('accepts the production host and workers.dev previews as input URLs', async () => {
-    await expect(convertTweet({ url: 'https://x.mynameistito.com/ada/status/5' })).resolves.toBeDefined()
+    await expect(convertTweet({ url: 'https://x-lookup.mynameistito.com/ada/status/5' })).resolves.toBeDefined()
     await expect(convertTweet({ url: 'https://x-lookup.someone.workers.dev/ada/status/5' })).resolves.toBeDefined()
   })
 })

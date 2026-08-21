@@ -61,7 +61,7 @@ Example:
 
 \`\`\`bash
 curl -sS -H 'Accept: text/markdown' \\
-  'https://x.mynameistito.com/handle/status/1234567890?full=true'
+  'https://x-lookup.mynameistito.com/handle/status/1234567890?full=true'
 \`\`\`
 
 JSON output contains the rendered \`markdown\`, structured \`posts\`, \`warnings\`,
@@ -87,7 +87,7 @@ Prefer the opaque cursor from the Markdown \`Continue →\` link or JSON
 Example:
 
 \`\`\`bash
-curl -sS -G 'https://x.mynameistito.com/search' \\
+curl -sS -G 'https://x-lookup.mynameistito.com/search' \\
   --data-urlencode 'q=from:handle release' --data-urlencode 'feed=latest'
 \`\`\`
 

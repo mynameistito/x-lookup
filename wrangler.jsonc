@@ -12,7 +12,7 @@
   },
   "routes": [
     {
-      "pattern": "x.mynameistito.com",
+      "pattern": "x-lookup.mynameistito.com",
       "custom_domain": true
     }
   ]

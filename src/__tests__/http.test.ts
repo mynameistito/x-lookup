@@ -5,9 +5,9 @@ describe('requestOrigin', () => {
   test('uses the request host for the production and local hosts', () => {
     expect(
       requestOrigin({
-        headers: { 'x-forwarded-proto': 'https', host: 'x.mynameistito.com' },
+        headers: { 'x-forwarded-proto': 'https', host: 'x-lookup.mynameistito.com' },
       }),
-    ).toBe('https://x.mynameistito.com')
+    ).toBe('https://x-lookup.mynameistito.com')
     expect(
       requestOrigin({
         headers: { host: 'localhost:8787' },
@@ -25,9 +25,9 @@ describe('requestOrigin', () => {
   test('ignores a forged forwarded host', () => {
     expect(
       requestOrigin({
-        headers: { 'x-forwarded-host': 'evil.example', host: 'x.mynameistito.com' },
+        headers: { 'x-forwarded-host': 'evil.example', host: 'x-lookup.mynameistito.com' },
       }),
-    ).toBe('https://x.mynameistito.com')
+    ).toBe('https://x-lookup.mynameistito.com')
   })
 
   test('falls back to the hosted origin for unknown hosts', () => {

@@ -109,7 +109,7 @@ describe('counts and description', () => {
 describe('embed HTML', () => {
   test('Discord gets repeated og:image tags and oEmbed discovery on the request origin', () => {
     const html = buildEmbedHtml(photoTweet, {
-      origin: 'https://x.mynameistito.com',
+      origin: 'https://x-lookup.mynameistito.com',
       userAgent: 'Discordbot/2.0',
     })
     expect(html).toContain('og:title" content="Nathan (@nthglsn)"')
@@ -118,12 +118,12 @@ describe('embed HTML', () => {
     expect(html).toContain('og:image" content="https://pbs.twimg.com/one.jpg"')
     expect(html).toContain('og:image" content="https://pbs.twimg.com/two.jpg"')
     expect(html).toContain('og:site_name" content="x-lookup"')
-    expect(html).toContain('rel="alternate" type="application/json+oembed" href="https://x.mynameistito.com/oembed?url=')
+    expect(html).toContain('rel="alternate" type="application/json+oembed" href="https://x-lookup.mynameistito.com/oembed?url=')
   })
 
   test('non-Discord UAs fall back to the mosaic for multi-photo posts', () => {
     const html = buildEmbedHtml(photoTweet, {
-      origin: 'https://x.mynameistito.com',
+      origin: 'https://x-lookup.mynameistito.com',
       userAgent: 'TelegramBot (like TwitterBot)',
     })
     expect(html.match(/og:image/g)).toHaveLength(1)
@@ -149,7 +149,7 @@ describe('embed HTML', () => {
         }],
       },
     }
-    const html = buildEmbedHtml(videoTweet, { origin: 'https://x.mynameistito.com', userAgent: 'TelegramBot' })
+    const html = buildEmbedHtml(videoTweet, { origin: 'https://x-lookup.mynameistito.com', userAgent: 'TelegramBot' })
     expect(html).toContain('twitter:card" content="player"')
     expect(html).toContain('twitter:player:stream" content="https://video/high.mp4"')
     expect(html).toContain('og:video:type" content="video/mp4"')
@@ -157,7 +157,7 @@ describe('embed HTML', () => {
   })
 
   test('escapes HTML-sensitive characters in titles and descriptions', () => {
-    const html = buildEmbedHtml(quoted, { origin: 'https://x.mynameistito.com' })
+    const html = buildEmbedHtml(quoted, { origin: 'https://x-lookup.mynameistito.com' })
     expect(html).toContain('og:description" content="hello &lt;world&gt; &amp; &quot;friends&quot;\nQuoting Grace (@hopper)')
     expect(html).toContain('og:title" content="Ada (@ada)"')
   })
@@ -177,7 +177,7 @@ describe('embed and oembed responses', () => {
   }
 
   test('embed responses carry embed headers and cache status', () => {
-    const response = embedResponse(success, { origin: 'https://x.mynameistito.com', userAgent: 'Discordbot/2.0' })
+    const response = embedResponse(success, { origin: 'https://x-lookup.mynameistito.com', userAgent: 'Discordbot/2.0' })
     expect(response.status).toBe(200)
     expect(response.headers).toMatchObject({
       'Content-Type': 'text/html; charset=utf-8',
@@ -188,17 +188,17 @@ describe('embed and oembed responses', () => {
   })
 
   test('embed responses 404 when no focal post exists', () => {
-    const response = embedResponse({ ...success, posts: [] }, { origin: 'https://x.mynameistito.com' })
+    const response = embedResponse({ ...success, posts: [] }, { origin: 'https://x-lookup.mynameistito.com' })
     expect(response.status).toBe(404)
     expect(JSON.parse(response.body)).toMatchObject({ code: 'not_found' })
   })
 
   test('oembed payloads derive identity from the URL and allow overrides', () => {
-    const payload = oembedPayload({ url: 'https://x.com/ada/status/123' }, 'https://x.mynameistito.com')
+    const payload = oembedPayload({ url: 'https://x.com/ada/status/123' }, 'https://x-lookup.mynameistito.com')
     expect(payload).toMatchObject({
       author_url: 'https://x.com/ada/status/123',
       provider_name: 'x-lookup',
-      provider_url: 'https://x.mynameistito.com',
+      provider_url: 'https://x-lookup.mynameistito.com',
       type: 'link',
       version: '1.0',
     })
@@ -209,7 +209,7 @@ describe('embed and oembed responses', () => {
       provider: '💬 12   ❤️ 40',
       author: 'grace',
       status: '999',
-    }, 'https://x.mynameistito.com')
+    }, 'https://x-lookup.mynameistito.com')
     expect(overridden).toMatchObject({
       author_name: '💬 12   ❤️ 40',
       provider_name: '💬 12   ❤️ 40',
@@ -219,7 +219,7 @@ describe('embed and oembed responses', () => {
   })
 
   test('oembed responses are cacheable JSON with open CORS', () => {
-    const response = oembedResponse({ url: 'https://x.com/ada/status/123' }, 'https://x.mynameistito.com')
+    const response = oembedResponse({ url: 'https://x.com/ada/status/123' }, 'https://x-lookup.mynameistito.com')
     expect(response.status).toBe(200)
     expect(response.headers['Content-Type']).toContain('application/json')
     expect(response.headers['Access-Control-Allow-Origin']).toBe('*')

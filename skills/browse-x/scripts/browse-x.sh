@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-X_API_BASE="${X_API_BASE:-${X_MD_API_BASE:-https://x.mynameistito.com}}"
+X_API_BASE="${X_API_BASE:-${X_MD_API_BASE:-https://x-lookup.mynameistito.com}}"
 
 usage() {
   cat >&2 <<'EOF'
@@ -19,7 +19,7 @@ Status: --thread off|full|conversation|2-100, --userinfo off|author|all,
         --context full|thread, --replies top|recent|off
 Other:  --nocache, --help
 
-X_API_BASE overrides https://x.mynameistito.com.
+X_API_BASE overrides https://x-lookup.mynameistito.com.
 EOF
   exit "${1:-2}"
 }

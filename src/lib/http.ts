@@ -1,6 +1,6 @@
-export const DEFAULT_ORIGIN = 'https://x.mynameistito.com'
+export const DEFAULT_ORIGIN = 'https://x-lookup.mynameistito.com'
 
-const KNOWN_HOSTS = new Set(['x.mynameistito.com', 'localhost', '127.0.0.1'])
+const KNOWN_HOSTS = new Set(['x-lookup.mynameistito.com', 'localhost', '127.0.0.1'])
 
 export interface OriginRequest {
   headers: {

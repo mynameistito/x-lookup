@@ -2,14 +2,14 @@
 name: browse-x
 description: >-
   Reads public X (Twitter) statuses and conversations, profiles, search results,
-  followers, and following through x.mynameistito.com. Use when an agent needs X
+  followers, and following through x-lookup.mynameistito.com. Use when an agent needs X
   content as compact or full Markdown or JSON without cloning a repository.
 allowed-tools:
   - Bash(skills/browse-x/scripts/browse-x.sh *)
-  - Bash(curl *x.mynameistito.com*)
+  - Bash(curl *x-lookup.mynameistito.com*)
 ---
 
-# Browse X through x.mynameistito.com
+# Browse X through x-lookup.mynameistito.com
 
 Use the hosted, read-only API. It needs no repository checkout, install, X
 login, cookies, or API key. Only public X content is available.
@@ -33,13 +33,13 @@ author chain, or `--replies recent|off` to change reply inclusion.
 The equivalent API request is:
 
 ```bash
-curl -sS -G "https://x.mynameistito.com/api/convert" \
+curl -sS -G "https://x-lookup.mynameistito.com/api/convert" \
   --data-urlencode "url=https://x.com/handle/status/1234567890" \
   --data-urlencode "thread=full" -H "Accept: text/markdown"
 ```
 
 Direct status rewrites also work at
-`https://x.mynameistito.com/:handle/status/:id`.
+`https://x-lookup.mynameistito.com/:handle/status/:id`.
 
 ## Browse profiles and people
 
