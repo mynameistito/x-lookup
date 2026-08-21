@@ -4,9 +4,11 @@
 
 - Install: `bun install`
 - Test: `bun run test` (vitest, files in `src/__tests__/*.test.ts`)
-- Typecheck: `bun run typecheck` (`tsc --noEmit`)
+- Typecheck: `bun run typecheck` (`tsc --noEmit`; includes `alchemy.run.ts`)
+- Lint/format: `bun run check` / `bun run fix` (Ultracite)
 - Local dev: `bun run dev` (wrangler dev, no login required for local mode)
 - Deploy: `bun run deploy` (requires Cloudflare auth; attaches custom domain `x-lookup.mynameistito.com`)
+- Alchemy stack validation: `bun run alchemy:check` (credential-free; loads and constructs `alchemy.run.ts` under vitest)
 
 ## Architecture
 
@@ -23,3 +25,11 @@
 
 - Bun only. TypeScript strict; no default exports unless required by the Workers runtime.
 - Tests colocated under `src/__tests__/` with `.test.ts` suffix.
+
+## Alchemy foundation (transitional)
+
+- `alchemy.run.ts` models the production deployment with Alchemy v2 + Effect v4 RC: Worker logical id and physical name `x-lookup`, entrypoint `src/worker.ts`, compatibility date `2026-08-01`, observability enabled, `CACHE_TTL_SECONDS=3600`, custom domain `x-lookup.mynameistito.com`.
+- It is NOT the active deployment path yet. `wrangler.jsonc` + `bun run deploy` remain authoritative until the deployment cutover issue lands. Do not run `alchemy deploy`/`plan` before then: the stack pins the physical script name `x-lookup` for prod parity, so per-stage isolation (staging/PR names) does not exist yet.
+- Credential-free validation only: `bun run typecheck` covers the stack and `bun run alchemy:check` constructs it without contacting Cloudflare. `alchemy plan`/`deploy`/`dev` require Cloudflare credentials plus interactive consent — never wire them into PR CI.
+- Dependency pairing: Alchemy 2.x peer-requires Effect `>=4.0.0-beta.105`. Keep `effect`, `@effect/platform-bun`, and `@effect/platform-node` on the same Effect 4 RC that the alchemy repo pins, and bump them together with `alchemy`.
+- The default export of `alchemy.run.ts` is required by the Alchemy CLI; everything else uses named exports.

@@ -8,6 +8,7 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
+    "alchemy:check": "vitest --run src/__tests__/alchemy-stack.test.ts",
     "test": "vitest --run",
     "typecheck": "tsc --noEmit",
     "check": "ultracite check",
@@ -16,7 +17,11 @@
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260821.1",
+    "@effect/platform-bun": "4.0.0-rc.111",
+    "@effect/platform-node": "4.0.0-rc.111",
     "@typescript/native": "npm:typescript@^7.0.2",
+    "alchemy": "2.0.0-beta.72",
+    "effect": "4.0.0-rc.111",
     "eslint-plugin-github": "6.1.2",
     "eslint-plugin-sonarjs": "^4.2.0",
     "lefthook": "^2.1.10",
