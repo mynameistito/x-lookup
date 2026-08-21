@@ -1,4 +1,5 @@
-import { ConvertError } from "./errors.js";
+import { Effect } from "effect";
+
 import {
   fetchFxConversationReplies,
   fetchFxFullThread,
@@ -6,6 +7,9 @@ import {
 } from "./fxtwitter.js";
 import type { FxReplyRanking, FxTweet } from "./fxtwitter.js";
 import type { PostId } from "./post-id.js";
+import type { ProviderFailure } from "./provider-errors.js";
+import { runProviderEffect } from "./provider-http.js";
+import type { ProviderEffect } from "./provider-http.js";
 import type { ContextMode, RepliesMode } from "./query-modes.js";
 import { fetchSyndicationStatus } from "./syndication.js";
 
@@ -77,105 +81,123 @@ const focalAuthorThread = (
 const fetchStatusWithFallback = (
   handle: string,
   id: string
-): Promise<FetchResult> => {
-  const attempts: (() => Promise<FetchResult>)[] = [
-    async () => ({ source: "fxtwitter", tweets: [await fetchFxStatus(id)] }),
-    async () => ({
-      source: "syndication",
-      tweets: [await fetchSyndicationStatus(handle, id)],
-    }),
+): ProviderEffect<FetchResult, ProviderFailure> => {
+  const attempts: ReadonlyArray<
+    ProviderEffect<FetchResult, ProviderFailure>
+  > = [
+    fetchFxStatus(id).pipe(
+      Effect.map((tweet) => ({ source: "fxtwitter" as const, tweets: [tweet] }))
+    ),
+    fetchSyndicationStatus(handle, id).pipe(
+      Effect.map((tweet) => ({ source: "syndication" as const, tweets: [tweet] }))
+    ),
   ];
 
-  const run = async (
+  const run = (
     index: number,
-    notFound?: ConvertError,
-    lastError?: ConvertError
-  ): Promise<FetchResult> => {
+    notFound?: ProviderFailure,
+    lastError?: ProviderFailure
+  ): ProviderEffect<FetchResult, ProviderFailure> => {
     const attempt = attempts[index];
     if (!attempt) {
-      throw (
-        notFound ??
-        lastError ??
-        new ConvertError(
-          502,
-          "All fetch providers failed.",
-          "all_providers_failed"
-        )
-      );
-    }
-    try {
-      return await attempt();
-    } catch (error) {
-      if (error instanceof ConvertError && error.code === "private_tweet") {
-        throw error;
+      if (notFound) {
+        return Effect.fail(notFound);
       }
-      // Prefer a truthful "missing" verdict from any provider over later
-      // upstream failures when everything else failed.
-      const nextNotFound =
-        notFound ??
-        (error instanceof ConvertError && error.status === 404
-          ? error
-          : undefined);
-      return run(
-        index + 1,
-        nextNotFound,
-        error instanceof ConvertError ? error : lastError
-      );
+      if (lastError) {
+        return Effect.fail(lastError);
+      }
+      return Effect.dieMessage("Provider fallback exhausted without an attempt");
     }
+
+    return attempt.pipe(
+      Effect.catch((error) => {
+        if (error.code === "private_tweet") {
+          return Effect.fail(error);
+        }
+        // Prefer a truthful "missing" verdict from any provider over later
+        // upstream failures when everything else failed.
+        const nextNotFound =
+          notFound ?? (error.status === 404 ? error : undefined);
+        return run(index + 1, nextNotFound, error);
+      })
+    );
   };
 
   return run(0);
 };
 
 /**
- * Fetch the posts for a resolved status target.
+ * Effect-native fetch policy for a resolved status target.
  *
- * @param handle - The target handle token (used for the syndication fallback).
- * @param id - The parsed numeric post id.
- * @param threadMode - Whether to assemble the full thread or only the focal post.
- * @param contextMode - How much conversation context to include.
- * @param repliesMode - Which replies to accompany the focal post with.
+ * The policy is intentionally unchanged: FxTwitter is authoritative first,
+ * syndication is the single-status fallback, private posts short-circuit, and
+ * reply context remains additive.
  */
-export const fetchPosts = async (
+export const fetchPostsEffect = (
   handle: string,
   id: PostId,
   threadMode: "off" | "full",
   contextMode: ContextMode = "full",
   repliesMode: RepliesMode = "top"
-): Promise<FetchResult> => {
+): ProviderEffect<FetchResult, ProviderFailure> => {
   if (threadMode === "off") {
-    const result = await fetchStatusWithFallback(handle, id);
-    return { ...result, tweets: annotateAndDedupe(result.tweets, id, []) };
+    return fetchStatusWithFallback(handle, id).pipe(
+      Effect.map((result) => ({
+        ...result,
+        tweets: annotateAndDedupe(result.tweets, id, []),
+      }))
+    );
   }
 
-  try {
-    const assembledThread = await fetchFxFullThread(id);
+  const fromFxTwitter = Effect.gen(function* () {
+    const assembledThread = yield* fetchFxFullThread(id);
     const thread =
       contextMode === "thread"
         ? focalAuthorThread(assembledThread, id, handle)
         : assembledThread;
     if (repliesMode === "off" || contextMode === "thread") {
-      return { source: "fxtwitter", tweets: annotateAndDedupe(thread, id, []) };
+      return {
+        source: "fxtwitter" as const,
+        tweets: annotateAndDedupe(thread, id, []),
+      };
     }
 
-    let replies: FxTweet[] = [];
-    try {
-      const ranking: FxReplyRanking =
-        repliesMode === "recent" ? "recency" : "likes";
-      replies = (await fetchFxConversationReplies(id, ranking, 10)) ?? [];
-    } catch {
-      // Reply context is additive; preserve the existing thread/provider behavior.
-    }
+    const ranking: FxReplyRanking =
+      repliesMode === "recent" ? "recency" : "likes";
+    const replies = yield* fetchFxConversationReplies(id, ranking, 10).pipe(
+      Effect.catch(() => Effect.succeed<FxTweet[]>([]))
+    );
     return {
-      source: "fxtwitter",
+      source: "fxtwitter" as const,
       tweets: annotateAndDedupe(thread, id, replies),
     };
-  } catch (error) {
-    if (error instanceof ConvertError && error.code === "private_tweet") {
-      throw error;
-    }
-  }
+  });
 
-  const result = await fetchStatusWithFallback(handle, id);
-  return { ...result, tweets: annotateAndDedupe(result.tweets, id, []) };
+  return fromFxTwitter.pipe(
+    Effect.catch((error) =>
+      error.code === "private_tweet"
+        ? Effect.fail(error)
+        : fetchStatusWithFallback(handle, id).pipe(
+            Effect.map((result) => ({
+              ...result,
+              tweets: annotateAndDedupe(result.tweets, id, []),
+            }))
+          )
+    )
+  );
 };
+
+/**
+ * Promise-facing compatibility entrypoint used by the existing cache/rendering
+ * application layer. Provider I/O itself remains inside the typed Effect.
+ */
+export const fetchPosts = (
+  handle: string,
+  id: PostId,
+  threadMode: "off" | "full",
+  contextMode: ContextMode = "full",
+  repliesMode: RepliesMode = "top"
+): Promise<FetchResult> =>
+  runProviderEffect(
+    fetchPostsEffect(handle, id, threadMode, contextMode, repliesMode)
+  );
