@@ -17,8 +17,7 @@ upstreams are the free FxTwitter API and Twitter's syndication endpoint.
 Swap \`x.com\` for this host on any public status URL:
 
 \`\`\`
-https://x.com/handle/status/1234567890
-→ https://x-lookup.mynameistito.com/handle/status/1234567890
+https://x.com/handle/status/1234567890 → https://x-lookup.mynameistito.com/handle/status/1234567890
 \`\`\`
 
 \`\`\`bash
