@@ -1,14 +1,17 @@
+import { Result } from "effect";
+
 import { ROOT_MARKDOWN } from "./docs.js";
 import type { Env } from "./env.js";
 import { browse, browseResponse } from "./lib/browse.js";
 import { workerConfig } from "./lib/cache.js";
 import type { RuntimeConfig } from "./lib/cache.js";
 import {
-  ConvertError,
   acceptPrefersHtml,
   convertTweet,
   markdownResponse,
 } from "./lib/converter.js";
+import type { ConvertFailure } from "./lib/converter.js";
+import type { BrowseFailure } from "./lib/browse.js";
 import {
   embedResponse,
   isEmbedUserAgent,
@@ -60,13 +63,18 @@ const textResponse = (body: string): Response =>
     status: 200,
   });
 
-const fail = (error: ConvertError | Error): Response => {
-  if (error instanceof ConvertError) {
-    return jsonResponse(error.status, {
-      code: error.code,
-      error: error.message,
-    });
-  }
+/**
+ * Render an expected failure onto the external HTTP error contract:
+ * JSON `{ "error", "code" }` with the failure's truthful status.
+ */
+const errorResponse = (failure: ConvertFailure | BrowseFailure): Response =>
+  jsonResponse(failure.status, {
+    code: failure.code,
+    error: failure.message,
+  });
+
+/** Defects never reach clients with details; log and answer a truthful 500. */
+const defectResponse = (error: unknown): Response => {
   console.error(error);
   return jsonResponse(500, {
     code: "internal_error",
@@ -102,8 +110,11 @@ const handleBrowse = async (
     },
     config
   );
+  if (Result.isFailure(result)) {
+    return errorResponse(result.failure);
+  }
   const response = browseResponse(
-    result,
+    result.success,
     wantsJson(param("format"), request.headers.get("accept") ?? "")
   );
   return apiResponse(response);
@@ -128,7 +139,7 @@ const handleConvert = async (
   const result = await convertTweet(
     {
       context: param("context"),
-      format: requestedFormat,
+      format: param("format"),
       full: param("full"),
       handle: param("handle"),
       id: param("id"),
@@ -140,10 +151,13 @@ const handleConvert = async (
     },
     config
   );
+  if (Result.isFailure(result)) {
+    return errorResponse(result.failure);
+  }
 
   const response = asEmbed
-    ? embedResponse(result, { origin: originOf(request), userAgent })
-    : markdownResponse(result, asJson, asHtml);
+    ? embedResponse(result.success, { origin: originOf(request), userAgent })
+    : markdownResponse(result.success, asJson, asHtml);
   return apiResponse(response);
 };
 
@@ -250,9 +264,9 @@ export const handleRequest = async (
       return await matched;
     }
   } catch (error) {
-    // SAFETY: handler failures are ConvertError or Error; fail() normalizes
-    // anything unexpected into a truthful 500.
-    return fail(error as Error);
+    // Expected failures arrive as typed Result values inside the handlers;
+    // anything escaping to here is a defect.
+    return defectResponse(error);
   }
 
   return jsonResponse(404, { code: "not_found", error: "Not found." });

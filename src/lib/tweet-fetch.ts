@@ -5,6 +5,8 @@ import {
   fetchFxStatus,
 } from "./fxtwitter.js";
 import type { FxReplyRanking, FxTweet } from "./fxtwitter.js";
+import type { ContextMode, RepliesMode } from "./query-modes.js";
+import type { PostId } from "./post-id.js";
 import { fetchSyndicationStatus } from "./syndication.js";
 
 export type FetchSource = "fxtwitter" | "syndication";
@@ -13,9 +15,6 @@ export interface FetchResult {
   tweets: FxTweet[];
   source: FetchSource;
 }
-
-export type ContextMode = "full" | "thread";
-export type RepliesMode = "top" | "recent" | "off";
 
 const annotateAndDedupe = (
   thread: FxTweet[],
@@ -128,9 +127,18 @@ const fetchStatusWithFallback = (
   return run(0);
 };
 
+/**
+ * Fetch the posts for a resolved status target.
+ *
+ * @param handle - The target handle token (used for the syndication fallback).
+ * @param id - The parsed numeric post id.
+ * @param threadMode - Whether to assemble the full thread or only the focal post.
+ * @param contextMode - How much conversation context to include.
+ * @param repliesMode - Which replies to accompany the focal post with.
+ */
 export const fetchPosts = async (
   handle: string,
-  id: string,
+  id: PostId,
   threadMode: "off" | "full",
   contextMode: ContextMode = "full",
   repliesMode: RepliesMode = "top"

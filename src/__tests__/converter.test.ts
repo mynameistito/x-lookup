@@ -1,3 +1,4 @@
+import { Result } from "effect";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import type { Mock } from "vitest";
 
@@ -15,6 +16,24 @@ const stubFetch = (route: (url: string) => Promise<Response>): Mock => {
   const fetchMock = vi.fn<(url: string) => Promise<Response>>(route);
   vi.stubGlobal("fetch", fetchMock);
   return fetchMock;
+};
+
+/** Unwrap a convert result, failing the test when it is a typed failure. */
+const succeed = async (input: Parameters<typeof convertTweet>[0]) => {
+  const result = await convertTweet(input);
+  if (Result.isFailure(result)) {
+    throw new Error(`expected success, got: ${JSON.stringify(result.failure)}`);
+  }
+  return result.success;
+};
+
+/** Extract the typed failure of a convert call, failing the test on success. */
+const failureOf = async (input: Parameters<typeof convertTweet>[0]) => {
+  const result = await convertTweet(input);
+  if (Result.isSuccess(result)) {
+    throw new Error("expected a typed failure, got success");
+  }
+  return result.failure;
 };
 
 describe("output selection", () => {
@@ -38,10 +57,10 @@ describe("output selection", () => {
       })
     );
 
-    const compact = await convertTweet({ url: validUrl });
+    const compact = await succeed({ url: validUrl });
     expect(compact.body).not.toContain("Stats:");
 
-    const full = await convertTweet({ full: "true", url: validUrl });
+    const full = await succeed({ full: "true", url: validUrl });
     expect(full.body).toContain("Stats: 5 likes");
   });
 
@@ -57,7 +76,7 @@ describe("output selection", () => {
       })
     );
 
-    const result = await convertTweet({ format: "json", url: validUrl });
+    const result = await succeed({ format: "json", url: validUrl });
     const response = markdownResponse(result, true);
     expect(response.headers["Content-Type"]).toContain("application/json");
     expect(JSON.parse(response.body)).toMatchObject({
@@ -75,7 +94,7 @@ describe("output selection", () => {
       })
     );
 
-    const result = await convertTweet({ url: validUrl });
+    const result = await succeed({ url: validUrl });
     const response = markdownResponse(result);
     expect(response.headers).toMatchObject({
       "Cache-Control": "public, max-age=0, must-revalidate",
@@ -96,7 +115,7 @@ describe("output selection", () => {
       return respond(url2, { code: 200 });
     });
 
-    const result = await convertTweet({
+    const result = await succeed({
       format: "json",
       thread: "full",
       url,
@@ -109,9 +128,10 @@ describe("output selection", () => {
   });
 
   test("validates context and replies query values", async () => {
-    await expect(
-      convertTweet({ context: "bad", url: validUrl })
-    ).rejects.toMatchObject({ code: "invalid_context" });
+    expect(await failureOf({ context: "bad", url: validUrl })).toMatchObject({
+      code: "invalid_context",
+      status: 400,
+    });
     await expect(
       convertTweet({ replies: "bad", url: validUrl })
     ).rejects.toMatchObject({ code: "invalid_replies" });
