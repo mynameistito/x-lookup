@@ -296,7 +296,7 @@ const decodeSyndicationTweet = (
       raw.quoted_status_result?.result?.legacy ??
       raw.quoted_status_result?.result?.tweet;
     const quote =
-      quoted === undefined
+      quoted === undefined || quoted === null
         ? undefined
         : yield* decodeSyndicationTweet({ value: quoted });
     const screenName = raw.user?.screen_name ?? handle;
