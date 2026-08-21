@@ -110,8 +110,8 @@ export interface BrowseResult {
 
 export interface BrowseService {
   readonly browse: (
-    input: BrowseInput
-  ) => Effect.Effect<BrowseResult, BrowseFailure>;
+    request: BrowseRequest
+  ) => Effect.Effect<BrowseResult, FxTwitterFailure>;
 }
 
 /** Owns profile/search/social-graph page walking and cache orchestration. */
@@ -377,23 +377,19 @@ const makeBrowse = Effect.gen(function* makeBrowseService() {
   );
 
   const browse = Effect.fn("Browse.browse")(function* browseEffect(
-    input: BrowseInput
+    request: BrowseRequest
   ) {
-    const parsed = parseBrowseRequest(input);
-    if (Result.isFailure(parsed)) {
-      return yield* Effect.fail(parsed.failure);
-    }
-    const request = parsed.success;
+    const selection = request.selection;
     const key = buildCacheKey({
-      cursor: input.cursor ?? "",
-      feed: input.feed ?? "",
-      format: input.format ?? "markdown",
+      cursor: request.cursor ?? "",
+      feed: selection._tag === "search" ? selection.feed : "",
+      format: request.formatParam ?? request.format,
       full: request.full ? 1 : 0,
-      handle: input.handle ?? "",
+      handle: selection._tag === "search" ? "" : selection.handle,
       limit: request.limit,
       page: request.page,
-      q: input.q ?? "",
-      resource: request.selection._tag,
+      q: selection._tag === "search" ? selection.query : "",
+      resource: selection._tag,
       v: 2,
     });
     const cached = yield* cache.getOrLoad(
@@ -410,11 +406,23 @@ const makeBrowse = Effect.gen(function* makeBrowseService() {
 /** Dependency-preserving application Layer; composition chooses Cache/FxTwitter. */
 export const layerBrowseWithoutDependencies = Layer.effect(Browse, makeBrowse);
 
-/** Invoke browse orchestration through the public application service seam. */
+/** Invoke browse orchestration with an already-parsed boundary value. */
+export const browseRequestEffect = (
+  request: BrowseRequest
+): Effect.Effect<BrowseResult, FxTwitterFailure, Browse> =>
+  Browse.use((service) => service.browse(request));
+
+/** Raw-input compatibility helper for non-HTTP callers and focused parser tests. */
 export const browseEffect = (
   input: BrowseInput
 ): Effect.Effect<BrowseResult, BrowseFailure, Browse> =>
-  Browse.use((service) => service.browse(input));
+  Effect.gen(function* browseFromRawInput() {
+    const parsed = parseBrowseRequest(input);
+    if (Result.isFailure(parsed)) {
+      return yield* Effect.fail(parsed.failure);
+    }
+    return yield* browseRequestEffect(parsed.success);
+  });
 
 const legacyBrowseLayer = layerBrowseWithoutDependencies.pipe(
   Layer.provide([layerIsolateMemory(), layerFxTwitter])
