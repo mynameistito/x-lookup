@@ -1,4 +1,3 @@
-import type { OutputFormat } from "./converter.js";
 import type {
   FxArticle,
   FxAuthor,
@@ -6,8 +5,8 @@ import type {
   FxMediaItem,
   FxTweet,
 } from "./fxtwitter.js";
-
-export type UserinfoLevel = "off" | "author" | "all";
+import type { OutputFormat } from "./output-format.js";
+import type { UserinfoLevel } from "./query-modes.js";
 
 export interface RenderOptions {
   format: OutputFormat;

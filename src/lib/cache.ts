@@ -1,3 +1,5 @@
+import { Option, Schema } from "effect";
+
 import type { Env } from "../env.js";
 import { CacheApiStore } from "./cache-api-store.js";
 import type { MinimalCache } from "./cache-api-store.js";
@@ -5,6 +7,23 @@ import type { MinimalCache } from "./cache-api-store.js";
 export { CacheApiStore } from "./cache-api-store.js";
 
 export type CacheStatus = "hit" | "miss" | "bypass";
+
+/**
+ * A cache time-to-live in whole seconds. Branded so a raw environment string
+ * or a millisecond value cannot be passed where parsed seconds are required.
+ */
+export type CacheTtlSeconds = typeof ttlSchema.Type;
+
+const ttlSchema = Schema.Number.pipe(
+  Schema.check(Schema.isInt(), Schema.isGreaterThan(0)),
+  Schema.brand("CacheTtlSeconds")
+);
+
+const decodeTtl = Schema.decodeUnknownOption(ttlSchema);
+
+export const DEFAULT_TTL_SECONDS: CacheTtlSeconds = Option.getOrThrow(
+  decodeTtl(3600)
+);
 
 export interface CacheEntry<T> {
   value: T;
@@ -16,7 +35,6 @@ export interface CacheStore {
   set: <T>(key: string, value: T, ttlSeconds: number) => Promise<void>;
 }
 
-export const DEFAULT_TTL_SECONDS = 3600;
 const MAX_MEMORY_ENTRIES = 500;
 
 interface MemoryEnvelope<T> {
@@ -74,9 +92,18 @@ export const memoryStore = new MemoryStore();
 const defaultCacheApi = (): MinimalCache | undefined =>
   (globalThis as { caches?: { default?: MinimalCache } }).caches?.default;
 
-export const parseTtlSeconds = (raw?: string): number => {
+/**
+ * Parse the `CACHE_TTL_SECONDS` environment value into whole seconds.
+ *
+ * Junk, zero, and negative values fall back to {@link DEFAULT_TTL_SECONDS};
+ * this configuration parse never fails, matching the historical behavior.
+ *
+ * @param raw - The untrusted environment value.
+ * @returns The parsed TTL in seconds.
+ */
+export const parseTtlSeconds = (raw?: string): CacheTtlSeconds => {
   const parsed = Math.trunc(Number(raw ?? ""));
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_TTL_SECONDS;
+  return Option.getOrElse(decodeTtl(parsed), () => DEFAULT_TTL_SECONDS);
 };
 
 export interface RuntimeConfig {

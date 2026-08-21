@@ -1,3 +1,24 @@
+import { Result } from "effect";
+
+import {
+  DEFAULT_LIMIT,
+  parseFeed,
+  parseFormat,
+  parseLimit,
+  parsePage,
+  parseResource,
+  parseSearchQuery,
+} from "./browse-query.js";
+import type {
+  BrowseFeed,
+  BrowseFormat,
+  BrowseLimit,
+  BrowsePage,
+  BrowseResource,
+  InvalidBrowseFormat,
+  InvalidBrowseResource,
+  MissingSearchQuery,
+} from "./browse-query.js";
 import {
   buildCacheKey,
   cacheControlHeader,
@@ -14,28 +35,67 @@ import {
 } from "./fxtwitter.js";
 import type { FxAuthor, FxListResponse, FxTweet } from "./fxtwitter.js";
 import type { HeaderMap, HttpPayload } from "./http.js";
+import { parseBrowseFlag } from "./query-flag.js";
+import { parse as parseXHandle } from "./x-handle.js";
+import type { XHandle, InvalidXHandle } from "./x-handle.js";
 
-const DEFAULT_LIMIT = 20;
-const MAX_LIMIT = 50;
-const MAX_PAGE = 10;
-
-export type BrowseResource = "profile" | "search" | "followers" | "following";
-
-type FlagValue = string | boolean | null;
-type CountValue = string | number | null;
-
+/** Raw, untrusted browse query values exactly as they arrive from HTTP. */
 export interface BrowseInput {
   resource?: string | null;
   handle?: string | null;
   q?: string | null;
   feed?: string | null;
   cursor?: string | null;
-  page?: CountValue;
-  limit?: CountValue;
-  full?: FlagValue;
+  page?: string | number | null;
+  limit?: string | number | null;
+  full?: string | boolean | null;
   format?: string | null;
-  nocache?: FlagValue;
+  nocache?: string | boolean | null;
 }
+
+/**
+ * Which listing a browse request selects, with the values only that
+ * selection needs. The tag doubles as the {@link BrowseResource}.
+ */
+export type BrowseSelection =
+  | { readonly _tag: "followers"; readonly handle: XHandle }
+  | { readonly _tag: "following"; readonly handle: XHandle }
+  | { readonly _tag: "profile"; readonly handle: XHandle }
+  | {
+      readonly _tag: "search";
+      readonly feed: BrowseFeed;
+      readonly query: string;
+    };
+
+/** A fully parsed browse request: every value is domain-checked. */
+export interface BrowseRequest {
+  /** The opaque continuation cursor, when supplied. */
+  readonly cursor: string | undefined;
+  readonly format: BrowseFormat;
+  /**
+   * The `format` parameter verbatim, present only when the caller supplied
+   * it. Continuation links must not grow a `format` value the caller never
+   * sent, so the parsed default alone is not enough here.
+   */
+  readonly formatParam: string | undefined;
+  /** Rich metrics flag, honoring the browse aliases (`1`/`true`). */
+  readonly full: boolean;
+  readonly limit: BrowseLimit;
+  /** The `nocache` flag, honoring the browse aliases (`1`/`true`). */
+  readonly nocache: boolean;
+  readonly page: BrowsePage;
+  readonly selection: BrowseSelection;
+}
+
+/** Every way parsing a browse request can fail. */
+export type BrowseParseError =
+  | InvalidBrowseFormat
+  | InvalidBrowseResource
+  | InvalidXHandle
+  | MissingSearchQuery;
+
+/** A browse failure: a parse refusal or an upstream provider failure. */
+export type BrowseFailure = BrowseParseError | ConvertError;
 
 export interface BrowseResult {
   resource: BrowseResource;
@@ -52,28 +112,62 @@ export interface BrowseResult {
   cache: CacheStatus;
 }
 
-const positiveInt = (
-  value: CountValue | undefined,
-  fallback: number
-): number => {
-  const parsed = Math.trunc(Number(String(value ?? "")));
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
-};
-
-const truthy = (value?: FlagValue): boolean =>
-  value === true || value === "true" || value === "1";
-
-const validHandle = (value?: string | null): string => {
-  const handle = (value ?? "").replace(/^@/u, "");
-  if (!/^[A-Za-z0-9_]{1,15}$/u.test(handle)) {
-    throw new ConvertError(
-      400,
-      "A valid X handle is required.",
-      "invalid_handle"
-    );
+/**
+ * Parse the selection-specific values of a browse request.
+ *
+ * Search needs a non-empty trimmed `q` and a feed; every other selection
+ * needs a strict handle. Values belonging to the other selection kind are
+ * ignored, matching the historical behavior.
+ */
+const parseSelection = (
+  resource: BrowseResource,
+  input: BrowseInput
+): Result.Result<BrowseSelection, BrowseParseError> => {
+  if (resource === "search") {
+    return Result.map(parseSearchQuery(input.q), (query): BrowseSelection => ({
+      _tag: "search",
+      feed: parseFeed(input.feed),
+      query,
+    }));
   }
-  return handle;
+  return Result.map(
+    parseXHandle(input.handle ?? ""),
+    (handle): BrowseSelection => ({ _tag: resource, handle })
+  );
 };
+
+/**
+ * Parse raw browse query values into a {@link BrowseRequest}.
+ *
+ * Parse order preserves the historical error precedence: resource, format,
+ * then the selection-specific values (a strict handle for profile and graph
+ * listings, a non-empty trimmed `q` for search).
+ *
+ * @param input - The raw query values.
+ * @returns The parsed request, or the first parse refusal encountered.
+ */
+export const parseBrowseRequest = (
+  input: BrowseInput
+): Result.Result<BrowseRequest, BrowseParseError> =>
+  Result.gen(function* parseRequest() {
+    const resource = yield* parseResource(input.resource);
+    const format = yield* parseFormat(input.format);
+    const page = parsePage(input.page);
+    const limit = parseLimit(input.limit);
+    const full = parseBrowseFlag(input.full);
+    const nocache = parseBrowseFlag(input.nocache);
+    const selection = yield* parseSelection(resource, input);
+    return {
+      cursor: input.cursor ?? undefined,
+      format,
+      formatParam: input.format ?? undefined,
+      full,
+      limit,
+      nocache,
+      page,
+      selection,
+    };
+  });
 
 export const isOriginalPost = (post: FxTweet): boolean =>
   !post.replying_to && !post.replying_to_status?.length && !post.reposted_by;
@@ -125,7 +219,7 @@ const userLine = (user: FxAuthor, full: boolean): string => {
 };
 
 const continuation = (
-  input: BrowseInput,
+  request: BrowseRequest,
   result: Omit<BrowseResult, "markdown" | "cache">
 ): string | undefined => {
   if (!result.nextCursor) {
@@ -135,11 +229,11 @@ const continuation = (
   if (result.limit !== DEFAULT_LIMIT) {
     controls.set("limit", String(result.limit));
   }
-  if (truthy(input.full)) {
+  if (request.full) {
     controls.set("full", "true");
   }
-  if (input.format) {
-    controls.set("format", input.format);
+  if (request.formatParam) {
+    controls.set("format", request.formatParam);
   }
   let path: string;
   if (result.resource === "search") {
@@ -160,10 +254,10 @@ const continuation = (
 };
 
 const renderMarkdown = (
-  input: BrowseInput,
-  result: Omit<BrowseResult, "markdown" | "cache">,
-  full: boolean
+  request: BrowseRequest,
+  result: Omit<BrowseResult, "markdown" | "cache">
 ): string => {
+  const { full } = request;
   const lines: string[] = [];
   if (result.resource === "profile" && result.profile) {
     const { profile } = result;
@@ -196,7 +290,7 @@ const renderMarkdown = (
       ...(result.users ?? []).map((user) => userLine(user, full))
     );
   }
-  const next = continuation(input, result);
+  const next = continuation(request, result);
   if (next) {
     lines.push("", next);
   }
@@ -206,120 +300,110 @@ const renderMarkdown = (
 type BrowsePayload = Omit<BrowseResult, "cache">;
 
 const browseUncached = async (
-  input: BrowseInput,
-  resource: BrowseResource,
-  page: number,
-  limit: number
+  request: BrowseRequest
 ): Promise<BrowsePayload> => {
-  const full = truthy(input.full);
-  if (resource === "search") {
-    const query = input.q?.trim();
-    if (!query) {
-      throw new ConvertError(
-        400,
-        "Search query q is required.",
-        "missing_query"
-      );
-    }
-    const feed = ["latest", "top", "media"].includes(input.feed ?? "")
-      ? String(input.feed)
-      : "latest";
-    const list = await walkPages(page, input.cursor ?? undefined, (cursor) =>
-      searchFxStatuses(query, feed, cursor, limit)
+  const { selection } = request;
+  if (selection._tag === "search") {
+    const list = await walkPages(request.page, request.cursor, (cursor) =>
+      searchFxStatuses(selection.query, selection.feed, cursor, request.limit)
     );
     const base = {
-      feed,
-      limit,
+      feed: selection.feed,
+      limit: request.limit,
       nextCursor: list.cursor?.bottom,
-      page,
-      posts: list.results.slice(0, limit),
-      query,
-      resource,
+      page: request.page,
+      posts: list.results.slice(0, request.limit),
+      query: selection.query,
+      resource: selection._tag,
     };
-    return { ...base, markdown: renderMarkdown(input, base, full) };
+    return { ...base, markdown: renderMarkdown(request, base) };
   }
 
-  const handle = validHandle(input.handle);
-  if (resource === "profile") {
+  const { handle } = selection;
+  if (selection._tag === "profile") {
     const [profile, list] = await Promise.all([
       fetchFxProfile(handle),
-      walkPages(page, input.cursor ?? undefined, (cursor) =>
-        fetchFxProfileStatuses(handle, cursor, limit)
+      walkPages(request.page, request.cursor, (cursor) =>
+        fetchFxProfileStatuses(handle, cursor, request.limit)
       ),
     ]);
-    const posts = list.results.filter(isOriginalPost).slice(0, limit);
+    const posts = list.results.filter(isOriginalPost).slice(0, request.limit);
     const base = {
       handle,
-      limit,
+      limit: request.limit,
       nextCursor: list.cursor?.bottom,
-      page,
+      page: request.page,
       posts,
       profile,
-      resource,
+      resource: selection._tag,
     };
-    return { ...base, markdown: renderMarkdown(input, base, full) };
+    return { ...base, markdown: renderMarkdown(request, base) };
   }
 
-  const list = await walkPages(page, input.cursor ?? undefined, (cursor) =>
-    fetchFxConnections(handle, resource, cursor, limit)
+  const list = await walkPages(request.page, request.cursor, (cursor) =>
+    fetchFxConnections(handle, selection._tag, cursor, request.limit)
   );
   const base = {
     handle,
-    limit,
+    limit: request.limit,
     nextCursor: list.cursor?.bottom,
-    page,
-    resource,
-    users: list.results.slice(0, limit),
+    page: request.page,
+    resource: selection._tag,
+    users: list.results.slice(0, request.limit),
   };
-  return { ...base, markdown: renderMarkdown(input, base, full) };
+  return { ...base, markdown: renderMarkdown(request, base) };
 };
 
+/**
+ * Browse profiles, social graphs, and search as Markdown or JSON.
+ *
+ * Raw query values are parsed into a {@link BrowseRequest} first; parse
+ * refusals and upstream provider failures both arrive as typed failure
+ * values instead of thrown exceptions.
+ *
+ * The cache key preserves the historical identity exactly: raw `feed`,
+ * `format`, `handle`, and `q` parameter text (not the parsed values)
+ * distinguish entries.
+ *
+ * @param input - The raw query values.
+ * @param config - Cache runtime configuration.
+ * @returns The browse result, or the typed failure.
+ */
 export const browse = async (
   input: BrowseInput,
   config: RuntimeConfig = memoryConfig()
-): Promise<BrowseResult> => {
-  const { resource } = input;
-  if (
-    !resource ||
-    !["profile", "search", "followers", "following"].includes(resource)
-  ) {
-    throw new ConvertError(
-      400,
-      "Unsupported browse resource.",
-      "invalid_resource"
-    );
+): Promise<Result.Result<BrowseResult, BrowseFailure>> => {
+  const parsed = parseBrowseRequest(input);
+  if (Result.isFailure(parsed)) {
+    return Result.fail(parsed.failure);
   }
-  // SAFETY: the includes() check above verified resource against the
-  // BrowseResource union.
-  const typedResource = resource as BrowseResource;
-  if (input.format && input.format !== "markdown" && input.format !== "json") {
-    throw new ConvertError(
-      400,
-      "Browse `format` must be `markdown` or `json`.",
-      "invalid_format"
-    );
-  }
-  const page = Math.min(positiveInt(input.page, 1), MAX_PAGE);
-  const limit = Math.min(positiveInt(input.limit, DEFAULT_LIMIT), MAX_LIMIT);
+  const request = parsed.success;
   const key = buildCacheKey({
     cursor: input.cursor ?? "",
     feed: input.feed ?? "",
     format: input.format ?? "markdown",
-    full: truthy(input.full) ? 1 : 0,
+    full: request.full ? 1 : 0,
     handle: input.handle ?? "",
-    limit,
-    page,
+    limit: request.limit,
+    page: request.page,
     q: input.q ?? "",
-    resource: typedResource,
+    resource: request.selection._tag,
     v: 2,
   });
-  const cached = await withCache(
-    key,
-    truthy(input.nocache),
-    () => browseUncached(input, typedResource, page, limit),
-    config
-  );
-  return { ...cached.value, cache: cached.status };
+  try {
+    const cached = await withCache(
+      key,
+      request.nocache,
+      () => browseUncached(request),
+      config
+    );
+    return Result.succeed({ ...cached.value, cache: cached.status });
+  } catch (error) {
+    if (error instanceof ConvertError) {
+      return Result.fail(error);
+    }
+    throw error;
+  }
 };
 
 export const browseResponse = (

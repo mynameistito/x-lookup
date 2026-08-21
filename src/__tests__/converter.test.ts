@@ -1,8 +1,8 @@
+import { Result } from "effect";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import type { Mock } from "vitest";
 
 import { convertTweet, markdownResponse } from "../lib/converter.js";
-import { ConvertError } from "../lib/errors.js";
 
 const respond = <T>(url: string, body: T, status = 200): Promise<Response> => {
   if (!url.includes("api.fxtwitter.com")) {
@@ -15,6 +15,24 @@ const stubFetch = (route: (url: string) => Promise<Response>): Mock => {
   const fetchMock = vi.fn<(url: string) => Promise<Response>>(route);
   vi.stubGlobal("fetch", fetchMock);
   return fetchMock;
+};
+
+/** Unwrap a convert result, failing the test when it is a typed failure. */
+const succeed = async (input: Parameters<typeof convertTweet>[0]) => {
+  const result = await convertTweet(input);
+  if (Result.isFailure(result)) {
+    throw new Error(`expected success, got: ${JSON.stringify(result.failure)}`);
+  }
+  return result.success;
+};
+
+/** Extract the typed failure of a convert call, failing the test on success. */
+const failureOf = async (input: Parameters<typeof convertTweet>[0]) => {
+  const result = await convertTweet(input);
+  if (Result.isSuccess(result)) {
+    throw new Error("expected a typed failure, got success");
+  }
+  return result.failure;
 };
 
 describe("output selection", () => {
@@ -38,10 +56,10 @@ describe("output selection", () => {
       })
     );
 
-    const compact = await convertTweet({ url: validUrl });
+    const compact = await succeed({ url: validUrl });
     expect(compact.body).not.toContain("Stats:");
 
-    const full = await convertTweet({ full: "true", url: validUrl });
+    const full = await succeed({ full: "true", url: validUrl });
     expect(full.body).toContain("Stats: 5 likes");
   });
 
@@ -57,7 +75,7 @@ describe("output selection", () => {
       })
     );
 
-    const result = await convertTweet({ format: "json", url: validUrl });
+    const result = await succeed({ format: "json", url: validUrl });
     const response = markdownResponse(result, true);
     expect(response.headers["Content-Type"]).toContain("application/json");
     expect(JSON.parse(response.body)).toMatchObject({
@@ -75,7 +93,7 @@ describe("output selection", () => {
       })
     );
 
-    const result = await convertTweet({ url: validUrl });
+    const result = await succeed({ url: validUrl });
     const response = markdownResponse(result);
     expect(response.headers).toMatchObject({
       "Cache-Control": "public, max-age=0, must-revalidate",
@@ -96,7 +114,7 @@ describe("output selection", () => {
       return respond(url2, { code: 200 });
     });
 
-    const result = await convertTweet({
+    const result = await succeed({
       format: "json",
       thread: "full",
       url,
@@ -110,22 +128,29 @@ describe("output selection", () => {
 
   test("validates context and replies query values", async () => {
     await expect(
-      convertTweet({ context: "bad", url: validUrl })
-    ).rejects.toMatchObject({ code: "invalid_context" });
+      failureOf({ context: "bad", url: validUrl })
+    ).resolves.toMatchObject({
+      code: "invalid_context",
+      status: 400,
+    });
     await expect(
-      convertTweet({ replies: "bad", url: validUrl })
-    ).rejects.toMatchObject({ code: "invalid_replies" });
+      failureOf({ replies: "bad", url: validUrl })
+    ).resolves.toMatchObject({
+      code: "invalid_replies",
+      status: 400,
+    });
   });
 
   test("rejects unsupported input hosts and malformed paths", async () => {
     await expect(
-      convertTweet({ url: "https://example.com/a/status/1" })
-    ).rejects.toMatchObject({ code: "unsupported_host" });
+      failureOf({ url: "https://example.com/a/status/1" })
+    ).resolves.toMatchObject({ code: "unsupported_host", status: 400 });
     await expect(
-      convertTweet({ url: "https://x.com/ada/followers" })
-    ).rejects.toMatchObject({ code: "invalid_path" });
-    await expect(convertTweet({})).rejects.toMatchObject({
+      failureOf({ url: "https://x.com/ada/followers" })
+    ).resolves.toMatchObject({ code: "invalid_path", status: 400 });
+    await expect(failureOf({})).resolves.toMatchObject({
       code: "missing_url",
+      status: 400,
     });
   });
 
@@ -135,35 +160,32 @@ describe("output selection", () => {
     );
     await expect(
       convertTweet({ url: "https://x-lookup.mynameistito.com/ada/status/5" })
-    ).resolves.toBeDefined();
+    ).resolves.toMatchObject({ _tag: "Success" });
     await expect(
       convertTweet({ url: "https://x-lookup.someone.workers.dev/ada/status/5" })
-    ).resolves.toBeDefined();
+    ).resolves.toMatchObject({ _tag: "Success" });
   });
 });
 
-describe("parseThread — invalid values throw ConvertError", () => {
+describe("parseThread — invalid values fail with a typed error", () => {
   const validUrl = "https://x.com/testuser/status/1234567890";
 
   test.each(["1", "101", "0", "-1", "abc", "invalid_mode", "200"])(
-    "throws for thread=%s",
+    "fails for thread=%s",
     async (thread) => {
-      await expect(
-        convertTweet({ thread, url: validUrl })
-      ).rejects.toBeInstanceOf(ConvertError);
+      const failure = await failureOf({ thread, url: validUrl });
+      expect(failure).toMatchObject({
+        _tag: "InvalidThread",
+        code: "invalid_thread",
+        status: 400,
+      });
     }
   );
 
   test('error message includes "conversation", code is invalid_thread, status is 400', async () => {
-    let failure: unknown;
-    try {
-      await convertTweet({ thread: "bad", url: validUrl });
-    } catch (error) {
-      failure = error;
-    }
-    expect(failure).toBeInstanceOf(ConvertError);
-    expect(failure).toMatchObject({ code: "invalid_thread", status: 400 });
+    const failure = await failureOf({ thread: "bad", url: validUrl });
     expect(String(failure)).toContain("conversation");
+    expect(failure).toMatchObject({ code: "invalid_thread", status: 400 });
   });
 });
 
@@ -192,7 +214,7 @@ describe("parseThread — valid values accepted", () => {
   ] as const)("thread=%s resolves without error", async (thread) => {
     await expect(
       convertTweet({ thread, url: validUrl })
-    ).resolves.toBeDefined();
+    ).resolves.toMatchObject({ _tag: "Success" });
   });
 });
 
@@ -210,16 +232,16 @@ describe("thread cache identity", () => {
   });
 
   test('null, "full", and "conversation" share one cache entry', async () => {
-    const first = await convertTweet({ thread: null, url: validUrl });
+    const first = await succeed({ thread: null, url: validUrl });
     expect(first.cache).toBe("miss");
-    const second = await convertTweet({ thread: "full", url: validUrl });
+    const second = await succeed({ thread: "full", url: validUrl });
     expect(second.cache).toBe("hit");
-    const third = await convertTweet({ thread: "conversation", url: validUrl });
+    const third = await succeed({ thread: "conversation", url: validUrl });
     expect(third.cache).toBe("hit");
   });
 
   test('thread="off" gets its own cache entry', async () => {
-    const off = await convertTweet({ thread: "off", url: validUrl });
+    const off = await succeed({ thread: "off", url: validUrl });
     expect(off.cache).toBe("miss");
   });
 });
@@ -246,7 +268,7 @@ describe("numeric thread limits", () => {
       return respond(url, { code: 200 });
     });
 
-    const result = await convertTweet({
+    const result = await succeed({
       format: "json",
       thread: "2",
       url: "https://x.com/TestUser/status/3",

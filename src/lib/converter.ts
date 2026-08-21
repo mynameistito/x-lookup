@@ -1,3 +1,5 @@
+import { Result } from "effect";
+
 import {
   buildCacheKey,
   cacheControlHeader,
@@ -9,14 +11,26 @@ import { ConvertError } from "./errors.js";
 import type { FxTweet } from "./fxtwitter.js";
 import type { HeaderMap, HttpPayload } from "./http.js";
 import { renderThreadMarkdown } from "./markdown.js";
-import type { UserinfoLevel } from "./markdown.js";
+import { parse as parseOutputFormat } from "./output-format.js";
+import type { InvalidOutputFormat, OutputFormat } from "./output-format.js";
+import { parseConvertFlag } from "./query-flag.js";
+import { parseContext, parseReplies, parseUserinfo } from "./query-modes.js";
+import type {
+  ContextMode,
+  InvalidContext,
+  InvalidReplies,
+  InvalidUserinfo,
+  RepliesMode,
+  UserinfoLevel,
+} from "./query-modes.js";
+import { resolve } from "./status-target.js";
+import type { ResolveError, StatusTarget } from "./status-target.js";
+import { parse as parseThreadSelection } from "./thread-selection.js";
+import type { InvalidThread, ThreadSelection } from "./thread-selection.js";
 import { fetchPosts } from "./tweet-fetch.js";
-import type { ContextMode, FetchSource, RepliesMode } from "./tweet-fetch.js";
+import type { FetchSource } from "./tweet-fetch.js";
 
-export { ConvertError } from "./errors.js";
-
-export type OutputFormat = "markdown" | "obsidian" | "json";
-
+/** Raw, untrusted convert query values exactly as they arrive from HTTP. */
 export interface ConvertInput {
   url?: string | null;
   handle?: string | null;
@@ -30,6 +44,32 @@ export interface ConvertInput {
   replies?: string | null;
 }
 
+/** A fully parsed convert request: every value is domain-checked. */
+export interface ConvertRequest {
+  /** Rich rendering is on unless the `full` flag is falsy. */
+  readonly compact: boolean;
+  readonly context: ContextMode;
+  readonly format: OutputFormat;
+  /** The `nocache` flag, honoring the convert aliases (`1`/`true`/`yes`). */
+  readonly nocache: boolean;
+  readonly replies: RepliesMode;
+  readonly target: StatusTarget;
+  readonly thread: ThreadSelection;
+  readonly userinfo: UserinfoLevel;
+}
+
+/** Every way parsing a convert request can fail. */
+export type ConvertParseError =
+  | InvalidContext
+  | InvalidOutputFormat
+  | InvalidReplies
+  | InvalidThread
+  | InvalidUserinfo
+  | ResolveError;
+
+/** A convert failure: a parse refusal or an upstream provider failure. */
+export type ConvertFailure = ConvertError | ConvertParseError;
+
 export interface ConvertSuccess {
   body: string;
   warnings: string[];
@@ -42,206 +82,38 @@ export interface ConvertSuccess {
   compact: boolean;
 }
 
-export interface StatusTarget {
-  canonicalUrl: string;
-  handle: string;
-  id: string;
-}
-
-const ALLOWED_HOSTS = new Set([
-  "x.com",
-  "twitter.com",
-  "www.twitter.com",
-  "mobile.twitter.com",
-  "x-lookup.mynameistito.com",
-]);
-const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1"]);
-const STATUS_PATH = /^\/(?<handle>[^/?#]+)\/status\/(?<id>\d+)\/?$/u;
-
-const hostAllowed = (host: string): boolean =>
-  ALLOWED_HOSTS.has(host) ||
-  LOCAL_HOSTS.has(host) ||
-  host.endsWith(".workers.dev");
-
-export const parseStatusUrl = (raw: string): StatusTarget => {
-  let parsed: URL;
-  try {
-    parsed = new URL(raw.trim());
-  } catch {
-    throw new ConvertError(
-      400,
-      "Invalid URL. Provide a public X/Twitter status URL.",
-      "invalid_url"
-    );
-  }
-
-  const host = parsed.hostname.replace(/^www\./u, "");
-
-  if (!hostAllowed(host)) {
-    throw new ConvertError(
-      400,
-      "Only x.com or twitter.com status URLs are supported.",
-      "unsupported_host"
-    );
-  }
-
-  const match = STATUS_PATH.exec(parsed.pathname);
-  if (!match) {
-    throw new ConvertError(
-      400,
-      "URL must be a status permalink like https://x.com/handle/status/1234567890.",
-      "invalid_path"
-    );
-  }
-
-  const { handle = "", id = "" } = match.groups ?? {};
-  return {
-    canonicalUrl: `https://x.com/${handle}/status/${id}`,
-    handle,
-    id,
-  };
-};
-
-export const resolveTarget = (input: ConvertInput): StatusTarget => {
-  if (input.url) {
-    return parseStatusUrl(input.url);
-  }
-
-  if (input.handle && input.id) {
-    const handle = input.handle.replace(/^@/u, "");
-    const id = input.id.replaceAll(/\D/gu, "");
-    if (!handle || !id) {
-      throw new ConvertError(
-        400,
-        "Missing or invalid handle/status id.",
-        "invalid_params"
-      );
-    }
+/**
+ * Parse raw convert query values into a {@link ConvertRequest}.
+ *
+ * Parse order preserves the historical error precedence: format, thread,
+ * userinfo, flags, context, replies, then the status target.
+ *
+ * @param input - The raw query values.
+ * @returns The parsed request, or the first parse refusal encountered.
+ */
+export const parseConvertRequest = (
+  input: ConvertInput
+): Result.Result<ConvertRequest, ConvertParseError> =>
+  Result.gen(function* parseRequest() {
+    const format = yield* parseOutputFormat(input.format);
+    const thread = yield* parseThreadSelection(input.thread);
+    const userinfo = yield* parseUserinfo(input.userinfo);
+    const nocache = parseConvertFlag(input.nocache);
+    const compact = !parseConvertFlag(input.full);
+    const context = yield* parseContext(input.context);
+    const replies = yield* parseReplies(input.replies);
+    const target = yield* resolve(input);
     return {
-      canonicalUrl: `https://x.com/${handle}/status/${id}`,
-      handle,
-      id,
+      compact,
+      context,
+      format,
+      nocache,
+      replies,
+      target,
+      thread,
+      userinfo,
     };
-  }
-
-  throw new ConvertError(
-    400,
-    "Missing required `url` query parameter.",
-    "missing_url"
-  );
-};
-
-const parseFormat = (raw?: string | null): OutputFormat => {
-  if (!raw || raw === "markdown") {
-    return "markdown";
-  }
-  if (raw === "obsidian") {
-    return "obsidian";
-  }
-  if (raw === "json") {
-    return "json";
-  }
-  throw new ConvertError(
-    400,
-    "`format` must be `markdown`, `obsidian`, or `json`.",
-    "invalid_format"
-  );
-};
-
-const DEFAULT_THREAD = "full";
-
-const canonicalThreadCacheValue = (raw?: string | null): string => {
-  if (raw === "off") {
-    return "off";
-  }
-  if (!raw || raw === "full" || raw === "conversation") {
-    return DEFAULT_THREAD;
-  }
-  return raw;
-};
-
-interface ThreadSelection {
-  limit: number;
-  mode: "off" | "full";
-}
-
-const parseThread = (raw: string | null | undefined): ThreadSelection => {
-  if (raw === "off") {
-    return { limit: 1, mode: "off" };
-  }
-
-  if (!raw || raw === "full" || raw === "conversation") {
-    return { limit: 100, mode: "full" };
-  }
-
-  const parsed = Math.trunc(Number(raw));
-  if (Number.isFinite(parsed) && parsed >= 2 && parsed <= 100) {
-    return { limit: parsed, mode: "full" };
-  }
-
-  throw new ConvertError(
-    400,
-    "`thread` must be `off`, `full`, `conversation`, or a number from 2 to 100.",
-    "invalid_thread"
-  );
-};
-
-const parseUserinfo = (raw?: string | null): UserinfoLevel => {
-  if (!raw || raw === "off") {
-    return "off";
-  }
-  if (raw === "author") {
-    return "author";
-  }
-  if (raw === "all") {
-    return "all";
-  }
-  throw new ConvertError(
-    400,
-    "`userinfo` must be `off`, `author`, or `all`.",
-    "invalid_userinfo"
-  );
-};
-
-type FlagValue = string | boolean | null | undefined;
-
-const parseBoolean = (raw: FlagValue): boolean => {
-  if (raw === true) {
-    return true;
-  }
-  if (raw === false || raw === null || raw === undefined) {
-    return false;
-  }
-  return raw === "1" || raw === "true" || raw === "yes";
-};
-
-const parseContext = (raw?: string | null): ContextMode => {
-  if (!raw || raw === "full") {
-    return "full";
-  }
-  if (raw === "thread") {
-    return "thread";
-  }
-  throw new ConvertError(
-    400,
-    "`context` must be `full` or `thread`.",
-    "invalid_context"
-  );
-};
-
-const parseReplies = (raw?: string | null): RepliesMode => {
-  if (!raw || raw === "top") {
-    return "top";
-  }
-  if (raw === "recent" || raw === "off") {
-    return raw;
-  }
-  throw new ConvertError(
-    400,
-    "`replies` must be `top`, `recent`, or `off`.",
-    "invalid_replies"
-  );
-};
+  });
 
 const withSourceUrls = (tweet: FxTweet, fallback?: string): FxTweet => {
   const handle = tweet.author?.screen_name;
@@ -296,28 +168,23 @@ const limitPostsByRole = (
 type ConvertPayload = Omit<ConvertSuccess, "cache">;
 
 const convertTweetUncached = async (
-  format: OutputFormat,
-  thread: ThreadSelection,
-  userinfo: UserinfoLevel,
-  canonicalUrl: string,
-  handle: string,
-  id: string,
-  compact: boolean,
-  context: ContextMode,
-  replies: RepliesMode
+  request: ConvertRequest
 ): Promise<ConvertPayload> => {
   const warnings: string[] = [];
+  const { compact, context, format, replies, target, thread, userinfo } =
+    request;
+  const { canonicalUrl, handle, id } = target;
 
   const { tweets, source } = await fetchPosts(
     handle,
     id,
-    thread.mode,
+    thread._tag,
     context,
     replies
   );
 
   let posts = tweets;
-  if (thread.mode === "full" && posts.length > thread.limit) {
+  if (thread._tag === "full" && posts.length > thread.limit) {
     posts = limitPostsByRole(posts, id, thread.limit);
     warnings.push(`Thread truncated to ${thread.limit} posts.`);
   }
@@ -353,50 +220,57 @@ const convertTweetUncached = async (
   };
 };
 
+/**
+ * Convert a status request into rendered posts.
+ *
+ * Raw query values are parsed into a {@link ConvertRequest} first; parse
+ * refusals and upstream provider failures both arrive as typed failure
+ * values instead of thrown exceptions.
+ *
+ * The cache key preserves the historical identity exactly: raw `thread` and
+ * `userinfo` parameter text (not the parsed values) distinguish entries, so
+ * aliases like `thread=full` and `thread=100` remain separate.
+ *
+ * @param input - The raw query values.
+ * @param config - Cache runtime configuration.
+ * @returns The conversion result, or the typed failure.
+ */
 export const convertTweet = async (
   input: ConvertInput,
   config: RuntimeConfig = memoryConfig()
-): Promise<ConvertSuccess> => {
-  const format = parseFormat(input.format);
-  const thread = parseThread(input.thread);
-  const userinfo = parseUserinfo(input.userinfo);
-  const nocache = parseBoolean(input.nocache);
-  const compact = !parseBoolean(input.full);
-  const context = parseContext(input.context);
-  const replies = parseReplies(input.replies);
-  const { canonicalUrl, handle, id } = resolveTarget(input);
+): Promise<Result.Result<ConvertSuccess, ConvertFailure>> => {
+  const parsed = parseConvertRequest(input);
+  if (Result.isFailure(parsed)) {
+    return Result.fail(parsed.failure);
+  }
+  const request = parsed.success;
 
   const cacheKey = buildCacheKey({
-    compact: compact ? "1" : "0",
-    context,
-    format,
-    handle: handle.toLowerCase(),
-    id,
-    replies,
-    thread: canonicalThreadCacheValue(input.thread),
+    compact: request.compact ? "1" : "0",
+    context: request.context,
+    format: request.format,
+    handle: request.target.handle.toLowerCase(),
+    id: request.target.id,
+    replies: request.replies,
+    thread: request.thread.cacheToken,
     userinfo: input.userinfo ?? "off",
     v: 5,
   });
 
-  const { value, status } = await withCache(
-    cacheKey,
-    nocache,
-    () =>
-      convertTweetUncached(
-        format,
-        thread,
-        userinfo,
-        canonicalUrl,
-        handle,
-        id,
-        compact,
-        context,
-        replies
-      ),
-    config
-  );
-
-  return { ...value, cache: status };
+  try {
+    const { value, status } = await withCache(
+      cacheKey,
+      request.nocache,
+      () => convertTweetUncached(request),
+      config
+    );
+    return Result.succeed({ ...value, cache: status });
+  } catch (error) {
+    if (error instanceof ConvertError) {
+      return Result.fail(error);
+    }
+    throw error;
+  }
 };
 
 export const acceptPrefersHtml = (accept: string): boolean => {
