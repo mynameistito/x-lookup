@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - agent/issue-5-format-helper
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: read
