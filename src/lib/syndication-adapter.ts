@@ -15,8 +15,6 @@ import {
   SyndicationSchemaError,
   SyndicationUpstreamError,
 } from "./provider-errors.js";
-import type { SyndicationFailure } from "./provider-errors.js";
-import type { ProviderEffect } from "./provider-http.js";
 
 const SYNDICATION_BASE = "https://cdn.syndication.twimg.com/tweet-result";
 const UA = "Mozilla/5.0 (compatible; x-lookup/1.0)";
@@ -75,9 +73,13 @@ const SyndicationMediaTransportSchema = Schema.Struct({
   url: optionalString,
   video_info: Schema.optional(
     Schema.Struct({
-      aspect_ratio: Schema.optional(Schema.Tuple([Schema.Number, Schema.Number])),
+      aspect_ratio: Schema.optional(
+        Schema.Tuple([Schema.Number, Schema.Number])
+      ),
       duration_millis: optionalNumber,
-      variants: Schema.optional(Schema.Array(SyndicationVariantTransportSchema)),
+      variants: Schema.optional(
+        Schema.Array(SyndicationVariantTransportSchema)
+      ),
     })
   ),
 });
@@ -126,16 +128,23 @@ const SyndicationTweetTransportSchema = Schema.Struct({
 
 type SyndicationUserTransport = typeof SyndicationUserTransportSchema.Type;
 type SyndicationMediaTransport = typeof SyndicationMediaTransportSchema.Type;
-type SyndicationArticleTransport = typeof SyndicationArticleTransportSchema.Type;
+type SyndicationArticleTransport =
+  typeof SyndicationArticleTransportSchema.Type;
 type SyndicationTweetTransport = typeof SyndicationTweetTransportSchema.Type;
 
-type Mp4Variant = {
+interface SyndicationTweetPayload {
+  readonly value: unknown;
+}
+
+interface Mp4Variant {
   readonly bitrate?: number;
   readonly content_type?: string;
   readonly url: string;
-};
+}
 
-const decodeTransport = Schema.decodeUnknownEffect(SyndicationTweetTransportSchema);
+const decodeTransport = Schema.decodeUnknownEffect(
+  SyndicationTweetTransportSchema
+);
 
 const bestMp4Variants = (media: SyndicationMediaTransport): Mp4Variant[] =>
   media.video_info?.variants
@@ -272,12 +281,12 @@ const mapUser = (user?: SyndicationUserTransport): FxTweet["author"] => {
 };
 
 const decodeSyndicationTweet = (
-  payload: unknown,
+  payload: SyndicationTweetPayload,
   handle?: string,
   id?: string
 ): Effect.Effect<FxTweet, SyndicationSchemaError> =>
   Effect.gen(function* decodeSyndicationTweetEffect() {
-    const raw = yield* decodeTransport(payload).pipe(
+    const raw = yield* decodeTransport(payload.value).pipe(
       Effect.mapError(
         (cause) => new SyndicationSchemaError({ cause, operation: "status" })
       )
@@ -289,7 +298,7 @@ const decodeSyndicationTweet = (
     const quote =
       quoted === undefined
         ? undefined
-        : yield* decodeSyndicationTweet(quoted);
+        : yield* decodeSyndicationTweet({ value: quoted });
     const screenName = raw.user?.screen_name ?? handle;
     const ownId = raw.id_str ?? id;
 
@@ -313,10 +322,7 @@ const decodeSyndicationTweet = (
 
 export const fetchSyndicationStatusEffect = Effect.fn(
   "Syndication.fetchStatus"
-)(function* fetchSyndicationStatusEffectGenerator(
-  handle: string,
-  id: string
-): ProviderEffect<FxTweet, SyndicationFailure> {
+)(function* fetchSyndicationStatusEffectGenerator(handle: string, id: string) {
   const client = yield* HttpClient.HttpClient;
   const url = `${SYNDICATION_BASE}?id=${encodeURIComponent(id)}&lang=en&token=0`;
   const response = yield* client
@@ -344,9 +350,11 @@ export const fetchSyndicationStatusEffect = Effect.fn(
       (cause) => new SyndicationNonJsonError({ cause, operation: "status" })
     )
   );
-  const tweet = yield* decodeSyndicationTweet(json, handle, id);
+  const tweet = yield* decodeSyndicationTweet({ value: json }, handle, id);
   if (!tweet.text && !tweet.article) {
-    return yield* Effect.fail(new SyndicationEmptyError({ operation: "status" }));
+    return yield* Effect.fail(
+      new SyndicationEmptyError({ operation: "status" })
+    );
   }
   return tweet;
 });

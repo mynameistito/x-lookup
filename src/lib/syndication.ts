@@ -5,4 +5,5 @@ import { fetchSyndicationStatusEffect } from "./syndication-adapter.js";
 export const fetchSyndicationStatus = (
   handle: string,
   id: string
-): Promise<FxTweet> => runProviderEffect(fetchSyndicationStatusEffect(handle, id));
+): Promise<FxTweet> =>
+  runProviderEffect(fetchSyndicationStatusEffect(handle, id));

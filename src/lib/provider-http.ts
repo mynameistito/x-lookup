@@ -1,6 +1,9 @@
 import { Effect } from "effect";
-import type { HttpClient } from "effect/unstable/http";
-import { FetchHttpClient } from "effect/unstable/http";
+import {
+  HttpClient,
+  HttpClientError,
+  HttpClientResponse,
+} from "effect/unstable/http";
 
 import { ConvertError } from "./errors.js";
 import type { HttpMappedError } from "./errors.js";
@@ -12,6 +15,24 @@ type ProviderHttpFailure = Error & HttpMappedError;
 const toConvertError = (failure: ProviderHttpFailure): ConvertError =>
   new ConvertError(failure.status, failure.message, failure.code);
 
+const liveHttpClient: HttpClient.HttpClient = HttpClient.make(
+  (request, url, signal) =>
+    Effect.tryPromise({
+      catch: (cause) =>
+        new HttpClientError.HttpClientError({
+          reason: new HttpClientError.TransportError({ cause, request }),
+        }),
+      try: () =>
+        globalThis.fetch(url.href, {
+          headers: request.headers,
+          method: request.method,
+          signal,
+        }),
+    }).pipe(
+      Effect.map((response) => HttpClientResponse.fromWeb(request, response))
+    )
+);
+
 /**
  * Promise compatibility boundary for the existing application layer.
  * Provider adapters remain Effect-native and testable with a supplied HttpClient.
@@ -22,6 +43,6 @@ export const runProviderEffect = <A, E extends ProviderHttpFailure>(
   Effect.runPromise(
     program.pipe(
       Effect.mapError(toConvertError),
-      Effect.provide(FetchHttpClient.layer)
+      Effect.provideService(HttpClient.HttpClient, liveHttpClient)
     )
   );
