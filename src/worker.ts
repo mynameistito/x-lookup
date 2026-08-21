@@ -17,6 +17,10 @@ import {
 import { layerPostLookupWithoutDependencies } from "./lib/tweet-fetch.js";
 import { makeHttpApplication } from "./router.js";
 
+const WORKER_ENV: { CACHE_TTL_SECONDS: string } = {
+  CACHE_TTL_SECONDS: "3600",
+};
+
 /**
  * Production composition root for application capabilities.
  *
@@ -55,10 +59,8 @@ export const XLookupWorker = Cloudflare.Worker(
   {
     compatibility: { date: "2026-08-01" },
     domain: "x-lookup.mynameistito.com",
-    env: {
-      CACHE_TTL_SECONDS: "3600",
-    },
-    main: import.meta.url,
+    env: WORKER_ENV,
+    main: "./src/worker.ts",
     name: "x-lookup",
     observability: { enabled: true },
   },
@@ -77,6 +79,6 @@ export const XLookupWorker = Cloudflare.Worker(
 );
 
 /** Runtime env contract derived from the Alchemy Worker declaration. */
-export type XLookupEnv = Cloudflare.InferEnv<typeof XLookupWorker>;
+export type XLookupEnv = Cloudflare.InferEnv<typeof WORKER_ENV>;
 
 export default XLookupWorker;
