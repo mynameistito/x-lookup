@@ -14,7 +14,7 @@ import { describe, expect, expectTypeOf, test } from "vitest";
 
 import XLookupStack, {
   buildXLookupStack,
-  XLookupWorker,
+  makeXLookupWorker,
 } from "../../alchemy.run.js";
 import type { XLookupEnv } from "../../alchemy.run.js";
 import { resolveWorkerIdentity } from "../worker.js";
@@ -24,8 +24,9 @@ describe("alchemy stack", () => {
     expect(Effect.isEffect(XLookupStack)).toBeTruthy();
   });
 
-  test("declares the x-lookup worker resource", () => {
-    expect(Effect.isEffect(XLookupWorker)).toBeTruthy();
+  test("declares the x-lookup worker resource per stage", () => {
+    expect(Effect.isEffect(makeXLookupWorker("prod"))).toBeTruthy();
+    expect(Effect.isEffect(makeXLookupWorker("pr-7"))).toBeTruthy();
   });
 
   test("executes the stack body against in-memory state without credentials", async () => {
