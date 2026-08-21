@@ -1,261 +1,333 @@
-import { Option } from "effect";
-import { beforeEach, describe, expect, test, vi } from "vitest";
-import type { Mock } from "vitest";
+import { Effect, Layer, Option, Result } from "effect";
+import {
+  HttpClient,
+  HttpClientResponse,
+} from "effect/unstable/http";
+import { describe, expect, test } from "vitest";
 
+import type { FxAuthor, FxListResponse, FxTweet } from "../lib/fxtwitter.js";
 import { parse as parsePostId } from "../lib/post-id.js";
-import { fetchPosts } from "../lib/tweet-fetch.js";
+import {
+  FxTwitterNetworkError,
+  FxTwitterNotFoundError,
+  FxTwitterPrivateTweetError,
+  SyndicationNetworkError,
+} from "../lib/provider-errors.js";
+import { layerFxTwitterWithoutDependencies } from "../lib/provider-service-adapter.js";
+import {
+  FxTwitter,
+  Syndication,
+} from "../lib/provider-service.js";
+import type {
+  FxTwitterService,
+  SyndicationService,
+} from "../lib/provider-service.js";
+import {
+  fetchPostsEffect,
+  layerPostLookupWithoutDependencies,
+} from "../lib/tweet-fetch.js";
 
-const respond = <T>(url: string, body: T, status = 200): Promise<Response> => {
-  if (!url.includes("api.fxtwitter.com") && !url.includes("cdn.syndication")) {
-    return Promise.reject(new Error(`unexpected upstream: ${url}`));
+const postId = (value: string) => Option.getOrThrow(parsePostId(value));
+
+const makeTweet = (id: string, overrides: Partial<FxTweet> = {}): FxTweet => ({
+  id,
+  text: `post ${id}`,
+  ...overrides,
+});
+
+const emptyList = <T>(): FxListResponse<T> => ({ results: [] });
+
+const makeFxTwitter = (
+  overrides: Partial<FxTwitterService> = {}
+): FxTwitterService => ({
+  fetchConnections: () => Effect.succeed(emptyList<FxAuthor>()),
+  fetchConversationReplies: () => Effect.succeed([]),
+  fetchFullThread: (id) => Effect.succeed([makeTweet(id)]),
+  fetchProfile: (handle) => Effect.succeed({ screen_name: handle }),
+  fetchProfileStatuses: () => Effect.succeed(emptyList<FxTweet>()),
+  fetchStatus: (id) => Effect.succeed(makeTweet(id)),
+  searchStatuses: () => Effect.succeed(emptyList<FxTweet>()),
+  ...overrides,
+});
+
+const makeSyndication = (
+  overrides: Partial<SyndicationService> = {}
+): SyndicationService => ({
+  fetchStatus: (_handle, id) => Effect.succeed(makeTweet(id)),
+  ...overrides,
+});
+
+const layerFor = (
+  fxTwitter: FxTwitterService,
+  syndication: SyndicationService = makeSyndication()
+) =>
+  layerPostLookupWithoutDependencies.pipe(
+    Layer.provide([
+      Layer.succeed(FxTwitter, FxTwitter.of(fxTwitter)),
+      Layer.succeed(Syndication, Syndication.of(syndication)),
+    ])
+  );
+
+const runLookup = (
+  fxTwitter: FxTwitterService,
+  syndication: SyndicationService,
+  options: {
+    context?: "full" | "thread";
+    id?: string;
+    replies?: "off" | "recent" | "top";
+    thread?: "off" | "full";
+  } = {}
+) =>
+  Effect.runPromise(
+    Effect.result(
+      Effect.provide(
+        fetchPostsEffect(
+          "ada",
+          postId(options.id ?? "3"),
+          options.thread ?? "off",
+          options.context ?? "full",
+          options.replies ?? "top"
+        ),
+        layerFor(fxTwitter, syndication)
+      )
+    )
+  );
+
+const requireSuccess = <A, E>(result: Result.Result<A, E>): A => {
+  if (Result.isFailure(result)) {
+    throw new Error(`expected success: ${String(result.failure)}`);
   }
-  return Promise.resolve(Response.json(body, { status }));
+  return result.success;
 };
 
-const stubFetch = (route: (url: string) => Promise<Response>): Mock => {
-  const fetchMock = vi.fn<(url: string) => Promise<Response>>(route);
-  vi.stubGlobal("fetch", fetchMock);
-  return fetchMock;
-};
-
-/** Build a PostId through the real parser for tests. */
-const pid = (raw: string): string => Option.getOrThrow(parsePostId(raw));
-
-describe("fetchPosts provider fallbacks", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    vi.unstubAllGlobals();
+describe("PostLookup", () => {
+  test("prefers FxTwitter when status lookup succeeds", async () => {
+    const result = requireSuccess(
+      await runLookup(makeFxTwitter(), makeSyndication())
+    );
+    expect(result.source).toBe("fxtwitter");
+    expect(result.tweets).toMatchObject([{ context: "post", id: "3" }]);
   });
 
-  test("falls back from FxTwitter to syndication for single statuses", async () => {
-    const fetchMock = stubFetch((url) =>
-      url.includes("api.fxtwitter.com")
-        ? respond(url, {}, 500)
-        : respond(url, {
-            id_str: "123",
-            text: "from syndication",
-            user: { screen_name: "alice" },
+  test("falls back to syndication after an FxTwitter failure", async () => {
+    const result = requireSuccess(
+      await runLookup(
+        makeFxTwitter({
+          fetchStatus: () =>
+            Effect.fail(new FxTwitterNetworkError({ operation: "status" })),
+        }),
+        makeSyndication({
+          fetchStatus: (_handle, id) =>
+            Effect.succeed(makeTweet(id, { text: "syndicated" })),
+        })
+      )
+    );
+    expect(result).toMatchObject({
+      source: "syndication",
+      tweets: [{ context: "post", id: "3", text: "syndicated" }],
+    });
+  });
+
+  test("treats private tweets as a hard failure without trying fallback", async () => {
+    let syndicationCalls = 0;
+    const result = await runLookup(
+      makeFxTwitter({
+        fetchStatus: () =>
+          Effect.fail(new FxTwitterPrivateTweetError({ operation: "status" })),
+      }),
+      makeSyndication({
+        fetchStatus: (_handle, id) => {
+          syndicationCalls += 1;
+          return Effect.succeed(makeTweet(id));
+        },
+      })
+    );
+    expect(result).toMatchObject({
+      _tag: "Failure",
+      failure: { code: "private_tweet", status: 404 },
+    });
+    expect(syndicationCalls).toBe(0);
+  });
+
+  test("prefers a truthful not-found verdict over a later upstream failure", async () => {
+    const result = await runLookup(
+      makeFxTwitter({
+        fetchStatus: () =>
+          Effect.fail(
+            new FxTwitterNotFoundError({ kind: "post", operation: "status" })
+          ),
+      }),
+      makeSyndication({
+        fetchStatus: () =>
+          Effect.fail(new SyndicationNetworkError({ operation: "status" })),
+      })
+    );
+    expect(result).toMatchObject({
+      _tag: "Failure",
+      failure: { _tag: "FxTwitterNotFoundError", status: 404 },
+    });
+  });
+
+  test("preserves the final classified upstream error when all providers fail", async () => {
+    const result = await runLookup(
+      makeFxTwitter({
+        fetchStatus: () =>
+          Effect.fail(new FxTwitterNetworkError({ operation: "status" })),
+      }),
+      makeSyndication({
+        fetchStatus: () =>
+          Effect.fail(new SyndicationNetworkError({ operation: "status" })),
+      })
+    );
+    expect(result).toMatchObject({
+      _tag: "Failure",
+      failure: { _tag: "SyndicationNetworkError", status: 502 },
+    });
+  });
+
+  test("uses the real FxTwitter service Layer for parent-chain thread fallback", async () => {
+    const client: HttpClient.HttpClient = HttpClient.make((request) =>
+      Effect.sync(() => {
+        if (request.url.includes("/2/thread/")) {
+          return HttpClientResponse.fromWeb(
+            request,
+            Response.json({
+              code: 200,
+              thread: [
+                {
+                  id: "3",
+                  replying_to: { status: "2" },
+                  text: "post 3",
+                },
+              ],
+            })
+          );
+        }
+        const id = new URL(request.url).pathname.split("/").at(-1) ?? "";
+        const numericId = Number(id);
+        return HttpClientResponse.fromWeb(
+          request,
+          Response.json({
+            code: 200,
+            status: {
+              id,
+              replying_to:
+                numericId > 1 ? { status: String(numericId - 1) } : undefined,
+              text: `post ${id}`,
+            },
           })
+        );
+      })
     );
-
-    const result = await fetchPosts("alice", pid("123"), "off");
-
-    expect(result.source).toBe("syndication");
-    expect(result.tweets[0]).toMatchObject({
-      context: "post",
-      id: "123",
-      text: "from syndication",
-    });
-    expect(String(fetchMock.mock.calls[1]?.[0])).toContain("cdn.syndication");
-  });
-
-  test("prefers FxTwitter when it succeeds", async () => {
-    const fetchMock = stubFetch((url) =>
-      respond(url, { code: 200, status: { id: "123", text: "from fx" } })
+    const fxLayer = layerFxTwitterWithoutDependencies.pipe(
+      Layer.provide(Layer.succeed(HttpClient.HttpClient, client))
     );
-
-    const result = await fetchPosts("alice", pid("123"), "off");
-
-    expect(result.source).toBe("fxtwitter");
-    expect(result.tweets[0]).toMatchObject({ context: "post", id: "123" });
-    expect(fetchMock).toHaveBeenCalledOnce();
-    expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/2/status/123");
-  });
-
-  test("private posts short-circuit without trying the fallback", async () => {
-    const fetchMock = stubFetch((url) =>
-      respond(url, { code: 403, message: "PRIVATE_TWEET" })
+    const layer = layerPostLookupWithoutDependencies.pipe(
+      Layer.provide([
+        fxLayer,
+        Layer.succeed(Syndication, Syndication.of(makeSyndication())),
+      ])
     );
-
-    await expect(fetchPosts("alice", pid("123"), "off")).rejects.toMatchObject({
-      code: "private_tweet",
-    });
-    expect(fetchMock).toHaveBeenCalledOnce();
-  });
-
-  test("surfaces the last provider error when every attempt fails", async () => {
-    stubFetch((url) => respond(url, {}, 500));
-
-    await expect(fetchPosts("alice", pid("123"), "off")).rejects.toMatchObject({
-      code: "syndication_error",
-    });
-  });
-
-  test("reports a truthful 404 when a provider confirms the post is missing", async () => {
-    stubFetch((url) =>
-      url.includes("api.fxtwitter.com")
-        ? respond(url, { code: 404, message: "NOT_FOUND" })
-        : respond(url, {}, 500)
+    const result = requireSuccess(
+      await Effect.runPromise(
+        Effect.result(
+          Effect.provide(
+            fetchPostsEffect("ada", postId("3"), "full", "full", "off"),
+            layer
+          )
+        )
+      )
     );
-
-    await expect(fetchPosts("alice", pid("123"), "off")).rejects.toMatchObject({
-      code: "not_found",
-      status: 404,
-    });
-  });
-
-  test("thread=full starts with the FxTwitter full thread before any fallback", async () => {
-    const fetchMock = stubFetch((url) => {
-      if (url.includes("/2/thread/")) {
-        return respond(url, {
-          code: 200,
-          thread: [{ id: "1", text: "thread" }],
-        });
-      }
-      return respond(url, { code: 200 });
-    });
-
-    const result = await fetchPosts("alice", pid("123"), "full");
-
-    expect(result.source).toBe("fxtwitter");
-    expect(result.tweets).toHaveLength(1);
-    expect(result.tweets[0]).toMatchObject({
-      context: "thread",
-      id: "1",
-      text: "thread",
-    });
-    expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/2/thread/123");
-    const urls = fetchMock.mock.calls.map((call) => String(call[0]));
-    expect(urls.some((url) => url.includes("/2/status/"))).toBeFalsy();
-  });
-
-  test("appends top replies in API order, caps, dedupes, and labels context", async () => {
-    const fetchMock = stubFetch((url) => {
-      if (url.includes("/2/conversation/")) {
-        return respond(url, {
-          code: 200,
-          replies: [
-            { id: "3", replying_to: { status: "2" }, text: "duplicate" },
-            { id: "4", replying_to: { status: "2" }, text: "reply" },
-          ],
-        });
-      }
-      return respond(url, {
-        code: 200,
-        thread: [
-          { id: "1", text: "parent" },
-          { id: "2", text: "post" },
-          { id: "3", text: "continuation" },
-        ],
-      });
-    });
-
-    const result = await fetchPosts("alice", pid("2"), "full");
-
-    expect(String(fetchMock.mock.calls.at(-1)?.[0])).toContain(
-      "/2/conversation/2?ranking_mode=likes"
-    );
-    expect(
-      result.tweets.map(({ context, id }) => ({ context, id }))
-    ).toStrictEqual([
-      { context: "parent", id: "1" },
-      { context: "post", id: "2" },
-      { context: "thread", id: "3" },
-      { context: "reply", id: "4" },
+    expect(result.tweets.map((tweet) => [tweet.id, tweet.context])).toStrictEqual([
+      ["1", "parent"],
+      ["2", "parent"],
+      ["3", "post"],
     ]);
   });
 
-  test("recent maps to recency and conversation failure keeps the thread", async () => {
-    const fetchMock = stubFetch((url) => {
-      if (url.includes("/2/conversation/")) {
-        return Promise.reject(new Error("conversation unavailable"));
-      }
-      if (url.includes("/2/thread/")) {
-        return respond(url, { code: 200, thread: [{ id: "2", text: "post" }] });
-      }
-      return respond(url, { code: 200 });
-    });
-
-    const result = await fetchPosts(
-      "alice",
-      pid("2"),
-      "full",
-      "full",
-      "recent"
+  test("filters context=thread to the focal author and preserves annotations", async () => {
+    const result = requireSuccess(
+      await runLookup(
+        makeFxTwitter({
+          fetchFullThread: () =>
+            Effect.succeed([
+              makeTweet("1", { author: { id: "a", screen_name: "ada" } }),
+              makeTweet("3", { author: { id: "a", screen_name: "ada" } }),
+              makeTweet("4", { author: { id: "b", screen_name: "bob" } }),
+              makeTweet("5", { author: { id: "a", screen_name: "ada" } }),
+            ]),
+        }),
+        makeSyndication(),
+        { context: "thread", thread: "full" }
+      )
     );
-
-    expect(String(fetchMock.mock.calls.at(-1)?.[0])).toContain(
-      "/2/conversation/2?ranking_mode=recency"
-    );
-    expect(result.tweets[0]).toMatchObject({
-      context: "post",
-      id: "2",
-      text: "post",
-    });
-  });
-
-  test("thread context and replies=off both opt out of conversation requests", async () => {
-    const fetchMock = stubFetch((url) => {
-      if (url.includes("/2/thread/")) {
-        return respond(url, { code: 200, thread: [{ id: "2" }] });
-      }
-      return respond(url, { code: 200 });
-    });
-
-    await fetchPosts("alice", pid("2"), "full", "thread", "top");
-    await fetchPosts("alice", pid("2"), "full", "full", "off");
-
-    const urls = fetchMock.mock.calls.map((call) => String(call[0]));
-    expect(urls.some((url) => url.includes("/2/conversation/"))).toBeFalsy();
-  });
-
-  test("thread context retains only the focal author while replies=off preserves full parents", async () => {
-    stubFetch((url) => {
-      if (url.includes("/2/thread/")) {
-        return respond(url, {
-          code: 200,
-          thread: [
-            { author: { screen_name: "other" }, id: "1" },
-            { author: { screen_name: "Alice" }, id: "2" },
-            { author: { screen_name: "alice" }, id: "3" },
-          ],
-        });
-      }
-      return respond(url, { code: 200 });
-    });
-
-    const authorThread = await fetchPosts(
-      "alice",
-      "2",
-      "full",
-      "thread",
-      "top"
-    );
-    expect(authorThread.tweets.map((tweet) => tweet.id)).toStrictEqual([
-      "2",
-      "3",
-    ]);
-
-    const noReplies = await fetchPosts(
-      "alice",
-      pid("2"),
-      "full",
-      "full",
-      "off"
-    );
-    expect(noReplies.tweets.map((tweet) => tweet.id)).toStrictEqual([
-      "1",
-      "2",
-      "3",
+    expect(result.tweets.map((tweet) => [tweet.id, tweet.context])).toStrictEqual([
+      ["1", "parent"],
+      ["3", "post"],
+      ["5", "thread"],
     ]);
   });
 
-  test("uses the requested handle when focal author metadata is missing", async () => {
-    stubFetch((url) => {
-      if (url.includes("/2/thread/")) {
-        return respond(url, {
-          code: 200,
-          thread: [
-            { author: { screen_name: "other" }, id: "1" },
-            { id: "2" },
-            { author: { screen_name: "Alice" }, id: "3" },
-          ],
-        });
-      }
-      return respond(url, { code: 200 });
-    });
+  test("dedupes reply identities while retaining provider reply order", async () => {
+    const result = requireSuccess(
+      await runLookup(
+        makeFxTwitter({
+          fetchFullThread: () =>
+            Effect.succeed([makeTweet("2"), makeTweet("3")]),
+          fetchConversationReplies: () =>
+            Effect.succeed([makeTweet("3"), makeTweet("4"), makeTweet("5")]),
+        }),
+        makeSyndication(),
+        { id: "2", thread: "full" }
+      )
+    );
+    expect(result.tweets.map((tweet) => [tweet.id, tweet.context])).toStrictEqual([
+      ["2", "post"],
+      ["3", "thread"],
+      ["4", "reply"],
+      ["5", "reply"],
+    ]);
+  });
 
-    const result = await fetchPosts("alice", pid("2"), "full", "thread", "top");
-    expect(result.tweets.map((tweet) => tweet.id)).toStrictEqual(["2", "3"]);
+  test.each([
+    { mode: "top" as const, ranking: "likes" },
+    { mode: "recent" as const, ranking: "recency" },
+    { mode: "off" as const, ranking: undefined },
+  ])("maps replies=$mode to the preserved ranking policy", async ({ mode, ranking }) => {
+    const rankings: string[] = [];
+    const result = requireSuccess(
+      await runLookup(
+        makeFxTwitter({
+          fetchFullThread: () => Effect.succeed([makeTweet("3")]),
+          fetchConversationReplies: (_id, replyRanking) => {
+            rankings.push(replyRanking ?? "likes");
+            return Effect.succeed([makeTweet("4")]);
+          },
+        }),
+        makeSyndication(),
+        { replies: mode, thread: "full" }
+      )
+    );
+    expect(rankings[0]).toBe(ranking);
+    expect(result.tweets.some((tweet) => tweet.context === "reply")).toBe(
+      mode !== "off"
+    );
+  });
+
+  test("keeps reply-fetch failure additive and non-fatal", async () => {
+    const result = requireSuccess(
+      await runLookup(
+        makeFxTwitter({
+          fetchFullThread: () => Effect.succeed([makeTweet("3")]),
+          fetchConversationReplies: () =>
+            Effect.fail(
+              new FxTwitterNetworkError({ operation: "conversation" })
+            ),
+        }),
+        makeSyndication(),
+        { thread: "full" }
+      )
+    );
+    expect(result.tweets).toMatchObject([{ context: "post", id: "3" }]);
   });
 });

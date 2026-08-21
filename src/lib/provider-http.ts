@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import { Effect, Layer } from "effect";
 import {
   HttpClient,
   HttpClientError,
@@ -33,8 +33,12 @@ const liveHttpClient: HttpClient.HttpClient = HttpClient.make(
     )
 );
 
+/** Web-standard production HttpClient selected only by composition/adapters. */
+export const layerLiveHttpClient: Layer.Layer<HttpClient.HttpClient> =
+  Layer.succeed(HttpClient.HttpClient, liveHttpClient);
+
 /**
- * Promise compatibility boundary for the existing application layer.
+ * Promise compatibility boundary for callers not yet migrated to application services.
  * Provider adapters remain Effect-native and testable with a supplied HttpClient.
  */
 export const runProviderEffect = <A, E extends ProviderHttpFailure>(
