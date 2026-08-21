@@ -1,75 +1,168 @@
-import type { CacheEntry, CacheStore } from "./cache.js";
+import { Clock, Crypto, Effect, Layer, PlatformError } from "effect";
 
-const sha256Hex = async (input: string): Promise<string> => {
-  const digest = await crypto.subtle.digest(
-    "SHA-256",
-    new TextEncoder().encode(input)
-  );
-  return [...new Uint8Array(digest)]
-    .map((byte) => byte.toString(16).padStart(2, "0"))
-    .join("");
-};
+import type { CacheEntry, CacheStore } from "./cache.js";
+import { CacheStoreError } from "./cache.js";
+
+const CACHE_PREFIX = "https://x-lookup.cache/__cache";
 
 export interface MinimalCache {
-  match: (key: string) => Promise<Response | undefined>;
-  put: (key: string, response: Response) => Promise<void>;
+  readonly match: (key: string) => Promise<Response | undefined>;
+  readonly put: (key: string, response: Response) => Promise<void>;
 }
+
+interface CacheEnvelope {
+  readonly expiresAt: number;
+  readonly value: unknown;
+}
+
+const isCacheEnvelope = (value: unknown): value is CacheEnvelope =>
+  typeof value === "object" &&
+  value !== null &&
+  "expiresAt" in value &&
+  typeof value.expiresAt === "number" &&
+  Number.isFinite(value.expiresAt) &&
+  "value" in value;
+
+const storeError = (
+  operation: CacheStoreError["operation"],
+  cause: unknown
+): CacheStoreError => new CacheStoreError({ cause, operation });
 
 /**
- * L2 store backed by the Cloudflare Cache API (`caches.default`).
- * Keys are hashed into synthetic URLs under `prefix`.
+ * Build the Cloudflare Cache API store while preserving the Effect Crypto
+ * requirement for the composition root to satisfy.
  */
-export class CacheApiStore implements CacheStore {
-  private readonly cache: MinimalCache;
-  private readonly prefix: string;
+export const makeCacheApiStore = (
+  cache: MinimalCache,
+  prefix = CACHE_PREFIX
+): Effect.Effect<CacheStore, never, Crypto.Crypto> =>
+  Effect.gen(function* makeCacheApiStoreEffect() {
+    const crypto = yield* Crypto.Crypto;
 
-  constructor(cache: MinimalCache, prefix = "https://x-lookup.cache/__cache") {
-    this.cache = cache;
-    this.prefix = prefix;
-  }
+    const urlFor = (
+      key: string,
+      operation: CacheStoreError["operation"]
+    ): Effect.Effect<string, CacheStoreError> =>
+      crypto
+        .digest("SHA-256", new TextEncoder().encode(key))
+        .pipe(
+          Effect.mapError((cause) => storeError(operation, cause)),
+          Effect.map(
+            (digest) =>
+              `${prefix}/${[...digest]
+                .map((byte) => byte.toString(16).padStart(2, "0"))
+                .join("")}`
+          )
+        );
 
-  private async urlFor(key: string): Promise<string> {
-    return `${this.prefix}/${await sha256Hex(key)}`;
-  }
+    const get: CacheStore["get"] = <T>(key: string) =>
+      Effect.gen(function* cacheApiGet() {
+        const url = yield* urlFor(key, "get");
+        const response = yield* Effect.tryPromise({
+          catch: (cause) => storeError("get", cause),
+          try: () => cache.match(url),
+        });
+        if (!response) {
+          return undefined;
+        }
+        const payload: unknown = yield* Effect.tryPromise({
+          catch: (cause) => storeError("get", cause),
+          try: () => response.json(),
+        });
+        if (!isCacheEnvelope(payload)) {
+          return undefined;
+        }
+        const now = yield* Clock.currentTimeMillis;
+        if (now > payload.expiresAt) {
+          return undefined;
+        }
+        // SAFETY: the cache service reads values back under the same typed key
+        // used when this adapter serialized them.
+        return payload as CacheEntry<T>;
+      });
 
-  async get<T>(key: string): Promise<CacheEntry<T> | undefined> {
-    try {
-      const response = await this.cache.match(await this.urlFor(key));
-      if (!response) {
-        return undefined;
-      }
-      // SAFETY: the edge only holds JSON envelopes written by set() below.
-      const envelope = (await response.json()) as CacheEntry<T>;
-      if (!envelope || !Number.isFinite(envelope.expiresAt)) {
-        return undefined;
-      }
-      if (Date.now() > envelope.expiresAt) {
-        return undefined;
-      }
-      return envelope;
-    } catch {
-      return undefined;
+    const set: CacheStore["set"] = <T>(
+      key: string,
+      value: T,
+      ttlSeconds: number
+    ) =>
+      Effect.gen(function* cacheApiSet() {
+        const now = yield* Clock.currentTimeMillis;
+        const envelope: CacheEntry<T> = {
+          expiresAt: now + ttlSeconds * 1000,
+          value,
+        };
+        const body = yield* Effect.try({
+          catch: (cause) => storeError("set", cause),
+          try: () => JSON.stringify(envelope),
+        });
+        const url = yield* urlFor(key, "set");
+        yield* Effect.tryPromise({
+          catch: (cause) => storeError("set", cause),
+          try: () =>
+            cache.put(
+              url,
+              new Response(body, {
+                headers: {
+                  "Cache-Control": `public, max-age=${ttlSeconds}`,
+                  "Content-Type": "application/json",
+                },
+              })
+            ),
+        });
+      });
+
+    return { get, set };
+  });
+
+/** Effect Crypto backed by the Web Crypto API available in workerd. */
+export const layerWebCrypto: Layer.Layer<Crypto.Crypto> = Layer.effect(
+  Crypto.Crypto,
+  Effect.gen(function* makeWebCrypto() {
+    const crypto = globalThis.crypto;
+    if (!crypto) {
+      return yield* Effect.die(new Error("Web Crypto API is not available"));
     }
-  }
 
-  async set<T>(key: string, value: T, ttlSeconds: number): Promise<void> {
-    try {
-      const envelope: CacheEntry<T> = {
-        expiresAt: Date.now() + ttlSeconds * 1000,
-        value,
-      };
-      const body = JSON.stringify(envelope);
-      await this.cache.put(
-        await this.urlFor(key),
-        new Response(body, {
-          headers: {
-            "Cache-Control": `public, max-age=${ttlSeconds}`,
-            "Content-Type": "application/json",
-          },
-        })
+    const randomBytes = (size: number): Uint8Array => {
+      const bytes = new Uint8Array(size);
+      for (let index = 0; index < bytes.length; index += 65_536) {
+        crypto.getRandomValues(bytes.subarray(index, index + 65_536));
+      }
+      return bytes;
+    };
+
+    const digest: Crypto.Crypto["digest"] = (algorithm, data) => {
+      if (typeof crypto.subtle.digest !== "function") {
+        return Effect.fail(
+          PlatformError.systemError({
+            _tag: "Unknown",
+            description: "crypto.subtle.digest is not available",
+            method: "digest",
+            module: "Crypto",
+          })
+        );
+      }
+      return Effect.map(
+        Effect.tryPromise({
+          catch: (cause) =>
+            PlatformError.systemError({
+              _tag: "Unknown",
+              cause,
+              description: "Could not compute digest",
+              method: "digest",
+              module: "Crypto",
+            }),
+          try: () => crypto.subtle.digest(algorithm, new Uint8Array(data)),
+        }),
+        (buffer) => new Uint8Array(buffer)
       );
-    } catch {
-      // Best-effort edge cache.
-    }
-  }
-}
+    };
+
+    return Crypto.make({ digest, randomBytes });
+  })
+);
+
+/** Return workerd's default Cache API binding when the runtime provides it. */
+export const defaultCacheApi = (): MinimalCache | undefined =>
+  (globalThis as { caches?: { default?: MinimalCache } }).caches?.default;
