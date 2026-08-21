@@ -2,15 +2,8 @@ import { Effect, Result } from "effect";
 import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 
 import { ROOT_MARKDOWN } from "./docs.js";
-import {
-  browseResponse,
-  parseBrowseRequest,
-} from "./lib/browse.js";
-import type {
-  BrowseFailure,
-  BrowseInput,
-  BrowseService,
-} from "./lib/browse.js";
+import { browseResponse, parseBrowseRequest } from "./lib/browse.js";
+import type { BrowseFailure, BrowseInput, BrowseService } from "./lib/browse.js";
 import {
   acceptPrefersHtml,
   markdownResponse,
@@ -315,7 +308,10 @@ const routeRequest = (
   }
 
   return route.pipe(
-    Effect.match({ onFailure: failurePayload, onSuccess: (payload) => payload }),
+    Effect.match({
+      onFailure: failurePayload,
+      onSuccess: (payload) => payload,
+    }),
     Effect.map((payload) => serverResponse(payload, request.method === "HEAD"))
   );
 };
@@ -336,7 +332,7 @@ export const makeHttpApplication = (
 > =>
   HttpServerRequest.HttpServerRequest.pipe(
     Effect.flatMap((request) => routeRequest(request, services)),
-    Effect.catchAllCause(() =>
+    Effect.catchCause(() =>
       Effect.succeed(
         serverResponse(
           jsonErrorPayload(500, {
