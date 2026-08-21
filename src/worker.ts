@@ -129,3 +129,11 @@ export const makeXLookupWorker = (stage: string) =>
 
 /** Runtime env contract derived from the Alchemy Worker declaration. */
 export type XLookupEnv = Cloudflare.InferEnv<typeof WORKER_ENV>;
+
+/**
+ * Default export required by Alchemy's generated Worker entry, which imports
+ * the main module's default binding while bundling the deployable script.
+ * The runtime resolves the actual handler through the registered resource,
+ * so only the binding's existence matters.
+ */
+export default makeXLookupWorker;
