@@ -1,4 +1,4 @@
-import { Effect, Result } from "effect";
+import { Context, Effect, Layer, Result } from "effect";
 
 import {
   DEFAULT_LIMIT,
@@ -23,21 +23,15 @@ import {
   Cache,
   buildCacheKey,
   cacheControlHeader,
-  layerIsolateMemory,
 } from "./cache.js";
 import type { CacheStatus } from "./cache.js";
-import { ConvertError } from "./errors.js";
-import {
-  fetchFxConnections,
-  fetchFxProfile,
-  fetchFxProfileStatuses,
-  searchFxStatuses,
-} from "./fxtwitter.js";
 import type { FxAuthor, FxListResponse, FxTweet } from "./fxtwitter.js";
 import type { HeaderMap, HttpPayload } from "./http.js";
+import type { FxTwitterFailure } from "./provider-errors.js";
+import { FxTwitter } from "./provider-service.js";
 import { parseBrowseFlag } from "./query-flag.js";
 import { parse as parseXHandle } from "./x-handle.js";
-import type { XHandle, InvalidXHandle } from "./x-handle.js";
+import type { InvalidXHandle, XHandle } from "./x-handle.js";
 
 /** Raw, untrusted browse query values exactly as they arrive from HTTP. */
 export interface BrowseInput {
@@ -94,8 +88,8 @@ export type BrowseParseError =
   | InvalidXHandle
   | MissingSearchQuery;
 
-/** A browse failure: a parse refusal or an upstream provider failure. */
-export type BrowseFailure = BrowseParseError | ConvertError;
+/** A browse failure: a parse refusal or an FxTwitter provider failure. */
+export type BrowseFailure = BrowseParseError | FxTwitterFailure;
 
 export interface BrowseResult {
   resource: BrowseResource;
@@ -111,6 +105,17 @@ export interface BrowseResult {
   markdown: string;
   cache: CacheStatus;
 }
+
+export interface BrowseService {
+  readonly browse: (
+    input: BrowseInput
+  ) => Effect.Effect<BrowseResult, BrowseFailure>;
+}
+
+/** Owns profile/search/social-graph page walking and cache orchestration. */
+export class Browse extends Context.Service<Browse, BrowseService>()(
+  "x-lookup/application/Browse"
+) {}
 
 /**
  * Parse the selection-specific values of a browse request.
@@ -142,9 +147,6 @@ const parseSelection = (
  * Parse order preserves the historical error precedence: resource, format,
  * then the selection-specific values (a strict handle for profile and graph
  * listings, a non-empty trimmed `q` for search).
- *
- * @param input - The raw query values.
- * @returns The parsed request, or the first parse refusal encountered.
  */
 export const parseBrowseRequest = (
   input: BrowseInput
@@ -172,22 +174,23 @@ export const parseBrowseRequest = (
 export const isOriginalPost = (post: FxTweet): boolean =>
   !post.replying_to && !post.replying_to_status?.length && !post.reposted_by;
 
-const walkPages = <T>(
+const walkPages = <T, E>(
   page: number,
   cursor: string | undefined,
-  fetchPage: (cursor?: string) => Promise<FxListResponse<T>>
-): Promise<FxListResponse<T>> => {
-  const walk = async (
+  fetchPage: (cursor?: string) => Effect.Effect<FxListResponse<T>, E>
+): Effect.Effect<FxListResponse<T>, E> => {
+  const walk = (
     remaining: number,
     current: string | undefined
-  ): Promise<FxListResponse<T>> => {
-    const result = await fetchPage(current);
-    if (remaining <= 1) {
-      return result;
-    }
-    const next = result.cursor?.bottom;
-    return next ? walk(remaining - 1, next) : { results: [] };
-  };
+  ): Effect.Effect<FxListResponse<T>, E> =>
+    Effect.gen(function* walkPage() {
+      const result = yield* fetchPage(current);
+      if (remaining <= 1) {
+        return result;
+      }
+      const next = result.cursor?.bottom;
+      return next ? yield* walk(remaining - 1, next) : { results: [] };
+    });
   return walk(cursor ? 1 : page, cursor);
 };
 
@@ -299,75 +302,86 @@ const renderMarkdown = (
 
 type BrowsePayload = Omit<BrowseResult, "cache">;
 
-const browseUncached = async (
-  request: BrowseRequest
-): Promise<BrowsePayload> => {
-  const { selection } = request;
-  if (selection._tag === "search") {
-    const list = await walkPages(request.page, request.cursor, (cursor) =>
-      searchFxStatuses(selection.query, selection.feed, cursor, request.limit)
-    );
-    const base = {
-      feed: selection.feed,
-      limit: request.limit,
-      nextCursor: list.cursor?.bottom,
-      page: request.page,
-      posts: list.results.slice(0, request.limit),
-      query: selection.query,
-      resource: selection._tag,
-    };
-    return { ...base, markdown: renderMarkdown(request, base) };
-  }
+const makeBrowse = Effect.gen(function* makeBrowseService() {
+  const cache = yield* Cache;
+  const fxTwitter = yield* FxTwitter;
 
-  const { handle } = selection;
-  if (selection._tag === "profile") {
-    const [profile, list] = await Promise.all([
-      fetchFxProfile(handle),
-      walkPages(request.page, request.cursor, (cursor) =>
-        fetchFxProfileStatuses(handle, cursor, request.limit)
-      ),
-    ]);
-    const posts = list.results.filter(isOriginalPost).slice(0, request.limit);
-    const base = {
-      handle,
-      limit: request.limit,
-      nextCursor: list.cursor?.bottom,
-      page: request.page,
-      posts,
-      profile,
-      resource: selection._tag,
-    };
-    return { ...base, markdown: renderMarkdown(request, base) };
-  }
+  const browseUncached = Effect.fn("Browse.loadUncached")(
+    function* browseUncachedEffect(request: BrowseRequest) {
+      const { selection } = request;
+      if (selection._tag === "search") {
+        const list = yield* walkPages(request.page, request.cursor, (cursor) =>
+          fxTwitter.searchStatuses(
+            selection.query,
+            selection.feed,
+            cursor,
+            request.limit
+          )
+        );
+        const base = {
+          feed: selection.feed,
+          limit: request.limit,
+          nextCursor: list.cursor?.bottom,
+          page: request.page,
+          posts: list.results.slice(0, request.limit),
+          query: selection.query,
+          resource: selection._tag,
+        };
+        return { ...base, markdown: renderMarkdown(request, base) };
+      }
 
-  const list = await walkPages(request.page, request.cursor, (cursor) =>
-    fetchFxConnections(handle, selection._tag, cursor, request.limit)
+      const { handle } = selection;
+      if (selection._tag === "profile") {
+        const [profile, list] = yield* Effect.all(
+          [
+            fxTwitter.fetchProfile(handle),
+            walkPages(request.page, request.cursor, (cursor) =>
+              fxTwitter.fetchProfileStatuses(handle, cursor, request.limit)
+            ),
+          ],
+          { concurrency: "unbounded" }
+        );
+        const posts = list.results
+          .filter(isOriginalPost)
+          .slice(0, request.limit);
+        const base = {
+          handle,
+          limit: request.limit,
+          nextCursor: list.cursor?.bottom,
+          page: request.page,
+          posts,
+          profile,
+          resource: selection._tag,
+        };
+        return { ...base, markdown: renderMarkdown(request, base) };
+      }
+
+      const list = yield* walkPages(request.page, request.cursor, (cursor) =>
+        fxTwitter.fetchConnections(
+          handle,
+          selection._tag,
+          cursor,
+          request.limit
+        )
+      );
+      const base = {
+        handle,
+        limit: request.limit,
+        nextCursor: list.cursor?.bottom,
+        page: request.page,
+        resource: selection._tag,
+        users: list.results.slice(0, request.limit),
+      };
+      return { ...base, markdown: renderMarkdown(request, base) };
+    }
   );
-  const base = {
-    handle,
-    limit: request.limit,
-    nextCursor: list.cursor?.bottom,
-    page: request.page,
-    resource: selection._tag,
-    users: list.results.slice(0, request.limit),
-  };
-  return { ...base, markdown: renderMarkdown(request, base) };
-};
 
-/**
- * Browse using the cache authority supplied through Effect.
- *
- * Only the cache seam is Effect-native here. The existing Promise-based browse
- * orchestration stays behind the loader bridge until the application-service
- * migration in the next issue.
- */
-export const browseEffect = (
-  input: BrowseInput
-): Effect.Effect<Result.Result<BrowseResult, BrowseFailure>, never, Cache> =>
-  Effect.gen(function* browseCached() {
+  const browse = Effect.fn("Browse.browse")(function* browseEffect(
+    input: BrowseInput
+  ) {
     const parsed = parseBrowseRequest(input);
     if (Result.isFailure(parsed)) {
-      return Result.fail(parsed.failure);
+      return yield* Effect.fail(parsed.failure);
     }
     const request = parsed.success;
     const key = buildCacheKey({
@@ -382,37 +396,25 @@ export const browseEffect = (
       resource: request.selection._tag,
       v: 2,
     });
-
-    const cache = yield* Cache;
-    const cached = yield* Effect.result(
-      cache.getOrLoad(
-        key,
-        request.nocache,
-        Effect.tryPromise({
-          catch: (cause) => cause,
-          try: () => browseUncached(request),
-        })
-      )
+    const cached = yield* cache.getOrLoad(
+      key,
+      request.nocache,
+      browseUncached(request)
     );
-    if (Result.isFailure(cached)) {
-      if (cached.failure instanceof ConvertError) {
-        return Result.fail(cached.failure);
-      }
-      return yield* Effect.die(cached.failure);
-    }
-    return Result.succeed({
-      ...cached.success.value,
-      cache: cached.success.status,
-    });
+    return { ...cached.value, cache: cached.status };
   });
 
-const defaultCacheLayer = layerIsolateMemory();
+  return Browse.of({ browse });
+});
 
-/** Temporary Promise bridge retained until browse orchestration migrates. */
-export const browse = (
+/** Dependency-preserving application Layer; composition chooses Cache/FxTwitter. */
+export const layerBrowseWithoutDependencies = Layer.effect(Browse, makeBrowse);
+
+/** Invoke browse orchestration through the public application service seam. */
+export const browseEffect = (
   input: BrowseInput
-): Promise<Result.Result<BrowseResult, BrowseFailure>> =>
-  Effect.runPromise(Effect.provide(browseEffect(input), defaultCacheLayer));
+): Effect.Effect<BrowseResult, BrowseFailure, Browse> =>
+  Browse.use((service) => service.browse(input));
 
 export const browseResponse = (
   result: BrowseResult,
