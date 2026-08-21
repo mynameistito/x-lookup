@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import type { FxTweet } from "../lib/fxtwitter.js";
+import type { FxTweet } from "../lib/fxtwitter-types.js";
 import { renderThreadMarkdown } from "../lib/markdown.js";
 
 const posts: FxTweet[] = [

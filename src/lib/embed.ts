@@ -1,5 +1,10 @@
 import type { ConvertSuccess } from "./converter.js";
-import type { FxMedia, FxMediaItem, FxPoll, FxTweet } from "./fxtwitter.js";
+import type {
+  FxMedia,
+  FxMediaItem,
+  FxPoll,
+  FxTweet,
+} from "./fxtwitter-types.js";
 import type { HeaderMap, HttpPayload } from "./http.js";
 
 export const SITE_NAME = "x-lookup";

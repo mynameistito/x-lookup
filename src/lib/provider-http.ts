@@ -5,15 +5,11 @@ import {
   HttpClientResponse,
 } from "effect/unstable/http";
 
-import { ConvertError } from "./errors.js";
-import type { HttpMappedError } from "./errors.js";
-
+/**
+ * A provider adapter program that resolves its HTTP client from context so
+ * composition roots and tests supply the concrete implementation.
+ */
 export type ProviderEffect<A, E> = Effect.Effect<A, E, HttpClient.HttpClient>;
-
-type ProviderHttpFailure = Error & HttpMappedError;
-
-const toConvertError = (failure: ProviderHttpFailure): ConvertError =>
-  new ConvertError(failure.status, failure.message, failure.code);
 
 const liveHttpClient: HttpClient.HttpClient = HttpClient.make(
   (request, url, signal) =>
@@ -36,17 +32,3 @@ const liveHttpClient: HttpClient.HttpClient = HttpClient.make(
 /** Web-standard production HttpClient selected only by composition/adapters. */
 export const layerLiveHttpClient: Layer.Layer<HttpClient.HttpClient> =
   Layer.succeed(HttpClient.HttpClient, liveHttpClient);
-
-/**
- * Promise compatibility boundary for callers not yet migrated to application services.
- * Provider adapters remain Effect-native and testable with a supplied HttpClient.
- */
-export const runProviderEffect = <A, E extends ProviderHttpFailure>(
-  program: ProviderEffect<A, E>
-): Promise<A> =>
-  Effect.runPromise(
-    program.pipe(
-      Effect.mapError(toConvertError),
-      Effect.provideService(HttpClient.HttpClient, liveHttpClient)
-    )
-  );

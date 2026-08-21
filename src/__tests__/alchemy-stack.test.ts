@@ -14,17 +14,19 @@ import { describe, expect, expectTypeOf, test } from "vitest";
 
 import XLookupStack, {
   buildXLookupStack,
-  XLookupWorker,
+  makeXLookupWorker,
 } from "../../alchemy.run.js";
 import type { XLookupEnv } from "../../alchemy.run.js";
+import { resolveWorkerIdentity } from "../worker.js";
 
 describe("alchemy stack", () => {
   test("exports a well-formed stack program", () => {
     expect(Effect.isEffect(XLookupStack)).toBeTruthy();
   });
 
-  test("declares the x-lookup worker resource", () => {
-    expect(Effect.isEffect(XLookupWorker)).toBeTruthy();
+  test("declares the x-lookup worker resource per stage", () => {
+    expect(Effect.isEffect(makeXLookupWorker("prod"))).toBeTruthy();
+    expect(Effect.isEffect(makeXLookupWorker("pr-7"))).toBeTruthy();
   });
 
   test("executes the stack body against in-memory state without credentials", async () => {
@@ -60,5 +62,26 @@ describe("alchemy stack", () => {
     expectTypeOf<XLookupEnv>().toEqualTypeOf<{
       CACHE_TTL_SECONDS: string;
     }>();
+  });
+});
+
+describe(resolveWorkerIdentity, () => {
+  test("pins the production script name and custom domain only in prod", () => {
+    expect(resolveWorkerIdentity("prod")).toStrictEqual({
+      domain: "x-lookup.mynameistito.com",
+      name: "x-lookup",
+    });
+  });
+
+  test("derives an isolated identity for local dev and PR preview stages", () => {
+    expect(resolveWorkerIdentity("pr-7")).toStrictEqual({
+      name: "x-lookup-pr-7",
+    });
+    expect(resolveWorkerIdentity("dev_mynameistito")).toStrictEqual({
+      name: "x-lookup-dev_mynameistito",
+    });
+    expect(resolveWorkerIdentity("test")).toStrictEqual({
+      name: "x-lookup-test",
+    });
   });
 });

@@ -8,7 +8,7 @@ import {
   Conversion,
   layerConversionWithoutDependencies,
 } from "../lib/converter.js";
-import type { FxAuthor, FxTweet } from "../lib/fxtwitter.js";
+import type { FxAuthor, FxTweet } from "../lib/fxtwitter-types.js";
 import { FxTwitterSearchUnavailableError } from "../lib/provider-errors.js";
 import { FxTwitter, Syndication } from "../lib/provider-service.js";
 import type {

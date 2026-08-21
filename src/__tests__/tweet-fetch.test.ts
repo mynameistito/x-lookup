@@ -2,7 +2,11 @@ import { Effect, Layer, Option, Result } from "effect";
 import { HttpClient, HttpClientResponse } from "effect/unstable/http";
 import { describe, expect, test } from "vitest";
 
-import type { FxAuthor, FxListResponse, FxTweet } from "../lib/fxtwitter.js";
+import type {
+  FxAuthor,
+  FxListResponse,
+  FxTweet,
+} from "../lib/fxtwitter-types.js";
 import { parse as parsePostId } from "../lib/post-id.js";
 import {
   FxTwitterNetworkError,

@@ -21,7 +21,7 @@ import type {
 } from "./browse-query.js";
 import { Cache, buildCacheKey, cacheControlHeader } from "./cache.js";
 import type { CacheStatus } from "./cache.js";
-import type { FxAuthor, FxListResponse, FxTweet } from "./fxtwitter.js";
+import type { FxAuthor, FxListResponse, FxTweet } from "./fxtwitter-types.js";
 import type { HeaderMap, HttpPayload } from "./http.js";
 import type { FxTwitterFailure } from "./provider-errors.js";
 import { FxTwitter } from "./provider-service.js";

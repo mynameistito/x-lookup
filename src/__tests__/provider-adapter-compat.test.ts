@@ -96,6 +96,65 @@ describe("FxTwitter provider compatibility", () => {
     expect(fullThread.map((tweet) => tweet.id)).toStrictEqual(["1", "2", "3"]);
   });
 
+  test("resolves parents through the replying_to_status array fallback", async () => {
+    const client = makeClient((request) => {
+      const id = requestId(request);
+      return Response.json({
+        code: 200,
+        status:
+          id === "200"
+            ? { id, replying_to: ["alice"], replying_to_status: ["100"] }
+            : { id, text: `post ${id}` },
+      });
+    });
+
+    const chain = await runWithClient(
+      fetchFxConversationChainEffect("200"),
+      client
+    );
+
+    expect(chain.map((tweet) => tweet.id)).toStrictEqual(["100", "200"]);
+  });
+
+  test("returns a multi-tweet thread endpoint response directly", async () => {
+    const client = makeClient(() =>
+      Response.json({
+        code: 200,
+        thread: [
+          { id: "100", text: "root" },
+          { id: "200", text: "mid" },
+          { id: "300", text: "leaf" },
+        ],
+      })
+    );
+
+    const thread = await runWithClient(fetchFxFullThreadEffect("300"), client);
+
+    expect(thread.map((tweet) => tweet.id)).toStrictEqual([
+      "100",
+      "200",
+      "300",
+    ]);
+  });
+
+  test("returns a single parentless status without extra requests", async () => {
+    let requests = 0;
+    const client = makeClient((request) => {
+      requests += 1;
+      return Response.json({
+        code: 200,
+        ...(request.url.includes("/2/thread/")
+          ? { thread: [{ id: "100", text: "solo" }] }
+          : { status: { id: "100", text: "solo" } }),
+      });
+    });
+
+    const thread = await runWithClient(fetchFxFullThreadEffect("100"), client);
+
+    expect(thread.map((tweet) => tweet.id)).toStrictEqual(["100"]);
+    expect(requests).toBe(1);
+  });
+
   test("prevents parent-chain cycles", async () => {
     let requests = 0;
     const client = makeClient((request) => {

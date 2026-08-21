@@ -45,6 +45,16 @@ const networkFailureClient: HttpClient.HttpClient = HttpClient.make((request) =>
   )
 );
 
+const parentFor = (index: number): { readonly status: string } | undefined => {
+  if (index === 0) {
+    return { status: "other" };
+  }
+  if (index === 1) {
+    return undefined;
+  }
+  return { status: "20" };
+};
+
 describe("FxTwitter Effect adapter", () => {
   test("decodes statuses and preserves media normalization", async () => {
     const client = makeClient(() =>
@@ -215,6 +225,43 @@ describe("FxTwitter Effect adapter", () => {
 
     expect(thread.map((tweet) => tweet.id)).toStrictEqual(["1", "2"]);
     expect(replies.map((tweet) => tweet.id)).toStrictEqual(["3", "4"]);
+  });
+
+  test("keeps only direct replies, ranks by recency, caps, and sends ranking_mode", async () => {
+    const requests: string[] = [];
+    const replies = Array.from({ length: 12 }, (_, index) => ({
+      created_timestamp: index,
+      id: String(index + 1),
+      likes: index,
+      replying_to: parentFor(index),
+    }));
+    const client = makeClient((request) => {
+      requests.push(request.url);
+      return Response.json({ code: 200, replies }, { status: 200 });
+    });
+
+    const result = await runWithClient(
+      fetchFxConversationRepliesEffect("20", "recency", 10),
+      client
+    );
+
+    expect(result.map((tweet) => tweet.id)).toStrictEqual([
+      "12",
+      "11",
+      "10",
+      "9",
+      "8",
+      "7",
+      "6",
+      "5",
+      "4",
+      "3",
+    ]);
+    expect(
+      requests.some((url) =>
+        url.includes("/2/conversation/20?ranking_mode=recency")
+      )
+    ).toBeTruthy();
   });
 
   test("classifies private, not-found, search refusal, and upstream failures", async () => {
@@ -395,6 +442,24 @@ describe("syndication Effect adapter", () => {
       "https://img/one.jpg",
       "https://img/two.jpg",
     ]);
+  });
+
+  test("leaves a quote source absent when its own identity is missing", async () => {
+    const client = makeClient(() =>
+      Response.json({
+        id_str: "123",
+        quoted_tweet: { text: "anonymous quote" },
+        text: "container",
+        user: { screen_name: "alice" },
+      })
+    );
+
+    const tweet = await runWithClient(
+      fetchSyndicationStatusEffect("alice", "123"),
+      client
+    );
+
+    expect(tweet.quote?.url).toBeUndefined();
   });
 
   test("classifies non-2xx, non-JSON, malformed, empty, and network failures", async () => {

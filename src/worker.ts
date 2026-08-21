@@ -25,6 +25,42 @@ const WORKER_ENV = {
   CACHE_TTL_SECONDS: "3600",
 } satisfies WorkerEnvBindings;
 
+/** The only stage that serves the pinned production Worker and custom domain. */
+const PROD_STAGE = "prod";
+
+/** Physical Cloudflare Worker script name shared with the pre-Alchemy deploy. */
+const WORKER_NAME = "x-lookup";
+
+/** The production custom domain attached to the Worker in `prod`. */
+const CUSTOM_DOMAIN = "x-lookup.mynameistito.com";
+
+export interface WorkerIdentity {
+  /**
+   * The pinned physical script name, present only in `prod`; other stages let
+   * Alchemy derive a stage-isolated physical name.
+   */
+  readonly name?: string;
+  /**
+   * The canonical custom domain, attached only in `prod` so preview and local
+   * stages can never capture production traffic.
+   */
+  readonly domain?: string;
+}
+
+/**
+ * Decide the Worker's resource identity for one Alchemy stage.
+ *
+ * `prod` pins the physical script name and custom domain so Alchemy adopts
+ * the existing Wrangler-era deployment in place. Every other stage (local
+ * dev, PR previews) gets the deterministic, stage-scoped name
+ * `x-lookup-<stage>`, keeping previews isolated from production without
+ * random suffixes.
+ */
+export const resolveWorkerIdentity = (stage: string): WorkerIdentity =>
+  stage === PROD_STAGE
+    ? { domain: CUSTOM_DOMAIN, name: WORKER_NAME }
+    : { name: `${WORKER_NAME}-${stage}` };
+
 /**
  * Production composition root for application capabilities.
  *
@@ -53,38 +89,55 @@ const makeApplicationServices = (env: Env) =>
     Effect.provide(applicationLayer(env))
   );
 
-/**
- * Effect-native Alchemy Worker resource and runtime implementation.
- *
- * Alchemy supplies WorkerEnvironment at initialization and HttpServerRequest per
- * fetch event. The concrete application graph is built once and closed over by
- * the fetch Effect.
- */
-export const XLookupWorker = Cloudflare.Worker(
-  "x-lookup",
-  {
-    compatibility: { date: "2026-08-01" },
-    domain: "x-lookup.mynameistito.com",
-    env: WORKER_ENV,
-    main: "./src/worker.ts",
-    name: "x-lookup",
-    observability: { enabled: true },
-  },
-  Effect.gen(function* makeXLookupWorker() {
-    const workerEnv = yield* Cloudflare.WorkerEnvironment;
-    const env = Option.getOrElse(
-      Schema.decodeUnknownOption(envSchema)(workerEnv),
-      () => ({})
-    );
-    const services = yield* makeApplicationServices(env);
+/** Runtime implementation graph, independent of the deployment stage. */
+const runtimeImplementation = Effect.gen(function* makeXLookupRuntime() {
+  const workerEnv = yield* Cloudflare.WorkerEnvironment;
+  const env = Option.getOrElse(
+    Schema.decodeUnknownOption(envSchema)(workerEnv),
+    () => ({})
+  );
+  const services = yield* makeApplicationServices(env);
 
-    return {
-      fetch: makeHttpApplication(services),
-    };
-  })
-);
+  return {
+    fetch: makeHttpApplication(services),
+  };
+});
+
+/**
+ * Declare the x-lookup Worker resource for one stage.
+ *
+ * The stage is resolved by the caller (the stack body reads the Alchemy
+ * `Stage` service) so the props are concrete values: the provider's
+ * precreate phase consumes raw, unresolved props and cannot accept lazy
+ * per-prop Inputs for identity. In `prod` this pins the physical name and
+ * custom domain; elsewhere they stay absent so Alchemy derives an isolated,
+ * stage-scoped physical name.
+ *
+ * Alchemy supplies WorkerEnvironment at initialization and
+ * HttpServerRequest per fetch event; the application graph is built once
+ * and closed over by the fetch Effect.
+ */
+export const makeXLookupWorker = (stage: string) =>
+  Cloudflare.Worker(
+    "x-lookup",
+    {
+      compatibility: { date: "2026-08-01" },
+      domain: resolveWorkerIdentity(stage).domain,
+      env: WORKER_ENV,
+      main: "./src/worker.ts",
+      name: resolveWorkerIdentity(stage).name,
+      observability: { enabled: true },
+    },
+    runtimeImplementation
+  );
 
 /** Runtime env contract derived from the Alchemy Worker declaration. */
 export type XLookupEnv = Cloudflare.InferEnv<typeof WORKER_ENV>;
 
-export default XLookupWorker;
+/**
+ * Default export required by Alchemy's generated Worker entry, which imports
+ * the main module's default binding while bundling the deployable script.
+ * The runtime resolves the actual handler through the registered resource,
+ * so only the binding's existence matters.
+ */
+export default makeXLookupWorker;

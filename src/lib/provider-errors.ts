@@ -1,6 +1,18 @@
 import { Data } from "effect";
 
-import type { HttpMappedError } from "./errors.js";
+/**
+ * The external HTTP error contract every expected failure projects onto:
+ * JSON `{ "error": string, "code": string }` with a truthful status.
+ *
+ * Provider failures satisfy this structurally, so the HTTP boundary renders
+ * any expected failure union without knowing its member modules.
+ */
+export interface HttpMappedError {
+  /** Stable external error code, e.g. `invalid_url`. */
+  readonly code: string;
+  /** HTTP status that truthfully reflects the failure class. */
+  readonly status: number;
+}
 
 export class FxTwitterNetworkError
   extends Data.TaggedError("FxTwitterNetworkError")<{
