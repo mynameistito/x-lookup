@@ -98,7 +98,9 @@ const makeFxTwitter = (
   searchStatuses: (query, _feed, _cursor, count) => {
     calls.searches.push({ count, query });
     return options.failSearch
-      ? Effect.fail(new FxTwitterSearchUnavailableError({ operation: "search" }))
+      ? Effect.fail(
+          new FxTwitterSearchUnavailableError({ operation: "search" })
+        )
       : Effect.succeed({
           cursor: { bottom: "next" },
           results: [post("301")],
@@ -182,7 +184,10 @@ describe("Effect HTTP boundary", () => {
       rootContentType: expect.stringContaining("text/markdown"),
       rootStatus: 200,
     });
-    expect({ searches: calls.searches, statuses: calls.statuses }).toStrictEqual({
+    expect({
+      searches: calls.searches,
+      statuses: calls.statuses,
+    }).toStrictEqual({
       searches: [],
       statuses: [],
     });
@@ -297,7 +302,7 @@ describe("Effect HTTP boundary", () => {
       searchCount: "1",
     });
     expect(calls.searches).toContainEqual({ count: 3, query: "cloudflare" });
-    expect(calls.connections).toEqual(
+    expect(calls.connections).toStrictEqual(
       expect.arrayContaining([
         { count: 5, handle: "ada", relation: "followers" },
         { count: 20, handle: "ada", relation: "following" },
@@ -517,11 +522,12 @@ describe("HTTP typed parse error mapping", () => {
     const { services } = await makeHarness();
     const response = await runBoundary(request("/ada/status/abc"), services);
 
-    expect({ payload: await response.json(), status: response.status }).toMatchObject(
-      {
-        payload: { code: "not_found" },
-        status: 404,
-      }
-    );
+    expect({
+      payload: await response.json(),
+      status: response.status,
+    }).toMatchObject({
+      payload: { code: "not_found" },
+      status: 404,
+    });
   });
 });
