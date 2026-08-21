@@ -21,11 +21,9 @@ https://x-lookup.mynameistito.com/handle/status/1234567890
 ```
 
 ```bash
-curl -sS -H 'Accept: text/markdown' \
-  'https://x-lookup.mynameistito.com/handle/status/1234567890'
+curl -sS -H "Accept: text/markdown" "https://x-lookup.mynameistito.com/handle/status/1234567890"
 
-curl -sS -G 'https://x-lookup.mynameistito.com/api/convert' \
-  --data-urlencode 'url=https://x.com/handle/status/1234567890'
+curl -sS -G "https://x-lookup.mynameistito.com/api/convert" --data-urlencode "url=https://x.com/handle/status/1234567890"
 ```
 
 Browsers that request HTML get a readable page containing the Markdown.
