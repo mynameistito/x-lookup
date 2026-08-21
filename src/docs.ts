@@ -39,14 +39,17 @@ curl -sS 'https://x-lookup.mynameistito.com/handle'
 
 ## Endpoints
 
-| Route | Purpose |
-| --- | --- |
-| \`GET /api/convert?url=<x-status-url>\` (or \`handle=\` + \`id=\`) | Convert a status/thread |
-| \`GET /:handle/status/:id\` | Same, via URL rewrite |
-| \`GET /api/browse?resource=profile\\|search\\|followers\\|following&…\` | Browse endpoint |
-| \`GET /search?q=…\` · \`GET /:handle\` · \`GET /:handle/followers\` · \`GET /:handle/following\` | Shortcuts |
-| \`GET /oembed?url=…\` | oEmbed JSON |
-| \`GET /\` · \`GET /docs\` | This documentation |
+| Route | Purpose | Parameters |
+| --- | --- | --- |
+| \`GET /api/convert?url=<x-status-url>\` (or \`handle=\` + \`id=\`) | Convert a status/thread | see [Statuses and threads](#statuses-and-threads) |
+| \`GET /:handle/status/:id\` | Same, via URL rewrite | same as \`/api/convert\` |
+| \`GET /api/browse?resource=profile\\|search\\|followers\\|following&…\` | Browse endpoint | see [Profiles, search, and social graphs](#profiles-search-and-social-graphs) |
+| \`GET /search?q=…\` | Post search | \`q\` (required), \`feed\`, \`cursor\`, \`page\`, \`limit\`, \`full\`, \`format\`, \`nocache\` |
+| \`GET /:handle\` | Profile + latest original posts | \`cursor\`, \`page\`, \`limit\`, \`full\`, \`format\`, \`nocache\` |
+| \`GET /:handle/followers\` | Follower users | \`cursor\`, \`page\`, \`limit\`, \`full\`, \`format\`, \`nocache\` |
+| \`GET /:handle/following\` | Following users | \`cursor\`, \`page\`, \`limit\`, \`full\`, \`format\`, \`nocache\` |
+| \`GET /oembed?url=…\` | oEmbed JSON | \`url\`; optional \`text\`, \`author\`, \`status\`, \`provider\` overrides |
+| \`GET /\` · \`GET /docs\` | This documentation | — |
 
 ## Content negotiation
 
@@ -97,9 +100,18 @@ GET /search?q=from:handle+topic      post search
 GET /api/browse?resource=…           all of the above programmatically
 \`\`\`
 
-Shared parameters: \`limit\` (1–50, default 20), \`page\` (1–10),
-\`cursor\` (opaque continuation), \`feed\` (latest \\| top \\| media, search only),
-\`full\`, \`format\` (markdown \\| json), \`nocache\`.
+Shared parameters:
+
+| Parameter | Default | Values |
+| --- | --- | --- |
+| q | — | Search query; required on \`/search\` and \`resource=search\`. Supports X operators like \`from:\`, \`since:\` |
+| feed | latest | latest \\| top \\| media (search only) |
+| cursor | — | Opaque continuation token from \`Continue →\` / JSON \`nextCursor\` |
+| page | 1 | 1–10; walks pages when no cursor is given |
+| limit | 20 | 1–50 results per response |
+| full | false | true adds dates/metrics to posts and follower counts/bios to users |
+| format | markdown | markdown \\| json |
+| nocache | false | true bypasses the cache |
 
 Prefer the opaque cursor from the Markdown \`Continue →\` link or JSON
 \`nextCursor\` over page walking.

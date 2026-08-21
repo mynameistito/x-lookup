@@ -31,14 +31,17 @@ Discord, Telegram, Slack, and other preview bots receive Open Graph embed HTML.
 
 ## Routes
 
-| Route | Purpose |
-| --- | --- |
-| `GET /api/convert?url=<x-status-url>` (or `handle=` + `id=`) | Convert a status/thread |
-| `GET /:handle/status/:id` | Same, via URL rewrite |
-| `GET /api/browse?resource=profile\|search\|followers\|following&…` | Browse endpoint |
-| `GET /search?q=…` · `GET /:handle` · `GET /:handle/followers` · `GET /:handle/following` | Shortcuts |
-| `GET /oembed?url=…` | oEmbed JSON |
-| `GET /` (also `/docs`) | Full usage documentation (Markdown) |
+| Route | Purpose | Query parameters |
+| --- | --- | --- |
+| `GET /api/convert?url=<x-status-url>` (or `handle=` + `id=`) | Convert a status/thread | see [Post conversion parameters](#post-conversion-parameters) |
+| `GET /:handle/status/:id` | Same, via URL rewrite | same as `/api/convert` |
+| `GET /api/browse?resource=profile\|search\|followers\|following&…` | Browse endpoint | see [Browse parameters](#browse-parameters) |
+| `GET /search?q=…` | Search posts | `q` (required), `feed`, `cursor`, `page`, `limit`, `full`, `format`, `nocache` |
+| `GET /:handle` | Profile + latest original posts | `cursor`, `page`, `limit`, `full`, `format`, `nocache` |
+| `GET /:handle/followers` | Follower users | `cursor`, `page`, `limit`, `full`, `format`, `nocache` |
+| `GET /:handle/following` | Following users | `cursor`, `page`, `limit`, `full`, `format`, `nocache` |
+| `GET /oembed?url=…` | oEmbed JSON | `url`; optional `text`, `author`, `status`, `provider` overrides |
+| `GET /` (also `/docs`) | Full usage documentation (Markdown) | — |
 
 All API responses send CORS `*`, support `OPTIONS` (204) and `HEAD`; other
 methods get 405. Errors are always `{ "error": string, "code": string }` with a
@@ -66,9 +69,20 @@ preview-bot User-Agents with no explicit format → OG HTML; `Accept: text/html`
 ## Browse parameters
 
 `/api/browse`, `/search`, `/:handle`, and follower lists accept:
-`q`, `feed` (`latest`|`top`|`media`), `cursor`, `page` (1–10), `limit` (1–50),
-`full`, `format` (`markdown`|`json`), `nocache`. Prefer the opaque cursor from
-the Markdown `Continue →` link or JSON `nextCursor`.
+
+| Parameter | Default | Supported values |
+| --- | --- | --- |
+| `q` | — | Search query; required on `/search` and `resource=search`. Supports X operators like `from:`, `since:` |
+| `feed` | `latest` | `latest`, `top`, `media` — search only |
+| `cursor` | — | Opaque continuation token from `Continue →` / `nextCursor` |
+| `page` | 1 | `1`–`10`; walks pages when no `cursor` is given |
+| `limit` | 20 | `1`–`50` results per response |
+| `full` | false | `true`, `1`, or `yes` adds dates/metrics to posts and follower counts/bios to users |
+| `format` | `markdown` | `markdown`, `json` |
+| `nocache` | false | `true`, `1`, or `yes` bypasses the cache |
+
+Prefer the opaque cursor from the Markdown `Continue →` link or JSON
+`nextCursor` over page walking.
 
 ## Meaningful response headers
 
