@@ -29,7 +29,9 @@ export class MemoryStore implements CacheStore {
 
   async get<T>(key: string): Promise<CacheEntry<T> | undefined> {
     const envelope = this.map.get(key) as MemoryEnvelope<T> | undefined;
-    if (!envelope) {return undefined;}
+    if (!envelope) {
+      return undefined;
+    }
     if (Date.now() > envelope.entry.expiresAt) {
       this.map.delete(key);
       return undefined;
@@ -46,7 +48,9 @@ export class MemoryStore implements CacheStore {
     });
     while (this.map.size > MAX_MEMORY_ENTRIES) {
       const oldest = this.map.keys().next().value;
-      if (oldest === undefined) {break;}
+      if (oldest === undefined) {
+        break;
+      }
       this.map.delete(oldest);
     }
   }
@@ -90,10 +94,16 @@ export class CacheApiStore implements CacheStore {
   async get<T>(key: string): Promise<CacheEntry<T> | undefined> {
     try {
       const response = await this.cache.match(await this.urlFor(key));
-      if (!response) {return undefined;}
+      if (!response) {
+        return undefined;
+      }
       const envelope = (await response.json()) as CacheEntry<T>;
-      if (!envelope || typeof envelope.expiresAt !== "number") {return undefined;}
-      if (Date.now() > envelope.expiresAt) {return undefined;}
+      if (!envelope || typeof envelope.expiresAt !== "number") {
+        return undefined;
+      }
+      if (Date.now() > envelope.expiresAt) {
+        return undefined;
+      }
       return envelope;
     } catch {
       return undefined;
@@ -147,7 +157,9 @@ export function memoryConfig(ttlSeconds = DEFAULT_TTL_SECONDS): RuntimeConfig {
 export function workerConfig(env: Env): RuntimeConfig {
   const stores: CacheStore[] = [memoryStore];
   const l2 = defaultCacheApi();
-  if (l2) {stores.push(new CacheApiStore(l2));}
+  if (l2) {
+    stores.push(new CacheApiStore(l2));
+  }
   return { stores, ttlSeconds: parseTtlSeconds(env.CACHE_TTL_SECONDS) };
 }
 
@@ -164,11 +176,15 @@ export async function withCache<T>(
   fn: () => Promise<T>,
   config: RuntimeConfig = memoryConfig()
 ): Promise<{ value: T; status: CacheStatus }> {
-  if (nocache) {return { value: await fn(), status: "bypass" };}
+  if (nocache) {
+    return { status: "bypass", value: await fn() };
+  }
 
   for (let index = 0; index < config.stores.length; index += 1) {
     const hit = await config.stores[index]?.get<T>(key);
-    if (hit === undefined) {continue;}
+    if (hit === undefined) {
+      continue;
+    }
     for (let backfill = 0; backfill < index; backfill += 1) {
       const remaining = Math.max(
         1,

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
-vi.mock(import('../lib/cache.js'), () => ({
+vi.mock(import("../lib/cache.js"), () => ({
   buildCacheKey: vi.fn(() => "browse-test"),
   cacheControlHeader: vi.fn(() => "public, max-age=300"),
   memoryConfig: vi.fn(() => ({ stores: [], ttlSeconds: 300 })),
@@ -12,7 +12,7 @@ vi.mock(import('../lib/cache.js'), () => ({
   ),
 }));
 
-vi.mock(import('../lib/fxtwitter.js'), () => ({
+vi.mock(import("../lib/fxtwitter.js"), () => ({
   fetchFxConnections: vi.fn(),
   fetchFxProfile: vi.fn(),
   fetchFxProfileStatuses: vi.fn(),
@@ -187,5 +187,7 @@ describe(browse, () => {
 test("provider filtering identifies replies and reposts", () => {
   expect(isOriginalPost(post)).toBeTruthy();
   expect(isOriginalPost({ ...post, replying_to_status: ["9"] })).toBeFalsy();
-  expect(isOriginalPost({ ...post, reposted_by: { screen_name: "bob" } })).toBeFalsy();
+  expect(
+    isOriginalPost({ ...post, reposted_by: { screen_name: "bob" } })
+  ).toBeFalsy();
 });

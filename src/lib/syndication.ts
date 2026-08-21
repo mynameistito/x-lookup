@@ -78,11 +78,15 @@ function mapMedia(raw: SyndicationTweet): FxMedia | undefined {
   const items = candidates.filter((item) => {
     const key =
       item.media_url_https ?? item.url ?? item.video_info?.variants?.[0]?.url;
-    if (!key || seenMedia.has(key)) {return false;}
+    if (!key || seenMedia.has(key)) {
+      return false;
+    }
     seenMedia.add(key);
     return true;
   });
-  if (items.length === 0) {return undefined;}
+  if (items.length === 0) {
+    return undefined;
+  }
 
   const photos: FxMediaItem[] = [];
   const videos: FxMediaItem[] = [];
@@ -104,8 +108,9 @@ function mapMedia(raw: SyndicationTweet): FxMedia | undefined {
     const height = m.original_info?.height ?? m.sizes?.large?.h;
 
     if (type === "photo") {
-      if (photoUrl)
-        {photos.push({ type: "photo", url: photoUrl, thumbnail_url: photoUrl });}
+      if (photoUrl) {
+        photos.push({ thumbnail_url: photoUrl, type: "photo", url: photoUrl });
+      }
     } else if (type === "video") {
       videos.push({
         bitrate: videoVariant?.bitrate,
@@ -132,17 +137,26 @@ function mapMedia(raw: SyndicationTweet): FxMedia | undefined {
   }
 
   const media: FxMedia = {};
-  if (photos.length) {media.photos = photos;}
-  if (videos.length) {media.videos = videos;}
-  if (animated.length) {media.animated = animated;}
+  if (photos.length) {
+    media.photos = photos;
+  }
+  if (videos.length) {
+    media.videos = videos;
+  }
+  if (animated.length) {
+    media.animated = animated;
+  }
   return Object.keys(media).length ? media : undefined;
 }
 
 function mapArticle(raw?: SyndicationArticle): FxArticle | undefined {
-  if (!raw?.title && !raw?.preview_text) {return undefined;}
+  if (!raw?.title && !raw?.preview_text) {
+    return undefined;
+  }
   const blocks: FxArticleBlock[] = [];
-  if (raw.preview_text)
-    {blocks.push({ type: "unstyled", text: raw.preview_text });}
+  if (raw.preview_text) {
+    blocks.push({ text: raw.preview_text, type: "unstyled" });
+  }
   return {
     content: blocks.length ? { blocks } : undefined,
     cover_media: raw.cover_media,
@@ -152,7 +166,9 @@ function mapArticle(raw?: SyndicationArticle): FxArticle | undefined {
 }
 
 function mapUser(user?: SyndicationUser): FxTweet["author"] {
-  if (!user) {return undefined;}
+  if (!user) {
+    return undefined;
+  }
   const website = user.entities?.url?.urls?.[0];
   return {
     avatar_url: user.profile_image_url_https,
@@ -167,7 +183,7 @@ function mapUser(user?: SyndicationUser): FxTweet["author"] {
     url: user.screen_name ? `https://x.com/${user.screen_name}` : user.url,
     verification: { verified: user.verified },
     website: website
-      ? { url: website.expanded_url, display_url: website.display_url }
+      ? { display_url: website.display_url, url: website.expanded_url }
       : undefined,
   };
 }

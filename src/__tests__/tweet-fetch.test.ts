@@ -2,13 +2,13 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 
 import { ConvertError } from "../lib/errors.js";
 
-vi.mock(import('../lib/fxtwitter.js'), () => ({
+vi.mock(import("../lib/fxtwitter.js"), () => ({
   fetchFxConversationReplies: vi.fn(),
   fetchFxFullThread: vi.fn(),
   fetchFxStatus: vi.fn(),
 }));
 
-vi.mock(import('../lib/syndication.js'), () => ({
+vi.mock(import("../lib/syndication.js"), () => ({
   fetchSyndicationStatus: vi.fn(),
 }));
 
@@ -38,7 +38,7 @@ describe("fetchPosts provider fallbacks", () => {
 
     expect(result).toStrictEqual({
       source: "syndication",
-      tweets: [{ id: "123", text: "from syndication", context: "post" }],
+      tweets: [{ context: "post", id: "123", text: "from syndication" }],
     });
     expect(fetchSyndicationStatus).toHaveBeenCalledWith("alice", "123");
   });
@@ -103,7 +103,7 @@ describe("fetchPosts provider fallbacks", () => {
 
     expect(result).toStrictEqual({
       source: "fxtwitter",
-      tweets: [{ id: "1", text: "thread", context: "thread" }],
+      tweets: [{ context: "thread", id: "1", text: "thread" }],
     });
     expect(fetchFxFullThread).toHaveBeenCalledWith("123");
     expect(fetchFxStatus).not.toHaveBeenCalled();
@@ -123,7 +123,9 @@ describe("fetchPosts provider fallbacks", () => {
     const result = await fetchPosts("alice", "2", "full");
 
     expect(fetchFxConversationReplies).toHaveBeenCalledWith("2", "likes", 10);
-    expect(result.tweets.map(({ id, context }) => ({ context, id }))).toStrictEqual([
+    expect(
+      result.tweets.map(({ id, context }) => ({ context, id }))
+    ).toStrictEqual([
       { context: "parent", id: "1" },
       { context: "post", id: "2" },
       { context: "thread", id: "3" },
@@ -138,7 +140,9 @@ describe("fetchPosts provider fallbacks", () => {
     );
     const result = await fetchPosts("alice", "2", "full", "full", "recent");
     expect(fetchFxConversationReplies).toHaveBeenCalledWith("2", "recency", 10);
-    expect(result.tweets).toStrictEqual([{ context: "post", id: "2", text: "post" }]);
+    expect(result.tweets).toStrictEqual([
+      { context: "post", id: "2", text: "post" },
+    ]);
   });
 
   test("thread context and replies=off both opt out of conversation requests", async () => {
@@ -161,9 +165,16 @@ describe("fetchPosts provider fallbacks", () => {
       "thread",
       "top"
     );
-    expect(authorThread.tweets.map((tweet) => tweet.id)).toStrictEqual(["2", "3"]);
+    expect(authorThread.tweets.map((tweet) => tweet.id)).toStrictEqual([
+      "2",
+      "3",
+    ]);
     const noReplies = await fetchPosts("alice", "2", "full", "full", "off");
-    expect(noReplies.tweets.map((tweet) => tweet.id)).toStrictEqual(["1", "2", "3"]);
+    expect(noReplies.tweets.map((tweet) => tweet.id)).toStrictEqual([
+      "1",
+      "2",
+      "3",
+    ]);
   });
 
   test("uses the requested handle when focal author metadata is missing", async () => {

@@ -1,6 +1,10 @@
 import { ConvertError } from "./errors.js";
-import { fetchFxConversationReplies, fetchFxFullThread, fetchFxStatus } from './fxtwitter.js';
-import type { FxReplyRanking, FxTweet } from './fxtwitter.js';
+import {
+  fetchFxConversationReplies,
+  fetchFxFullThread,
+  fetchFxStatus,
+} from "./fxtwitter.js";
+import type { FxReplyRanking, FxTweet } from "./fxtwitter.js";
 import { fetchSyndicationStatus } from "./syndication.js";
 
 export type FetchSource = "fxtwitter" | "syndication";
@@ -22,8 +26,12 @@ function annotateAndDedupe(
   const seen = new Set<string>();
   const output: FxTweet[] = [];
   const add = (tweet: FxTweet, context: FxTweet["context"]) => {
-    if (tweet.id && seen.has(tweet.id)) {return;}
-    if (tweet.id) {seen.add(tweet.id);}
+    if (tweet.id && seen.has(tweet.id)) {
+      return;
+    }
+    if (tweet.id) {
+      seen.add(tweet.id);
+    }
     output.push({ ...tweet, context });
   };
 
@@ -50,8 +58,12 @@ function focalAuthorThread(
   const handle =
     focal?.author?.screen_name?.toLowerCase() ?? requestedHandle.toLowerCase();
   return thread.filter((tweet) => {
-    if (tweet.id === requestedId) {return true;}
-    if (authorId) {return tweet.author?.id === authorId;}
+    if (tweet.id === requestedId) {
+      return true;
+    }
+    if (authorId) {
+      return tweet.author?.id === authorId;
+    }
     return Boolean(
       handle && tweet.author?.screen_name?.toLowerCase() === handle
     );
@@ -83,7 +95,9 @@ async function fetchStatusWithFallback(
       return await attempt();
     } catch (error) {
       lastError = error;
-      if (isHardNotFound(error)) {throw error;}
+      if (isHardNotFound(error)) {
+        throw error;
+      }
       // Prefer a truthful "missing" verdict from any provider over later
       // upstream failures when everything else failed.
       if (!notFound && error instanceof ConvertError && error.status === 404) {
@@ -92,7 +106,9 @@ async function fetchStatusWithFallback(
     }
   }
 
-  if (notFound) {throw notFound;}
+  if (notFound) {
+    throw notFound;
+  }
 
   throw lastError instanceof ConvertError
     ? lastError
@@ -138,7 +154,9 @@ export async function fetchPosts(
       tweets: annotateAndDedupe(thread, id, replies),
     };
   } catch (error) {
-    if (isHardNotFound(error)) {throw error;}
+    if (isHardNotFound(error)) {
+      throw error;
+    }
   }
 
   const result = await fetchStatusWithFallback(handle, id);

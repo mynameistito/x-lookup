@@ -184,7 +184,9 @@ function normalizeMediaItem(item: FxMediaItem): FxMediaItem {
 }
 
 function normalizeMedia(media?: FxMedia): FxMedia | undefined {
-  if (!media || Object.keys(media).length === 0) {return undefined;}
+  if (!media || Object.keys(media).length === 0) {
+    return undefined;
+  }
   const map = (items?: FxMediaItem[]) => items?.map(normalizeMediaItem);
   return {
     ...media,
@@ -269,7 +271,9 @@ function encodeQuery(
 ): string {
   const query = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
-    if (value !== undefined && value !== "") {query.set(key, String(value));}
+    if (value !== undefined && value !== "") {
+      query.set(key, String(value));
+    }
   }
   return query.toString();
 }
@@ -278,8 +282,9 @@ export async function fetchFxProfile(handle: string): Promise<FxAuthor> {
   const data = await fxFetchJson<{ user?: FxAuthor }>(
     `2/profile/${encodeURIComponent(handle)}`
   );
-  if (!data.user)
-    {throw new ConvertError(404, "Profile not found.", "not_found");}
+  if (!data.user) {
+    throw new ConvertError(404, "Profile not found.", "not_found");
+  }
   return data.user;
 }
 
@@ -355,12 +360,16 @@ export async function fetchFxStatus(id: string): Promise<FxTweet> {
 export function getParentStatusId(tweet: FxTweet): string | undefined {
   const replyingTo = tweet.replying_to;
   if (replyingTo && !Array.isArray(replyingTo)) {
-    const {status} = replyingTo;
-    if (status) {return String(status);}
+    const { status } = replyingTo;
+    if (status) {
+      return String(status);
+    }
   }
 
   const fromStatus = tweet.replying_to_status?.[0];
-  if (fromStatus) {return String(fromStatus);}
+  if (fromStatus) {
+    return String(fromStatus);
+  }
 
   return undefined;
 }
@@ -372,7 +381,9 @@ export async function fetchFxConversationChain(id: string): Promise<FxTweet[]> {
   let currentId: string | undefined = id;
 
   while (currentId && walked.length < 100) {
-    if (seen.has(currentId)) {break;}
+    if (seen.has(currentId)) {
+      break;
+    }
     seen.add(currentId);
 
     try {
@@ -380,8 +391,9 @@ export async function fetchFxConversationChain(id: string): Promise<FxTweet[]> {
       walked.push(tweet);
       currentId = getParentStatusId(tweet);
     } catch (error) {
-      if (error instanceof ConvertError && error.code === "private_tweet")
-        {throw error;}
+      if (error instanceof ConvertError && error.code === "private_tweet") {
+        throw error;
+      }
       break;
     }
   }

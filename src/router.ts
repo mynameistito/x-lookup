@@ -1,16 +1,20 @@
 import { ROOT_MARKDOWN } from "./docs.js";
 import type { Env } from "./env.js";
 import { browse, browseResponse } from "./lib/browse.js";
-import { workerConfig } from './lib/cache.js';
-import type { RuntimeConfig } from './lib/cache.js';
+import { workerConfig } from "./lib/cache.js";
+import type { RuntimeConfig } from "./lib/cache.js";
 import {
   ConvertError,
   acceptPrefersHtml,
   convertTweet,
   markdownResponse,
 } from "./lib/converter.js";
-import { embedResponse, isEmbedUserAgent, oembedResponse } from './lib/embed.js';
-import type { OEmbedQuery } from './lib/embed.js';
+import {
+  embedResponse,
+  isEmbedUserAgent,
+  oembedResponse,
+} from "./lib/embed.js";
+import type { OEmbedQuery } from "./lib/embed.js";
 import { requestOrigin, wantsJson, wantsMarkdown } from "./lib/http.js";
 
 const HANDLE = "([A-Za-z0-9_]{1,15})";
@@ -52,11 +56,12 @@ const textResponse = (body: string): Response =>
   });
 
 const fail = (error: unknown): Response => {
-  if (error instanceof ConvertError)
-    {return jsonResponse(error.status, {
-      error: error.message,
+  if (error instanceof ConvertError) {
+    return jsonResponse(error.status, {
       code: error.code,
-    });}
+      error: error.message,
+    });
+  }
   console.error(error);
   return jsonResponse(500, {
     code: "internal_error",
@@ -182,12 +187,18 @@ export async function handleRequest(
   const config = workerConfig(env);
 
   try {
-    if (path === "/" || path === "/docs") {return textResponse(ROOT_MARKDOWN);}
-    if (path === "/api/browse")
-      {return await handleBrowse(query, request, config);}
-    if (path === "/api/convert")
-      {return await handleConvert(query, request, config);}
-    if (path === "/oembed") {return handleOEmbed(query, request);}
+    if (path === "/" || path === "/docs") {
+      return textResponse(ROOT_MARKDOWN);
+    }
+    if (path === "/api/browse") {
+      return await handleBrowse(query, request, config);
+    }
+    if (path === "/api/convert") {
+      return await handleConvert(query, request, config);
+    }
+    if (path === "/oembed") {
+      return handleOEmbed(query, request);
+    }
     if (path === "/search") {
       query.set("resource", "search");
       return await handleBrowse(query, request, config);

@@ -1,11 +1,11 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
-vi.mock(import('../lib/browse.js'), () => ({
+vi.mock(import("../lib/browse.js"), () => ({
   browse: vi.fn(),
   browseResponse: vi.fn(),
 }));
 
-vi.mock(import('../lib/converter.js'), () => {
+vi.mock(import("../lib/converter.js"), () => {
   class TestConvertError extends Error {
     readonly status: number;
     readonly code?: string;
@@ -23,7 +23,7 @@ vi.mock(import('../lib/converter.js'), () => {
   };
 });
 
-vi.mock(import('../lib/embed.js'), () => ({
+vi.mock(import("../lib/embed.js"), () => ({
   embedResponse: vi.fn(),
   isEmbedUserAgent: vi.fn(() => false),
   oembedResponse: vi.fn(),
@@ -137,7 +137,9 @@ describe("router routing", () => {
 
     const apiNotFound = await handleRequest(get("/api/nope"));
     expect(apiNotFound.status).toBe(404);
-    await expect(apiNotFound.json()).resolves.toMatchObject({ code: "not_found" });
+    await expect(apiNotFound.json()).resolves.toMatchObject({
+      code: "not_found",
+    });
   });
 
   test("returns 405 for non-GET methods and answers CORS preflights", async () => {

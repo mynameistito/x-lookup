@@ -33,27 +33,39 @@ export interface OEmbedQuery {
 
 function escapeAttr(value: string): string {
   return value
-    .replaceAll('&', "&amp;")
+    .replaceAll("&", "&amp;")
     .replaceAll('"', "&quot;")
-    .replaceAll('<', "&lt;")
-    .replaceAll('>', "&gt;");
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
 }
 
 export function formatCount(num: number): string {
-  if (num >= 1e6) {return `${(num / 1e6).toFixed(2)}M`;}
-  if (num >= 995_000) {return "1.00M";}
-  if (num >= 1e3) {return `${(num / 1e3).toFixed(1)}K`;}
+  if (num >= 1e6) {
+    return `${(num / 1e6).toFixed(2)}M`;
+  }
+  if (num >= 995_000) {
+    return "1.00M";
+  }
+  if (num >= 1e3) {
+    return `${(num / 1e3).toFixed(1)}K`;
+  }
   return String(num);
 }
 
 export function socialProof(tweet: FxTweet): string | undefined {
   const parts: string[] = [];
-  if ((tweet.replies ?? 0) > 0)
-    {parts.push(`💬 ${formatCount(tweet.replies ?? 0)}`);}
-  if ((tweet.retweets ?? 0) > 0)
-    {parts.push(`🔁 ${formatCount(tweet.retweets ?? 0)}`);}
-  if ((tweet.likes ?? 0) > 0) {parts.push(`❤️ ${formatCount(tweet.likes ?? 0)}`);}
-  if ((tweet.views ?? 0) > 0) {parts.push(`👁️ ${formatCount(tweet.views ?? 0)}`);}
+  if ((tweet.replies ?? 0) > 0) {
+    parts.push(`💬 ${formatCount(tweet.replies ?? 0)}`);
+  }
+  if ((tweet.retweets ?? 0) > 0) {
+    parts.push(`🔁 ${formatCount(tweet.retweets ?? 0)}`);
+  }
+  if ((tweet.likes ?? 0) > 0) {
+    parts.push(`❤️ ${formatCount(tweet.likes ?? 0)}`);
+  }
+  if ((tweet.views ?? 0) > 0) {
+    parts.push(`👁️ ${formatCount(tweet.views ?? 0)}`);
+  }
   return parts.length ? parts.join("   ") : undefined;
 }
 
@@ -81,7 +93,9 @@ function pollBlock(poll: FxPoll, barLength = 32): string {
   ]
     .filter((part): part is string => Boolean(part))
     .join(" · ");
-  if (footer) {lines.push("", footer);}
+  if (footer) {
+    lines.push("", footer);
+  }
   return `\n${lines.join("\n")}`;
 }
 
@@ -102,13 +116,17 @@ export function pickFocalTweet(
 ): FxTweet | undefined {
   if (requestedId) {
     const match = posts.find((post) => post.id === requestedId);
-    if (match) {return match;}
+    if (match) {
+      return match;
+    }
   }
   return posts.find((post) => post.context === "post") ?? posts[0];
 }
 
 function isPlayableMp4(url: string, contentType?: string): boolean {
-  if (contentType === "video/mp4") {return true;}
+  if (contentType === "video/mp4") {
+    return true;
+  }
   return /\.mp4(?:$|[?#])/i.test(url);
 }
 
@@ -119,8 +137,12 @@ function bestVideoUrl(item: FxMediaItem): string | undefined {
         variant.url && isPlayableMp4(variant.url, variant.content_type)
     )
     .sort((a, b) => (b.bitrate ?? 0) - (a.bitrate ?? 0));
-  if (mp4s?.[0]?.url) {return mp4s[0].url;}
-  if (item.url && isPlayableMp4(item.url, item.format)) {return item.url;}
+  if (mp4s?.[0]?.url) {
+    return mp4s[0].url;
+  }
+  if (item.url && isPlayableMp4(item.url, item.format)) {
+    return item.url;
+  }
   return undefined;
 }
 
@@ -146,7 +168,9 @@ function mosaicUrl(media?: FxMedia): string | undefined {
 }
 
 function photoTags(photo: FxMediaItem): string[] {
-  if (!photo.url) {return [];}
+  if (!photo.url) {
+    return [];
+  }
   const tags = [
     `<meta property="twitter:image" content="${escapeAttr(photo.url)}">`,
     `<meta property="og:image" content="${escapeAttr(photo.url)}">`,
@@ -173,7 +197,9 @@ function photoTags(photo: FxMediaItem): string[] {
 
 function videoTags(video: FxMediaItem): string[] {
   const url = bestVideoUrl(video);
-  if (!url) {return [];}
+  if (!url) {
+    return [];
+  }
   const { width, height } = videoDimensions(video);
   const mime = video.format?.includes("/") ? video.format : "video/mp4";
   const thumb = video.thumbnail_url;
@@ -189,7 +215,10 @@ function videoTags(video: FxMediaItem): string[] {
     `<meta property="og:video:height" content="${height}">`,
   ];
   if (thumb) {
-    tags.push(`<meta property="og:image" content="${escapeAttr(thumb)}">`, '<meta property="twitter:image" content="0">');
+    tags.push(
+      `<meta property="og:image" content="${escapeAttr(thumb)}">`,
+      '<meta property="twitter:image" content="0">'
+    );
   }
   return tags;
 }
@@ -201,7 +230,9 @@ interface MediaPlan {
 
 function stillImagePlan(item: FxMediaItem | undefined): MediaPlan | undefined {
   const url = item?.thumbnail_url ?? item?.url;
-  if (!url || /\.m3u8(?:$|[?#])/i.test(url)) {return undefined;}
+  if (!url || /\.m3u8(?:$|[?#])/i.test(url)) {
+    return undefined;
+  }
   return {
     card: "summary_large_image",
     tags: [
@@ -222,11 +253,17 @@ function mediaPlan(
   if (video) {
     if (staticVideoFallback && video.thumbnail_url) {
       const still = stillImagePlan(video);
-      if (still) {return still;}
+      if (still) {
+        return still;
+      }
     }
-    if (bestVideoUrl(video)) {return { card: "player", tags: videoTags(video) };}
+    if (bestVideoUrl(video)) {
+      return { card: "player", tags: videoTags(video) };
+    }
     const still = stillImagePlan(video);
-    if (still) {return still;}
+    if (still) {
+      return still;
+    }
   }
 
   const photos = own?.photos?.filter((photo) => photo.url) ?? [];
@@ -339,8 +376,8 @@ export function embedResponse(
   if (!tweet) {
     return {
       body: JSON.stringify({
-        error: "Post not found or unavailable.",
         code: "not_found",
+        error: "Post not found or unavailable.",
       }),
       headers: { "Content-Type": "application/json; charset=utf-8" },
       status: 404,
@@ -391,7 +428,9 @@ function parseStatusUrlSafe(
   try {
     const parsed = new URL(raw);
     const match = /^\/([^/?#]+)\/status\/(\d+)\/?$/.exec(parsed.pathname);
-    if (!match) {return undefined;}
+    if (!match) {
+      return undefined;
+    }
     return {
       canonicalUrl: `https://x.com/${match[1]}/status/${match[2]}`,
       handle: match[1],

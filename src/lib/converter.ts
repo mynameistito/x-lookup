@@ -1,10 +1,15 @@
-import { buildCacheKey, cacheControlHeader, memoryConfig, withCache } from './cache.js';
-import type { CacheStatus, RuntimeConfig } from './cache.js';
+import {
+  buildCacheKey,
+  cacheControlHeader,
+  memoryConfig,
+  withCache,
+} from "./cache.js";
+import type { CacheStatus, RuntimeConfig } from "./cache.js";
 import { ConvertError } from "./errors.js";
-import { renderThreadMarkdown } from './markdown.js';
-import type { UserinfoLevel } from './markdown.js';
-import { fetchPosts } from './tweet-fetch.js';
-import type { ContextMode, FetchSource, RepliesMode } from './tweet-fetch.js';
+import { renderThreadMarkdown } from "./markdown.js";
+import type { UserinfoLevel } from "./markdown.js";
+import { fetchPosts } from "./tweet-fetch.js";
+import type { ContextMode, FetchSource, RepliesMode } from "./tweet-fetch.js";
 
 export type OutputFormat = "markdown" | "obsidian" | "json";
 
@@ -133,9 +138,15 @@ export function resolveTarget(input: ConvertInput): {
 }
 
 function parseFormat(raw: string | null | undefined): OutputFormat {
-  if (!raw || raw === "markdown") {return "markdown";}
-  if (raw === "obsidian") {return "obsidian";}
-  if (raw === "json") {return "json";}
+  if (!raw || raw === "markdown") {
+    return "markdown";
+  }
+  if (raw === "obsidian") {
+    return "obsidian";
+  }
+  if (raw === "json") {
+    return "json";
+  }
   throw new ConvertError(
     400,
     "`format` must be `markdown`, `obsidian`, or `json`.",
@@ -146,8 +157,12 @@ function parseFormat(raw: string | null | undefined): OutputFormat {
 const DEFAULT_THREAD = "full";
 
 function canonicalThreadCacheValue(raw: string | null | undefined): string {
-  if (raw === "off") {return "off";}
-  if (!raw || raw === "full" || raw === "conversation") {return DEFAULT_THREAD;}
+  if (raw === "off") {
+    return "off";
+  }
+  if (!raw || raw === "full" || raw === "conversation") {
+    return DEFAULT_THREAD;
+  }
   return raw;
 }
 
@@ -155,10 +170,13 @@ function parseThread(raw: string | null | undefined): {
   mode: "off" | "full";
   limit: number;
 } {
-  if (raw === "off") {return { mode: "off", limit: 1 };}
+  if (raw === "off") {
+    return { limit: 1, mode: "off" };
+  }
 
-  if (!raw || raw === "full" || raw === "conversation")
-    {return { mode: "full", limit: 100 };}
+  if (!raw || raw === "full" || raw === "conversation") {
+    return { limit: 100, mode: "full" };
+  }
 
   const n = Number.parseInt(raw, 10);
   if (Number.isFinite(n) && n >= 2 && n <= 100) {
@@ -173,9 +191,15 @@ function parseThread(raw: string | null | undefined): {
 }
 
 function parseUserinfo(raw: string | null | undefined): UserinfoLevel {
-  if (!raw || raw === "off") {return "off";}
-  if (raw === "author") {return "author";}
-  if (raw === "all") {return "all";}
+  if (!raw || raw === "off") {
+    return "off";
+  }
+  if (raw === "author") {
+    return "author";
+  }
+  if (raw === "all") {
+    return "all";
+  }
   throw new ConvertError(
     400,
     "`userinfo` must be `off`, `author`, or `all`.",
@@ -184,14 +208,22 @@ function parseUserinfo(raw: string | null | undefined): UserinfoLevel {
 }
 
 function parseBoolean(raw: string | boolean | null | undefined): boolean {
-  if (raw === true) {return true;}
-  if (raw === false || raw == null) {return false;}
+  if (raw === true) {
+    return true;
+  }
+  if (raw === false || raw == null) {
+    return false;
+  }
   return raw === "1" || raw === "true" || raw === "yes";
 }
 
 function parseContext(raw: string | null | undefined): ContextMode {
-  if (!raw || raw === "full") {return "full";}
-  if (raw === "thread") {return "thread";}
+  if (!raw || raw === "full") {
+    return "full";
+  }
+  if (raw === "thread") {
+    return "thread";
+  }
   throw new ConvertError(
     400,
     "`context` must be `full` or `thread`.",
@@ -200,8 +232,12 @@ function parseContext(raw: string | null | undefined): ContextMode {
 }
 
 function parseReplies(raw: string | null | undefined): RepliesMode {
-  if (!raw || raw === "top") {return "top";}
-  if (raw === "recent" || raw === "off") {return raw;}
+  if (!raw || raw === "top") {
+    return "top";
+  }
+  if (raw === "recent" || raw === "off") {
+    return raw;
+  }
   throw new ConvertError(
     400,
     "`replies` must be `top`, `recent`, or `off`.",
@@ -228,7 +264,9 @@ function limitPostsByRole(
   requestedId: string,
   limit: number
 ): FxTweet[] {
-  if (posts.length <= limit) {return posts;}
+  if (posts.length <= limit) {
+    return posts;
+  }
   const focalIndex = posts.findIndex((post) => post.id === requestedId);
   const candidates = posts.map((post, index) => ({
     index,
@@ -236,12 +274,14 @@ function limitPostsByRole(
     priority:
       post.id === requestedId
         ? 0
-        : post.context === "parent" || post.context === "thread"
+        : (post.context === "parent" || post.context === "thread"
           ? 1
-          : 2,
+          : 2),
   }));
   candidates.sort((a, b) => {
-    if (a.priority !== b.priority) {return a.priority - b.priority;}
+    if (a.priority !== b.priority) {
+      return a.priority - b.priority;
+    }
     // Closest parent first; continuations and ranked replies retain provider order.
     if (a.post.context === "parent" && b.post.context === "parent") {
       return Math.abs(focalIndex - a.index) - Math.abs(focalIndex - b.index);
@@ -361,16 +401,17 @@ export async function convertTweet(
 }
 
 export function acceptPrefersHtml(accept: string): boolean {
-  if (accept.includes("application/json") || accept.includes("text/markdown"))
-    {return false;}
+  if (accept.includes("application/json") || accept.includes("text/markdown")) {
+    return false;
+  }
   return accept.includes("text/html");
 }
 
 function escapeHtml(value: string): string {
   return value
-    .replaceAll('&', "&amp;")
-    .replaceAll('<', "&lt;")
-    .replaceAll('>', "&gt;")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;");
 }
 
@@ -418,15 +459,15 @@ export function markdownResponse(
   if (asJson) {
     return {
       body: JSON.stringify({
-        format: result.format,
-        url: result.canonicalUrl,
-        markdown: result.body,
-        posts: result.posts,
-        compact: result.compact,
-        warnings: result.warnings,
-        postCount: result.postCount,
-        source: result.source,
         cache: result.cache,
+        compact: result.compact,
+        format: result.format,
+        markdown: result.body,
+        postCount: result.postCount,
+        posts: result.posts,
+        source: result.source,
+        url: result.canonicalUrl,
+        warnings: result.warnings,
       }),
       headers: {
         "Content-Type": "application/json; charset=utf-8",

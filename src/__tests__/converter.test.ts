@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
-vi.mock(import('../lib/cache.js'), () => ({
+vi.mock(import("../lib/cache.js"), () => ({
   buildCacheKey: vi.fn((args: Record<string, unknown>) => JSON.stringify(args)),
   cacheControlHeader: vi.fn(() => "public, max-age=300"),
   memoryConfig: vi.fn(() => ({ stores: [], ttlSeconds: 300 })),
@@ -12,14 +12,14 @@ vi.mock(import('../lib/cache.js'), () => ({
   ),
 }));
 
-vi.mock(import('../lib/tweet-fetch.js'), () => ({
+vi.mock(import("../lib/tweet-fetch.js"), () => ({
   fetchPosts: vi.fn(async () => ({
     source: "fxtwitter",
     tweets: [{ id: "1", text: "hello" }],
   })),
 }));
 
-vi.mock(import('../lib/markdown.js'), () => ({
+vi.mock(import("../lib/markdown.js"), () => ({
   renderThreadMarkdown: vi.fn(() => "# hello"),
 }));
 
@@ -75,10 +75,10 @@ describe("output selection", () => {
       source: "fxtwitter",
       tweets: [
         {
+          author: { screen_name: "bob" },
+          context: "reply",
           id: "99",
           text: "reply",
-          context: "reply",
-          author: { screen_name: "bob" },
         },
       ],
     });
@@ -189,7 +189,7 @@ describe("canonicalThreadCacheValue — cache key normalisation", () => {
     expect(mockedBuildCacheKey).toHaveBeenCalledWith(
       expect.objectContaining({ thread: "full" })
     );
-    const {calls} = mockedBuildCacheKey.mock;
+    const { calls } = mockedBuildCacheKey.mock;
     expect(
       calls.every(
         (args) => (args[0] as { thread: string }).thread !== "conversation"
@@ -208,11 +208,11 @@ describe("canonicalThreadCacheValue — cache key normalisation", () => {
     vi.mocked(fetchPosts).mockResolvedValueOnce({
       source: "fxtwitter",
       tweets: [
-        { id: "1", context: "parent" },
-        { id: "2", context: "parent" },
-        { id: "3", context: "post" },
-        { id: "4", context: "thread" },
-        { id: "5", context: "reply" },
+        { context: "parent", id: "1" },
+        { context: "parent", id: "2" },
+        { context: "post", id: "3" },
+        { context: "thread", id: "4" },
+        { context: "reply", id: "5" },
       ],
     });
     const result = await convertTweet({

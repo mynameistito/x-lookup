@@ -12,9 +12,9 @@ describe("syndication video mapping", () => {
           id_str: "123",
           mediaDetails: [
             {
-              type: "video",
               media_url_https: "https://img/thumb.jpg",
-              original_info: { width: 1280, height: 720 },
+              original_info: { height: 720, width: 1280 },
+              type: "video",
               video_info: {
                 duration_millis: 4500,
                 variants: [
@@ -45,7 +45,7 @@ describe("syndication video mapping", () => {
 
     const tweet = await fetchSyndicationStatus("alice", "123");
     expect(tweet.media?.videos?.[0]).toMatchObject({
-      bitrate: 832000,
+      bitrate: 832_000,
       duration_ms: 4500,
       height: 720,
       thumbnail_url: "https://img/thumb.jpg",
@@ -63,9 +63,9 @@ describe("syndication video mapping", () => {
         JSON.stringify({
           id_str: "123",
           mediaDetails: [
-            { type: "photo", media_url_https: "https://img/one.jpg" },
+            { media_url_https: "https://img/one.jpg", type: "photo" },
           ],
-          photos: [{ type: "photo", media_url_https: "https://img/one.jpg" }],
+          photos: [{ media_url_https: "https://img/one.jpg", type: "photo" }],
           quoted_tweet: {
             id_str: "456",
             text: "quote",
@@ -107,12 +107,12 @@ describe("syndication video mapping", () => {
         JSON.stringify({
           entities: {
             media: [
-              { type: "photo", media_url_https: "https://img/one.jpg" },
-              { type: "photo", media_url_https: "https://img/two.jpg" },
+              { media_url_https: "https://img/one.jpg", type: "photo" },
+              { media_url_https: "https://img/two.jpg", type: "photo" },
             ],
           },
           id_str: "123",
-          photos: [{ type: "photo", media_url_https: "https://img/one.jpg" }],
+          photos: [{ media_url_https: "https://img/one.jpg", type: "photo" }],
           text: "photos",
           user: { screen_name: "alice" },
         }),

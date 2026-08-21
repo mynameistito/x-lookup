@@ -1,8 +1,18 @@
-import { buildCacheKey, cacheControlHeader, memoryConfig, withCache } from './cache.js';
-import type { CacheStatus, RuntimeConfig } from './cache.js';
+import {
+  buildCacheKey,
+  cacheControlHeader,
+  memoryConfig,
+  withCache,
+} from "./cache.js";
+import type { CacheStatus, RuntimeConfig } from "./cache.js";
 import { ConvertError } from "./errors.js";
-import { fetchFxConnections, fetchFxProfile, fetchFxProfileStatuses, searchFxStatuses } from './fxtwitter.js';
-import type { FxAuthor, FxListResponse, FxTweet } from './fxtwitter.js';
+import {
+  fetchFxConnections,
+  fetchFxProfile,
+  fetchFxProfileStatuses,
+  searchFxStatuses,
+} from "./fxtwitter.js";
+import type { FxAuthor, FxListResponse, FxTweet } from "./fxtwitter.js";
 
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 50;
@@ -80,7 +90,9 @@ async function walkPages<T>(
     result = await fetchPage(current);
     if (index < walks - 1) {
       current = result.cursor?.bottom;
-      if (!current) {return { results: [] };}
+      if (!current) {
+        return { results: [] };
+      }
     }
   }
   return result;
@@ -113,16 +125,25 @@ function continuation(
   input: BrowseInput,
   result: Omit<BrowseResult, "markdown" | "cache">
 ): string | undefined {
-  if (!result.nextCursor) {return undefined;}
+  if (!result.nextCursor) {
+    return undefined;
+  }
   const controls = new URLSearchParams();
-  if (result.limit !== DEFAULT_LIMIT)
-    {controls.set("limit", String(result.limit));}
-  if (truthy(input.full)) {controls.set("full", "true");}
-  if (input.format) {controls.set("format", input.format);}
+  if (result.limit !== DEFAULT_LIMIT) {
+    controls.set("limit", String(result.limit));
+  }
+  if (truthy(input.full)) {
+    controls.set("full", "true");
+  }
+  if (input.format) {
+    controls.set("format", input.format);
+  }
   let path: string;
   if (result.resource === "search") {
     controls.set("q", result.query ?? "");
-    if (result.feed) {controls.set("feed", result.feed);}
+    if (result.feed) {
+      controls.set("feed", result.feed);
+    }
     path = "/search";
   } else {
     path = `/${result.handle}${result.resource === "profile" ? "" : `/${result.resource}`}`;
@@ -147,12 +168,15 @@ function renderMarkdown(
       `# [${p.name ?? `@${handle}`} (@${handle})](https://x.com/${handle})`,
       ""
     );
-    if (p.description) {lines.push(p.description, "");}
-    if (full)
-      {lines.push(
+    if (p.description) {
+      lines.push(p.description, "");
+    }
+    if (full) {
+      lines.push(
         `Followers: ${p.followers ?? 0} · Following: ${p.following ?? 0} · Posts: ${p.statuses ?? 0}`,
         ""
-      );}
+      );
+    }
     lines.push(
       "## Latest posts",
       ...(result.posts ?? []).map((post) => postLine(post, full))
@@ -171,7 +195,9 @@ function renderMarkdown(
     );
   }
   const next = continuation(input, result);
-  if (next) {lines.push("", next);}
+  if (next) {
+    lines.push("", next);
+  }
   return `${lines.join("\n").trim()}\n`;
 }
 
@@ -186,12 +212,13 @@ async function browseUncached(
   const full = truthy(input.full);
   if (resource === "search") {
     const query = input.q?.trim();
-    if (!query)
-      {throw new ConvertError(
+    if (!query) {
+      throw new ConvertError(
         400,
         "Search query q is required.",
         "missing_query"
-      );}
+      );
+    }
     const feed = ["latest", "top", "media"].includes(input.feed ?? "")
       ? String(input.feed)
       : "latest";

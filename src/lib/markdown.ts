@@ -17,8 +17,12 @@ export interface RenderOptions {
 }
 
 function mediaItems(media?: FxMedia): FxMediaItem[] {
-  if (!media) {return [];}
-  if (media.all?.length) {return media.all;}
+  if (!media) {
+    return [];
+  }
+  if (media.all?.length) {
+    return media.all;
+  }
   return [
     ...(media.photos ?? []),
     ...(media.videos ?? []),
@@ -32,13 +36,19 @@ function renderMedia(media?: FxMedia): string[] {
     const type = (item.type ?? "").toLowerCase();
     const url = item.url ?? item.thumbnail_url;
     const thumb = item.thumbnail_url ?? item.url;
-    if (!url && !thumb) {continue;}
+    if (!url && !thumb) {
+      continue;
+    }
 
     if (type === "photo" || type === "image") {
       lines.push(`> ![image](${url})`);
     } else if (type === "video") {
-      if (url) {lines.push(`> [video](${url})`);}
-      if (thumb && thumb !== url) {lines.push(`> ![video thumbnail](${thumb})`);}
+      if (url) {
+        lines.push(`> [video](${url})`);
+      }
+      if (thumb && thumb !== url) {
+        lines.push(`> ![video thumbnail](${thumb})`);
+      }
       const details = [
         item.duration_ms == null
           ? undefined
@@ -48,7 +58,9 @@ function renderMedia(media?: FxMedia): string[] {
           : undefined,
         item.bitrate == null ? undefined : `${item.bitrate}bps`,
       ].filter((part): part is string => Boolean(part));
-      if (details.length) {lines.push(`> Video: ${details.join(" · ")}`);}
+      if (details.length) {
+        lines.push(`> Video: ${details.join(" · ")}`);
+      }
       const variants = item.variants?.filter((variant) => variant.url);
       if (variants?.length) {
         lines.push(
@@ -78,11 +90,18 @@ function articleToMarkdown(article: FxArticle): string[] {
   const blocks = article.content?.blocks ?? [];
   for (const block of blocks) {
     const text = block.text?.trim();
-    if (!text) {continue;}
-    if (block.type === "header-one") {lines.push(`# ${text}`);}
-    else if (block.type === "header-two") {lines.push(`## ${text}`);}
-    else if (block.type === "header-three") {lines.push(`### ${text}`);}
-    else {lines.push(text);}
+    if (!text) {
+      continue;
+    }
+    if (block.type === "header-one") {
+      lines.push(`# ${text}`);
+    } else if (block.type === "header-two") {
+      lines.push(`## ${text}`);
+    } else if (block.type === "header-three") {
+      lines.push(`### ${text}`);
+    } else {
+      lines.push(text);
+    }
     lines.push("");
   }
 
@@ -95,40 +114,62 @@ function articleToMarkdown(article: FxArticle): string[] {
 
 function authorInfoBlock(author: FxAuthor): string[] {
   const lines: string[] = ["### Author", ""];
-  if (author.name) {lines.push(`- **Name:** ${author.name}`);}
-  if (author.screen_name) {lines.push(`- **Handle:** @${author.screen_name}`);}
-  if (author.description) {lines.push(`- **Bio:** ${author.description}`);}
-  if (author.location) {lines.push(`- **Location:** ${author.location}`);}
+  if (author.name) {
+    lines.push(`- **Name:** ${author.name}`);
+  }
+  if (author.screen_name) {
+    lines.push(`- **Handle:** @${author.screen_name}`);
+  }
+  if (author.description) {
+    lines.push(`- **Bio:** ${author.description}`);
+  }
+  if (author.location) {
+    lines.push(`- **Location:** ${author.location}`);
+  }
   if (author.website?.display_url || author.website?.url) {
     lines.push(
       `- **Website:** ${author.website.display_url ?? author.website.url}`
     );
   }
-  if (author.followers != null)
-    {lines.push(`- **Followers:** ${author.followers.toLocaleString()}`);}
-  if (author.following != null)
-    {lines.push(`- **Following:** ${author.following.toLocaleString()}`);}
-  if (author.joined) {lines.push(`- **Joined:** ${author.joined}`);}
+  if (author.followers != null) {
+    lines.push(`- **Followers:** ${author.followers.toLocaleString()}`);
+  }
+  if (author.following != null) {
+    lines.push(`- **Following:** ${author.following.toLocaleString()}`);
+  }
+  if (author.joined) {
+    lines.push(`- **Joined:** ${author.joined}`);
+  }
   lines.push("");
   return lines;
 }
 
 function statsLine(tweet: FxTweet): string | undefined {
   const parts: string[] = [];
-  if (tweet.likes != null) {parts.push(`${tweet.likes.toLocaleString()} likes`);}
-  if (tweet.retweets != null)
-    {parts.push(`${tweet.retweets.toLocaleString()} reposts`);}
-  if (tweet.replies != null)
-    {parts.push(`${tweet.replies.toLocaleString()} replies`);}
-  if (tweet.views != null) {parts.push(`${tweet.views.toLocaleString()} views`);}
+  if (tweet.likes != null) {
+    parts.push(`${tweet.likes.toLocaleString()} likes`);
+  }
+  if (tweet.retweets != null) {
+    parts.push(`${tweet.retweets.toLocaleString()} reposts`);
+  }
+  if (tweet.replies != null) {
+    parts.push(`${tweet.replies.toLocaleString()} replies`);
+  }
+  if (tweet.views != null) {
+    parts.push(`${tweet.views.toLocaleString()} views`);
+  }
   return parts.length ? parts.join(" · ") : undefined;
 }
 
 function tweetUrl(tweet: FxTweet, fallback?: string): string {
-  if (tweet.url) {return tweet.url;}
+  if (tweet.url) {
+    return tweet.url;
+  }
   const handle = tweet.author?.screen_name;
-  const {id} = tweet;
-  if (handle && id) {return `https://x.com/${handle}/status/${id}`;}
+  const { id } = tweet;
+  if (handle && id) {
+    return `https://x.com/${handle}/status/${id}`;
+  }
   return fallback ?? "Unavailable (post identity missing)";
 }
 
@@ -146,8 +187,9 @@ function renderQuote(quote: FxTweet): string[] {
     lines.push(`> ${mediaLine.replace(/^> /, "")}`);
   }
   if (quote.quote) {
-    for (const nestedLine of renderQuote(quote.quote))
-      {lines.push(`> ${nestedLine}`);}
+    for (const nestedLine of renderQuote(quote.quote)) {
+      lines.push(`> ${nestedLine}`);
+    }
   }
   lines.push(`> Source: ${tweetUrl(quote)}`, ">");
   return lines;
@@ -185,14 +227,20 @@ function renderSingleTweet(
   if (opts.format === "obsidian") {
     if (index === 0) {
       const tags = ["twitter", "x"];
-      if (handle) {tags.push(handle);}
-      lines.push("---", `source: ${source}`);
-      lines.push(`author: ${author}`);
-      if (handle) {lines.push(`author_handle: ${handle}`);}
-      if (tweet.created_at) {lines.push(`published: ${tweet.created_at}`);}
-      if (total > 1) {lines.push(`thread_posts: ${total}`);}
-      lines.push(`tags: [${tags.join(", ")}]`, "---");
-      lines.push("");
+      if (handle) {
+        tags.push(handle);
+      }
+      lines.push("---", `source: ${source}`, `author: ${author}`);
+      if (handle) {
+        lines.push(`author_handle: ${handle}`);
+      }
+      if (tweet.created_at) {
+        lines.push(`published: ${tweet.created_at}`);
+      }
+      if (total > 1) {
+        lines.push(`thread_posts: ${total}`);
+      }
+      lines.push(`tags: [${tags.join(", ")}]`, "---", "");
     }
     if (heading) {
       lines.push(heading, "");
@@ -208,17 +256,16 @@ function renderSingleTweet(
     }
   } else {
     if (heading) {
-      lines.push(heading);
-      lines.push("");
+      lines.push(heading, "");
     } else {
       lines.push(`**${author}**`);
-      if (handle) lines.push(`@${handle}`);
+      if (handle) {lines.push(`@${handle}`);}
       lines.push("");
     }
     lines.push(`Source: ${source}`);
-    if (tweet.created_at) lines.push(`Date: ${tweet.created_at}`);
+    if (tweet.created_at) {lines.push(`Date: ${tweet.created_at}`);}
     const stats = statsLine(tweet);
-    if (stats) lines.push(`Stats: ${stats}`);
+    if (stats) {lines.push(`Stats: ${stats}`);}
     lines.push("");
   }
 
@@ -240,8 +287,9 @@ function renderSingleTweet(
     lines.push(...renderQuote(tweet.quote), "");
   }
 
-  if (opts.compact && opts.format !== "obsidian")
-    {lines.push(`Source: ${source}`);}
+  if (opts.compact && opts.format !== "obsidian") {
+    lines.push(`Source: ${source}`);
+  }
 
   return lines;
 }
@@ -273,7 +321,9 @@ export function renderThreadMarkdown(
     lines.push(
       ...renderSingleTweet(tweet, opts, i, tweets.length, includeAuthorMeta)
     );
-    if (i < tweets.length - 1) {lines.push("---", "");}
+    if (i < tweets.length - 1) {
+      lines.push("---", "");
+    }
   }
 
   return lines.join("\n").trim();

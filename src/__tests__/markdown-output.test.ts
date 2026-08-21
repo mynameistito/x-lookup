@@ -12,13 +12,12 @@ const posts: FxTweet[] = [
     media: {
       videos: [
         {
+          bitrate: 2000,
+          duration_ms: 1200,
+          height: 1080,
+          thumbnail_url: "https://img/thumb.jpg",
           type: "video",
           url: "https://video/high.mp4",
-          thumbnail_url: "https://img/thumb.jpg",
-          duration_ms: 1200,
-          width: 1920,
-          height: 1080,
-          bitrate: 2000,
           variants: [
             {
               url: "https://video/high.mp4",
@@ -31,6 +30,7 @@ const posts: FxTweet[] = [
               bitrate: 500,
             },
           ],
+          width: 1920,
         },
       ],
     },

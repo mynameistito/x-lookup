@@ -1,8 +1,15 @@
 import { describe, test, expect, vi, beforeEach } from "vitest";
 
 import { ConvertError } from "../lib/errors.js";
-import { getParentStatusId, fetchFxConversationChain, fetchFxConversationReplies, fetchFxFullThread, fetchFxProfile, searchFxStatuses } from '../lib/fxtwitter.js';
-import type { FxTweet, FxReplyingTo } from '../lib/fxtwitter.js';
+import {
+  getParentStatusId,
+  fetchFxConversationChain,
+  fetchFxConversationReplies,
+  fetchFxFullThread,
+  fetchFxProfile,
+  searchFxStatuses,
+} from "../lib/fxtwitter.js";
+import type { FxTweet, FxReplyingTo } from "../lib/fxtwitter.js";
 
 function makeTweet(id: string, overrides: Partial<FxTweet> = {}): FxTweet {
   return { id, text: `tweet ${id}`, ...overrides };
@@ -188,10 +195,10 @@ describe(fetchFxConversationChain, () => {
             duration: 4.5,
             formats: [
               {
-                url: "https://video/high.mp4",
-                container: "video/mp4",
-                codec: "avc1",
                 bitrate: 832000,
+                codec: "avc1",
+                container: "video/mp4",
+                url: "https://video/high.mp4",
               },
             ],
             type: "video",
@@ -219,7 +226,7 @@ describe(fetchFxConversationChain, () => {
       duration_ms: 4500,
       variants: [
         {
-          bitrate: 832000,
+          bitrate: 832_000,
           content_type: "video/mp4",
           url: "https://video/high.mp4",
         },
@@ -236,13 +243,11 @@ describe(fetchFxFullThread, () => {
     const tweets = [makeTweet("100"), makeTweet("200"), makeTweet("300")];
     vi.stubGlobal(
       "fetch",
-      vi
-        .fn()
-        .mockResolvedValue(
-          new Response(JSON.stringify(fxThreadResponse(tweets)), {
-            status: 200,
-          })
-        )
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify(fxThreadResponse(tweets)), {
+          status: 200,
+        })
+      )
     );
 
     const result = await fetchFxFullThread("300");
@@ -315,9 +320,9 @@ describe(fetchFxConversationReplies, () => {
         replying_to:
           index === 0
             ? { status: "other" }
-            : index === 1
+            : (index === 1
               ? undefined
-              : { status: "20" },
+              : { status: "20" }),
       })
     );
     const fetchMock = vi
@@ -353,13 +358,11 @@ describe("upstream refusal gating", () => {
   test("search maps upstream NOT_FOUND to 502 search_unavailable, never a fake 404", async () => {
     vi.stubGlobal(
       "fetch",
-      vi
-        .fn()
-        .mockResolvedValue(
-          new Response(JSON.stringify({ code: 404, message: "NOT_FOUND" }), {
-            status: 200,
-          })
-        )
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ code: 404, message: "NOT_FOUND" }), {
+          status: 200,
+        })
+      )
     );
 
     const error = await searchFxStatuses("cloudflare", "latest").catch(
@@ -373,18 +376,16 @@ describe("upstream refusal gating", () => {
   test("search still returns real results when upstream cooperates", async () => {
     vi.stubGlobal(
       "fetch",
-      vi
-        .fn()
-        .mockResolvedValue(
-          new Response(
-            JSON.stringify({
-              code: 200,
-              cursor: { bottom: "next" },
-              results: [makeTweet("1")],
-            }),
-            { status: 200 }
-          )
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            code: 200,
+            cursor: { bottom: "next" },
+            results: [makeTweet("1")],
+          }),
+          { status: 200 }
         )
+      )
     );
 
     const result = await searchFxStatuses("cloudflare", "latest");
@@ -395,16 +396,16 @@ describe("upstream refusal gating", () => {
   test("profile lookups keep truthful 404s for genuinely missing users", async () => {
     vi.stubGlobal(
       "fetch",
-      vi
-        .fn()
-        .mockResolvedValue(
-          new Response(JSON.stringify({ code: 404, message: "NOT_FOUND" }), {
-            status: 200,
-          })
-        )
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ code: 404, message: "NOT_FOUND" }), {
+          status: 200,
+        })
+      )
     );
 
-    const error = await fetchFxProfile("nobody").catch((error: unknown) => error);
+    const error = await fetchFxProfile("nobody").catch(
+      (error: unknown) => error
+    );
     expect(error).toBeInstanceOf(ConvertError);
     expect((error as ConvertError).status).toBe(404);
     expect((error as ConvertError).code).toBe("not_found");
@@ -420,7 +421,9 @@ describe("upstream refusal gating", () => {
         )
     );
 
-    const error = await fetchFxProfile("anyone").catch((error: unknown) => error);
+    const error = await fetchFxProfile("anyone").catch(
+      (error: unknown) => error
+    );
     expect(error).toBeInstanceOf(ConvertError);
     expect((error as ConvertError).status).toBe(502);
     expect((error as ConvertError).code).toBe("fxtwitter_error");

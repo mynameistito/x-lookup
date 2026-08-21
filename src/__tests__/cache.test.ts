@@ -1,7 +1,14 @@
 import { describe, expect, test } from "vitest";
 
-import { CacheApiStore, MemoryStore, buildCacheKey, memoryConfig, parseTtlSeconds, withCache } from '../lib/cache.js';
-import type { CacheStore, RuntimeConfig } from '../lib/cache.js';
+import {
+  CacheApiStore,
+  MemoryStore,
+  buildCacheKey,
+  memoryConfig,
+  parseTtlSeconds,
+  withCache,
+} from "../lib/cache.js";
+import type { CacheStore, RuntimeConfig } from "../lib/cache.js";
 
 class FakeEdgeCache {
   private readonly store = new Map<string, string>();

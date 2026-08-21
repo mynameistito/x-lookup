@@ -31,17 +31,17 @@ const photoTweet: FxTweet = {
     },
     photos: [
       {
+        alt: "deal screenshot",
+        height: 576,
         type: "photo",
         url: "https://pbs.twimg.com/one.jpg",
         width: 1226,
-        height: 576,
-        alt: "deal screenshot",
       },
       {
+        height: 524,
         type: "photo",
         url: "https://pbs.twimg.com/two.jpg",
         width: 1324,
-        height: 524,
       },
     ],
   },
@@ -49,7 +49,7 @@ const photoTweet: FxTweet = {
   retweets: 14,
   text: "> X offers to sell the @claw handle\n\nWhat should I do?",
   url: "https://x.com/nthglsn/status/2087920734702022870",
-  views: 78400,
+  views: 78_400,
 };
 
 const quoted: FxTweet = {
@@ -165,13 +165,12 @@ describe("embed HTML", () => {
       media: {
         videos: [
           {
-            type: "video",
-            url: "https://video/high.mp4",
-            thumbnail_url: "https://img/thumb.jpg",
-            width: 1280,
-            height: 720,
             bitrate: 832000,
             format: "video/mp4",
+            height: 720,
+            thumbnail_url: "https://img/thumb.jpg",
+            type: "video",
+            url: "https://video/high.mp4",
             variants: [
               {
                 url: "https://video/high.mp4",
@@ -179,6 +178,7 @@ describe("embed HTML", () => {
                 bitrate: 832000,
               },
             ],
+            width: 1280,
           },
         ],
       },
