@@ -1,193 +1,306 @@
+import { Effect, Layer } from "effect";
+import { TestClock } from "effect/testing";
 import { describe, expect, test } from "vitest";
 
 import {
-  CacheApiStore,
-  MemoryStore,
+  Cache,
   buildCacheKey,
-  memoryConfig,
+  layerCacheApi,
+  layerMemory,
   parseTtlSeconds,
-  withCache,
 } from "../lib/cache.js";
-import type { CacheStore, RuntimeConfig } from "../lib/cache.js";
+import type { CacheLookup } from "../lib/cache.js";
+import type { MinimalCache } from "../lib/cache-api-store.js";
 
-class FakeEdgeCache {
-  private readonly store = new Map<string, string>();
+class FakeEdgeCache implements MinimalCache {
+  readonly entries = new Map<string, string>();
+  failReads = false;
+  failWrites = false;
 
   match(key: string): Promise<Response | undefined> {
-    const body = this.store.get(key);
-    const response =
+    if (this.failReads) {
+      return Promise.reject(new Error("edge read failed"));
+    }
+    const body = this.entries.get(key);
+    return Promise.resolve(
       body === undefined
         ? undefined
         : new Response(body, {
             headers: { "Content-Type": "application/json" },
-          });
-    return Promise.resolve(response);
+          })
+    );
   }
 
   async put(key: string, response: Response): Promise<void> {
-    this.store.set(key, await response.text());
-  }
-
-  get size(): number {
-    return this.store.size;
+    if (this.failWrites) {
+      throw new Error("edge write failed");
+    }
+    this.entries.set(key, await response.text());
   }
 }
 
-describe(MemoryStore, () => {
-  test("round-trips values and isolates instances with explicit maps", async () => {
-    const map = new Map();
-    const store = new MemoryStore(map);
-    await store.set("k", { a: 1 }, 60);
-    await expect(store.get("k")).resolves.toMatchObject({ value: { a: 1 } });
-    await expect(new MemoryStore(new Map()).get("k")).resolves.toBeUndefined();
-  });
+const lookup = <A, E, R>(
+  key: string,
+  bypass: boolean,
+  load: Effect.Effect<A, E, R>
+): Effect.Effect<CacheLookup<A>, E, R | Cache> =>
+  Cache.use((cache) => cache.getOrLoad(key, bypass, load));
 
-  test("expires entries once their TTL elapses", async () => {
-    const store = new MemoryStore(new Map());
-    await store.set("gone", "value", -1);
-    await expect(store.get("gone")).resolves.toBeUndefined();
-    await store.set("alive", "value", 60);
-    const alive = await store.get("alive");
-    expect(alive?.value).toBe("value");
-  });
+const runWithCache = <A>(
+  program: Effect.Effect<A, never, Cache>,
+  layer: Layer.Layer<Cache>
+): Promise<A> =>
+  Effect.runPromise(
+    Effect.provide(Effect.provide(program, layer), TestClock.layer())
+  );
 
-  test("caps entries at 500 with oldest-first eviction", async () => {
-    const store = new MemoryStore(new Map());
-    const seeds = Array.from({ length: 505 }, (_value, index) =>
-      store.set(`k${index}`, index, 60)
-    );
-    await Promise.all(seeds);
-    await expect(store.get("k0")).resolves.toBeUndefined();
-    const newest = await store.get("k504");
-    expect(newest?.value).toBe(504);
-  });
-});
+const ttl = (seconds: number) => parseTtlSeconds(String(seconds));
 
-describe(CacheApiStore, () => {
-  test("round-trips envelopes through a Cache-API-shaped backend", async () => {
-    const edge = new FakeEdgeCache();
-    const store = new CacheApiStore(edge);
-    await store.set("key", { hello: "world" }, 60);
-    expect(edge.size).toBe(1);
-    const entry = await store.get<{ hello: string }>("key");
-    expect(entry?.value).toStrictEqual({ hello: "world" });
-    expect(entry?.expiresAt).toBeGreaterThan(Date.now());
-  });
-
-  test("returns undefined for missing keys and refuses expired envelopes", async () => {
-    const edge = new FakeEdgeCache();
-    const store = new CacheApiStore(edge);
-    await expect(store.get("missing")).resolves.toBeUndefined();
-
-    await store.set("stale", "v", -1);
-    await expect(store.get("stale")).resolves.toBeUndefined();
-  });
-
-  test("hashes keys so identical inputs reuse the same edge entry", async () => {
-    const edge = new FakeEdgeCache();
-    const store = new CacheApiStore(edge);
-    await store.set("same", 1, 60);
-    await store.set("same", 2, 60);
-    expect(edge.size).toBe(1);
-    const entry = await store.get<number>("same");
-    expect(entry?.value).toBe(2);
-  });
-
-  test("survives a failing backend without throwing", async () => {
-    const broken = {
-      match: () => Promise.reject(new Error("edge down")),
-      put: () => Promise.reject(new Error("edge down")),
-    };
-    const store = new CacheApiStore(broken);
-    await expect(store.set("k", "v", 60)).resolves.toBeUndefined();
-    await expect(store.get("k")).resolves.toBeUndefined();
-  });
-});
-
-const layered = () => {
-  const l1 = new MemoryStore(new Map());
-  const l2 = new MemoryStore(new Map());
-  const config: RuntimeConfig = { stores: [l1, l2], ttlSeconds: 60 };
-  return { config, l1, l2 };
-};
-
-describe("withCache composition", () => {
-  test("misses populate every layer, then hits come from L1", async () => {
-    const { config } = layered();
+describe("Cache service", () => {
+  test("serves an L1 hit without re-running the loader", async () => {
     let calls = 0;
-    const load = () => {
+    const load = Effect.sync(() => {
       calls += 1;
-      return Promise.resolve(42);
-    };
+      return 42;
+    });
+    const program = Effect.gen(function* l1Hit() {
+      const first = yield* lookup("k", false, load);
+      const second = yield* lookup("k", false, load);
+      return { first, second };
+    });
 
-    const first = await withCache("k", false, load, config);
-    expect(first).toStrictEqual({ status: "miss", value: 42 });
-    const second = await withCache("k", false, load, config);
-    expect(second).toStrictEqual({ status: "hit", value: 42 });
+    const result = await runWithCache(program, layerMemory(ttl(60)));
+
+    expect(result.first).toStrictEqual({ status: "miss", value: 42 });
+    expect(result.second).toStrictEqual({ status: "hit", value: 42 });
     expect(calls).toBe(1);
   });
 
-  test("an L2 hit backfills L1 and reports a hit", async () => {
-    const { config, l1, l2 } = layered();
-    await l2.set("k", "from-l2", 60);
-    await expect(l1.get("k")).resolves.toBeUndefined();
-
-    const result = await withCache(
-      "k",
-      false,
-      () => Promise.resolve("fresh"),
-      config
+  test("serves an L2 hit and backfills L1", async () => {
+    const edge = new FakeEdgeCache();
+    await runWithCache(
+      lookup("k", false, Effect.succeed("from-l2")),
+      layerCacheApi(edge, ttl(60))
     );
-    expect(result).toStrictEqual({ status: "hit", value: "from-l2" });
-    const backfilled = await l1.get("k");
-    expect(backfilled?.value).toBe("from-l2");
+
+    let loaderCalls = 0;
+    const program = Effect.gen(function* l2Backfill() {
+      const first = yield* lookup(
+        "k",
+        false,
+        Effect.sync(() => {
+          loaderCalls += 1;
+          return "fresh";
+        })
+      );
+      edge.failReads = true;
+      const second = yield* lookup(
+        "k",
+        false,
+        Effect.sync(() => {
+          loaderCalls += 1;
+          return "fresh";
+        })
+      );
+      return { first, second };
+    });
+
+    const result = await runWithCache(program, layerCacheApi(edge, ttl(60)));
+
+    expect(result.first).toStrictEqual({ status: "hit", value: "from-l2" });
+    expect(result.second).toStrictEqual({ status: "hit", value: "from-l2" });
+    expect(loaderCalls).toBe(0);
   });
 
-  test("bypass skips reads and writes entirely", async () => {
-    const { config, l1, l2 } = layered();
+  test("a miss writes every configured store", async () => {
+    const edge = new FakeEdgeCache();
+    const first = await runWithCache(
+      lookup("written", false, Effect.succeed("value")),
+      layerCacheApi(edge, ttl(60))
+    );
+    expect(first).toStrictEqual({ status: "miss", value: "value" });
+    expect(edge.entries.size).toBe(1);
+
+    let loaderCalls = 0;
+    const second = await runWithCache(
+      lookup(
+        "written",
+        false,
+        Effect.sync(() => {
+          loaderCalls += 1;
+          return "fresh";
+        })
+      ),
+      layerCacheApi(edge, ttl(60))
+    );
+    expect(second).toStrictEqual({ status: "hit", value: "value" });
+    expect(loaderCalls).toBe(0);
+  });
+
+  test("bypass skips reads and writes", async () => {
     let calls = 0;
-    const load = () => {
+    const load = Effect.sync(() => {
       calls += 1;
-      return Promise.resolve("v");
-    };
+      return "value";
+    });
+    const program = Effect.gen(function* bypassCache() {
+      const bypassed = yield* lookup("k", true, load);
+      const normal = yield* lookup("k", false, load);
+      return { bypassed, normal };
+    });
 
-    const result = await withCache("k", true, load, config);
-    expect(result.status).toBe("bypass");
-    expect(calls).toBe(1);
-    await expect(l1.get("k")).resolves.toBeUndefined();
-    await expect(l2.get("k")).resolves.toBeUndefined();
+    const result = await runWithCache(program, layerMemory(ttl(60)));
+
+    expect(result.bypassed).toStrictEqual({ status: "bypass", value: "value" });
+    expect(result.normal).toStrictEqual({ status: "miss", value: "value" });
+    expect(calls).toBe(2);
   });
 
-  test("keeps X-Cache semantics stable across store orders", async () => {
-    const store: CacheStore = new MemoryStore(new Map());
-    const config: RuntimeConfig = { stores: [store], ttlSeconds: 30 };
-    const miss = await withCache("x", false, () => Promise.resolve(1), config);
-    const hit = await withCache("x", false, () => Promise.resolve(2), config);
-    expect(miss.status).toBe("miss");
-    expect(hit).toStrictEqual({ status: "hit", value: 1 });
+  test("expires entries deterministically through TestClock", async () => {
+    let calls = 0;
+    const load = Effect.sync(() => {
+      calls += 1;
+      return calls;
+    });
+    const program = Effect.gen(function* expireCache() {
+      const first = yield* lookup("k", false, load);
+      yield* TestClock.adjust("60 seconds");
+      const atBoundary = yield* lookup("k", false, load);
+      yield* TestClock.adjust("1 millisecond");
+      const expired = yield* lookup("k", false, load);
+      return { atBoundary, expired, first };
+    });
+
+    const result = await runWithCache(program, layerMemory(ttl(60)));
+
+    expect(result.first).toStrictEqual({ status: "miss", value: 1 });
+    expect(result.atBoundary).toStrictEqual({ status: "hit", value: 1 });
+    expect(result.expired).toStrictEqual({ status: "miss", value: 2 });
+  });
+
+  test("L2 backfill keeps only the remaining TTL", async () => {
+    const edge = new FakeEdgeCache();
+    const program = Effect.gen(function* remainingTtl() {
+      yield* Effect.provide(
+        lookup("k", false, Effect.succeed("original")),
+        layerCacheApi(edge, ttl(60))
+      );
+      yield* TestClock.adjust("30 seconds");
+
+      return yield* Effect.provide(
+        Effect.gen(function* freshL1() {
+          const fromL2 = yield* lookup("k", false, Effect.succeed("fresh"));
+          edge.failReads = true;
+          yield* TestClock.adjust("30 seconds");
+          yield* TestClock.adjust("1 millisecond");
+          const afterRemainingTtl = yield* lookup(
+            "k",
+            false,
+            Effect.succeed("fresh")
+          );
+          return { afterRemainingTtl, fromL2 };
+        }),
+        layerCacheApi(edge, ttl(60))
+      );
+    });
+
+    const result = await Effect.runPromise(
+      Effect.provide(program, TestClock.layer())
+    );
+
+    expect(result.fromL2).toStrictEqual({ status: "hit", value: "original" });
+    expect(result.afterRemainingTtl).toStrictEqual({
+      status: "miss",
+      value: "fresh",
+    });
+  });
+
+  test("caps memory at 500 entries and refreshes recency on hit", async () => {
+    const program = Effect.gen(function* memoryRecency() {
+      for (let index = 0; index < 500; index += 1) {
+        yield* lookup(`k${index}`, false, Effect.succeed(index));
+      }
+
+      const refreshed = yield* lookup("k0", false, Effect.succeed(-1));
+      yield* lookup("k500", false, Effect.succeed(500));
+      const evicted = yield* lookup("k1", false, Effect.succeed(1001));
+      const retained = yield* lookup("k0", false, Effect.succeed(-1));
+      return { evicted, refreshed, retained };
+    });
+
+    const result = await runWithCache(program, layerMemory(ttl(60)));
+
+    expect(result.refreshed).toStrictEqual({ status: "hit", value: 0 });
+    expect(result.evicted).toStrictEqual({ status: "miss", value: 1001 });
+    expect(result.retained).toStrictEqual({ status: "hit", value: 0 });
+  });
+
+  test("treats a failing L2 read as best effort", async () => {
+    const edge = new FakeEdgeCache();
+    edge.failReads = true;
+    const program = Effect.gen(function* failingRead() {
+      const first = yield* lookup("k", false, Effect.succeed("value"));
+      const second = yield* lookup("k", false, Effect.succeed("fresh"));
+      return { first, second };
+    });
+
+    const result = await runWithCache(program, layerCacheApi(edge, ttl(60)));
+
+    expect(result.first).toStrictEqual({ status: "miss", value: "value" });
+    expect(result.second).toStrictEqual({ status: "hit", value: "value" });
+  });
+
+  test("treats a failing L2 write as best effort", async () => {
+    const edge = new FakeEdgeCache();
+    edge.failWrites = true;
+    const program = Effect.gen(function* failingWrite() {
+      const first = yield* lookup("k", false, Effect.succeed("value"));
+      const second = yield* lookup("k", false, Effect.succeed("fresh"));
+      return { first, second };
+    });
+
+    const result = await runWithCache(program, layerCacheApi(edge, ttl(60)));
+
+    expect(result.first).toStrictEqual({ status: "miss", value: "value" });
+    expect(result.second).toStrictEqual({ status: "hit", value: "value" });
+    expect(edge.entries.size).toBe(0);
   });
 });
 
-describe("cache configuration helpers", () => {
+describe("cache configuration", () => {
   test("buildCacheKey sorts entries deterministically", () => {
     expect(buildCacheKey({ a: 1, b: 2 })).toBe("a=1&b=2");
   });
 
-  test("parseTtlSeconds falls back to 3600 for junk", () => {
+  test("parses TTL once with the historical 3600-second fallback", () => {
     expect(parseTtlSeconds("7200")).toBe(7200);
     expect(parseTtlSeconds()).toBe(3600);
     expect(parseTtlSeconds("-5")).toBe(3600);
     expect(parseTtlSeconds("abc")).toBe(3600);
-  });
-
-  test("parseTtlSeconds truncates fractions and refuses zero", () => {
     expect(parseTtlSeconds("0")).toBe(3600);
     expect(parseTtlSeconds("2.9")).toBe(2);
   });
 
-  test("memoryConfig exposes a single memory layer", () => {
-    const config = memoryConfig(120);
-    expect(config.ttlSeconds).toBe(120);
-    expect(config.stores).toHaveLength(1);
+  test("the in-memory Layer uses the default TTL", async () => {
+    let calls = 0;
+    const load = Effect.sync(() => {
+      calls += 1;
+      return calls;
+    });
+    const program = Effect.gen(function* defaultTtl() {
+      const first = yield* lookup("default", false, load);
+      yield* TestClock.adjust("3600 seconds");
+      const atBoundary = yield* lookup("default", false, load);
+      yield* TestClock.adjust("1 millisecond");
+      const expired = yield* lookup("default", false, load);
+      return { atBoundary, expired, first };
+    });
+
+    const result = await runWithCache(program, layerMemory());
+
+    expect(result.first.status).toBe("miss");
+    expect(result.atBoundary.status).toBe("hit");
+    expect(result.expired.status).toBe("miss");
+    expect(calls).toBe(2);
   });
 });
