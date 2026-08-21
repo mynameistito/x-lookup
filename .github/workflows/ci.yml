@@ -27,12 +27,16 @@ jobs:
           source = path.read_text()
           source = source.replace("type FxEnvelopeTransport = typeof FxEnvelopeTransportSchema.Type;\n", "")
           source = source.replace(
-              "type FxArticleTransport = typeof FxArticleTransportSchema.Type;\n\n",
-              "type FxArticleTransport = typeof FxArticleTransportSchema.Type;\n\ninterface FxTweetPayload {\n  readonly value: unknown;\n}\n\ninterface FxAuthorPayload {\n  readonly value: unknown;\n}\n\n",
+              "const FxTweetTransportSchema = Schema.Struct({",
+              "const FxRepostedByTransportSchema = Schema.Union([\n  FxAuthorTransportSchema,\n  Schema.String,\n  Schema.Null,\n]);\n\nconst FxTweetTransportSchema = Schema.Struct({",
           )
           source = source.replace(
               "Schema.Union([FxAuthorTransportSchema, Schema.Null])",
-              "Schema.Union([FxAuthorTransportSchema, Schema.String, Schema.Null])",
+              "FxRepostedByTransportSchema",
+          )
+          source = source.replace(
+              "type FxArticleTransport = typeof FxArticleTransportSchema.Type;\n\n",
+              "type FxArticleTransport = typeof FxArticleTransportSchema.Type;\ntype FxRepostedByTransport = typeof FxRepostedByTransportSchema.Type;\n\ninterface FxTweetPayload {\n  readonly value: unknown;\n}\n\ninterface FxAuthorPayload {\n  readonly value: unknown;\n}\n\n",
           )
           source = source.replace(
               "const normalizeReplyingTo = (\n",
@@ -41,7 +45,7 @@ jobs:
           source = source.replace("if (Array.isArray(replyingTo)) {", "if (isStringArray(replyingTo)) {")
           source = source.replace(
               "  author: FxAuthorTransport | null | undefined\n): FxAuthor | null | undefined => {\n  if (author === null) {\n    return null;\n  }\n  return author ? normalizeAuthor(author) : undefined;\n};",
-              "  author: FxAuthorTransport | string | null | undefined\n): FxAuthor | null | undefined => {\n  if (author === null) {\n    return null;\n  }\n  if (typeof author === \"string\") {\n    return { screen_name: author };\n  }\n  return author ? normalizeAuthor(author) : undefined;\n};",
+              "  author: FxRepostedByTransport | undefined\n): FxAuthor | null | undefined => {\n  if (author === null) {\n    return null;\n  }\n  if (author === undefined) {\n    return undefined;\n  }\n  if (Schema.is(Schema.String)(author)) {\n    return { screen_name: author };\n  }\n  return normalizeAuthor(author);\n};",
           )
           source = source.replace(
               "  payload: unknown,\n  operation: string\n): Effect.Effect<FxTweet, FxTwitterSchemaError> =>\n  Effect.gen(function* decodeTweetEffect() {\n    const raw = yield* decodeTweetTransport(payload).pipe(",
