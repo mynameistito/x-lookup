@@ -1,4 +1,4 @@
-name: Finalize issue 3
+name: Finalize issue 3 review fixes
 
 on:
   pull_request:
@@ -16,140 +16,74 @@ jobs:
           ref: tmp/issue-3-finalize-2
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile
-      - name: Apply deterministic provider fixes
+      - name: Apply focused review fixes
         shell: bash
         run: |
-          bun run fix || true
           python3 <<'PY'
           from pathlib import Path
 
-          path = Path("src/lib/fxtwitter-adapter.ts")
-          source = path.read_text()
-          source = source.replace("type FxEnvelopeTransport = typeof FxEnvelopeTransportSchema.Type;\n", "")
-          source = source.replace(
-              "const FxTweetTransportSchema = Schema.Struct({",
-              "const FxRepostedByTransportSchema = Schema.Union([\n  FxAuthorTransportSchema,\n  Schema.String,\n  Schema.Null,\n]);\n\nconst FxTweetTransportSchema = Schema.Struct({",
-          )
-          source = source.replace(
-              "Schema.Union([FxAuthorTransportSchema, Schema.Null])",
-              "FxRepostedByTransportSchema",
-          )
-          source = source.replace(
-              "type FxArticleTransport = typeof FxArticleTransportSchema.Type;\n\n",
-              "type FxArticleTransport = typeof FxArticleTransportSchema.Type;\ntype FxRepostedByTransport = typeof FxRepostedByTransportSchema.Type;\n\ninterface FxTweetPayload {\n  readonly value: unknown;\n}\n\ninterface FxAuthorPayload {\n  readonly value: unknown;\n}\n\n",
-          )
-          source = source.replace(
-              "const normalizeReplyingTo = (\n",
-              "const isStringArray = (\n  value: typeof FxReplyingToTransportSchema.Type\n): value is readonly string[] => Array.isArray(value);\n\nconst normalizeReplyingTo = (\n",
-          )
-          source = source.replace("if (Array.isArray(replyingTo)) {", "if (isStringArray(replyingTo)) {")
-          source = source.replace(
-              "  author: FxAuthorTransport | null | undefined\n): FxAuthor | null | undefined => {\n  if (author === null) {\n    return null;\n  }\n  return author ? normalizeAuthor(author) : undefined;\n};",
-              "  author: FxRepostedByTransport | undefined\n): FxAuthor | null | undefined => {\n  if (author === null) {\n    return null;\n  }\n  if (author === undefined) {\n    return undefined;\n  }\n  if (Schema.is(Schema.String)(author)) {\n    return { screen_name: author };\n  }\n  return normalizeAuthor(author);\n};",
-          )
-          source = source.replace(
-              "  payload: unknown,\n  operation: string\n): Effect.Effect<FxTweet, FxTwitterSchemaError> =>\n  Effect.gen(function* decodeTweetEffect() {\n    const raw = yield* decodeTweetTransport(payload).pipe(",
-              "  payload: FxTweetPayload,\n  operation: string\n): Effect.Effect<FxTweet, FxTwitterSchemaError> =>\n  Effect.gen(function* decodeTweetEffect() {\n    const raw = yield* decodeTweetTransport(payload.value).pipe(",
-          )
-          source = source.replace("yield* decodeTweet(raw.quote, operation)", "yield* decodeTweet({ value: raw.quote }, operation)")
-          source = source.replace(
-              "  payload: unknown,\n  operation: string\n): Effect.Effect<FxAuthor, FxTwitterSchemaError> =>\n  decodeAuthorTransport(payload).pipe(",
-              "  payload: FxAuthorPayload,\n  operation: string\n): Effect.Effect<FxAuthor, FxTwitterSchemaError> =>\n  decodeAuthorTransport(payload.value).pipe(",
-          )
-          source = source.replace(
-              "  function* fxFetchJsonEffect(\n    path: string,\n    operation: string\n  ): ProviderEffect<FxEnvelopeTransport, FxTwitterFailure> {",
-              "  function* fxFetchJsonEffect(path: string, operation: string) {",
-          )
-          for old, new in {
-              "decodeTweet(item, operation)": "decodeTweet({ value: item }, operation)",
-              "decodeTweet(raw, operation)": "decodeTweet({ value: raw }, operation)",
-              "decodeAuthor(data.user, operation)": "decodeAuthor({ value: data.user }, operation)",
-              "decodeAuthor(item, operation)": "decodeAuthor({ value: item }, operation)",
-          }.items():
-              source = source.replace(old, new)
-          path.write_text(source)
+          adapter = Path("src/lib/fxtwitter-adapter.ts")
+          source = adapter.read_text()
+          replacements = {
+              "raw.quote === undefined\n        ? undefined": "raw.quote === undefined || raw.quote === null\n        ? undefined",
+              "fxFetchJson(`2/status/${id}`, operation)": "fxFetchJson(`2/status/${encodeURIComponent(id)}`, operation)",
+              "fxFetchJson(`2/thread/${id}`, operation)": "fxFetchJson(`2/thread/${encodeURIComponent(id)}`, operation)",
+          }
+          for old, new in replacements.items():
+              if old not in source:
+                  raise SystemExit(f"missing adapter replacement target: {old}")
+              source = source.replace(old, new, 1)
+          adapter.write_text(source)
 
-          path = Path("src/lib/syndication-adapter.ts")
-          source = path.read_text()
-          source = source.replace('import type { SyndicationFailure } from "./provider-errors.js";\n', "")
-          source = source.replace('import type { ProviderEffect } from "./provider-http.js";\n', "")
-          source = source.replace(
-              "type SyndicationTweetTransport = typeof SyndicationTweetTransportSchema.Type;\n\n",
-              "type SyndicationTweetTransport = typeof SyndicationTweetTransportSchema.Type;\n\ninterface SyndicationTweetPayload {\n  readonly value: unknown;\n}\n\n",
-          )
-          source = source.replace(
-              "  payload: unknown,\n  handle?: string,\n  id?: string\n): Effect.Effect<FxTweet, SyndicationSchemaError> =>\n  Effect.gen(function* decodeSyndicationTweetEffect() {\n    const raw = yield* decodeTransport(payload).pipe(",
-              "  payload: SyndicationTweetPayload,\n  handle?: string,\n  id?: string\n): Effect.Effect<FxTweet, SyndicationSchemaError> =>\n  Effect.gen(function* decodeSyndicationTweetEffect() {\n    const raw = yield* decodeTransport(payload.value).pipe(",
-          )
-          source = source.replace("yield* decodeSyndicationTweet(quoted)", "yield* decodeSyndicationTweet({ value: quoted })")
-          source = source.replace(
-              "(function* fetchSyndicationStatusEffectGenerator(\n  handle: string,\n  id: string\n): ProviderEffect<FxTweet, SyndicationFailure> {",
-              "(function* fetchSyndicationStatusEffectGenerator(handle: string, id: string) {",
-          )
-          source = source.replace("decodeSyndicationTweet(json, handle, id)", "decodeSyndicationTweet({ value: json }, handle, id)")
-          path.write_text(source)
+          tests = Path("src/__tests__/provider-adapters.test.ts")
+          source = tests.read_text()
+          marker = '  test("classifies private, not-found, search refusal, and upstream failures", async () => {'
+          if marker not in source:
+              raise SystemExit("missing provider adapter test insertion marker")
+          regression = '''  test("accepts null quotes and encodes status and thread ids", async () => {
+    const requests: string[] = [];
+    const client = makeClient((request) => {
+      requests.push(request.url);
+      if (request.url.includes("/2/thread/")) {
+        return Response.json({
+          code: 200,
+          thread: [{ id: "12/34", text: "thread" }],
+        });
+      }
+      return Response.json({
+        code: 200,
+        status: { id: "12/34", quote: null, text: "post" },
+      });
+    });
 
-          Path("src/lib/provider-http.ts").write_text('''import { Effect } from "effect";
-          import {
-            HttpClient,
-            HttpClientError,
-            HttpClientResponse,
-          } from "effect/unstable/http";
+    const tweet = await runWithClient(fetchFxStatusEffect("12/34"), client);
+    const thread = await runWithClient(fetchFxThreadEffect("12/34"), client);
 
-          import { ConvertError } from "./errors.js";
-          import type { HttpMappedError } from "./errors.js";
+    expect(tweet.quote).toBeUndefined();
+    expect(thread[0]?.id).toBe("12/34");
+    expect(
+      requests.some((url) => url.includes("/2/status/12%2F34"))
+    ).toBeTruthy();
+    expect(
+      requests.some((url) => url.includes("/2/thread/12%2F34"))
+    ).toBeTruthy();
+  });
 
-          export type ProviderEffect<A, E> = Effect.Effect<A, E, HttpClient.HttpClient>;
-
-          type ProviderHttpFailure = Error & HttpMappedError;
-
-          const toConvertError = (failure: ProviderHttpFailure): ConvertError =>
-            new ConvertError(failure.status, failure.message, failure.code);
-
-          const liveHttpClient: HttpClient.HttpClient = HttpClient.make(
-            (request, url, signal) =>
-              Effect.tryPromise({
-                try: () =>
-                  globalThis.fetch(url.href, {
-                    headers: request.headers,
-                    method: request.method,
-                    signal,
-                  }),
-                catch: (cause) =>
-                  new HttpClientError.HttpClientError({
-                    reason: new HttpClientError.TransportError({ cause, request }),
-                  }),
-              }).pipe(
-                Effect.map((response) => HttpClientResponse.fromWeb(request, response))
-              )
-          );
-
-          /**
-           * Promise compatibility boundary for the existing application layer.
-           * Provider adapters remain Effect-native and testable with a supplied HttpClient.
-           */
-          export const runProviderEffect = <A, E extends ProviderHttpFailure>(
-            program: ProviderEffect<A, E>
-          ): Promise<A> =>
-            Effect.runPromise(
-              program.pipe(
-                Effect.mapError(toConvertError),
-                Effect.provideService(HttpClient.HttpClient, liveHttpClient)
-              )
-            );
-          '''.replace("          ", ""))
+'''
+          source = source.replace(marker, regression + marker, 1)
+          tests.write_text(source)
           PY
           bun run fix
       - run: bun run check
       - run: bun run typecheck
       - run: bun run test
       - run: bun run alchemy:check
-      - name: Commit validated source tree
+      - name: Commit validated source fixes
         shell: bash
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src
+          git add src/lib/fxtwitter-adapter.ts src/__tests__/provider-adapters.test.ts
           git diff --cached --quiet && exit 0
-          git commit -m "fix: satisfy provider adapter validation"
+          git commit -m "fix: preserve FxTwitter transport edge cases"
           git push origin HEAD:tmp/issue-3-finalize-2
