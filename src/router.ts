@@ -1,14 +1,20 @@
-import { Effect, Result } from "effect";
+import { Effect, Layer, Result } from "effect";
 
 import { ROOT_MARKDOWN } from "./docs.js";
 import type { Env } from "./env.js";
-import { browseEffect, browseResponse } from "./lib/browse.js";
+import {
+  Browse,
+  browseEffect,
+  browseResponse,
+  layerBrowseWithoutDependencies,
+} from "./lib/browse.js";
 import type { BrowseFailure } from "./lib/browse.js";
 import { layerWorker } from "./lib/cache.js";
-import type { Cache } from "./lib/cache.js";
 import {
   acceptPrefersHtml,
+  Conversion,
   convertTweetEffect,
+  layerConversionWithoutDependencies,
   markdownResponse,
 } from "./lib/converter.js";
 import type { ConvertFailure } from "./lib/converter.js";
@@ -19,6 +25,11 @@ import {
 } from "./lib/embed.js";
 import type { OEmbedQuery } from "./lib/embed.js";
 import { requestOrigin, wantsJson, wantsMarkdown } from "./lib/http.js";
+import {
+  layerFxTwitter,
+  layerSyndication,
+} from "./lib/provider-service-adapter.js";
+import { layerPostLookupWithoutDependencies } from "./lib/tweet-fetch.js";
 
 const HANDLE = "([A-Za-z0-9_]{1,15})";
 const STATUS_ROUTE = new RegExp(`^/${HANDLE}/status/(\\d+)$`, "u");
@@ -36,7 +47,7 @@ interface ApiResponse {
   body?: string;
 }
 
-type RoutedResponse = Effect.Effect<Response, never, Cache>;
+type RoutedResponse = Effect.Effect<Response, never, Browse | Conversion>;
 
 const jsonResponse = (status: number, body: ApiErrorBody): Response =>
   Response.json(body, {
@@ -65,10 +76,7 @@ const textResponse = (body: string): Response =>
     status: 200,
   });
 
-/**
- * Render an expected failure onto the external HTTP error contract:
- * JSON `{ "error", "code" }` with the failure's truthful status.
- */
+/** Render an expected typed application failure onto the HTTP error contract. */
 const errorResponse = (failure: ConvertFailure | BrowseFailure): Response =>
   jsonResponse(failure.status, {
     code: failure.code,
@@ -88,18 +96,20 @@ const handleBrowse = (
   Effect.gen(function* handleBrowseEffect() {
     const param = (key: string): string | undefined =>
       query.get(key) ?? undefined;
-    const result = yield* browseEffect({
-      cursor: param("cursor"),
-      feed: param("feed"),
-      format: param("format"),
-      full: param("full"),
-      handle: param("handle"),
-      limit: param("limit"),
-      nocache: param("nocache"),
-      page: param("page"),
-      q: param("q"),
-      resource: param("resource"),
-    });
+    const result = yield* Effect.result(
+      browseEffect({
+        cursor: param("cursor"),
+        feed: param("feed"),
+        format: param("format"),
+        full: param("full"),
+        handle: param("handle"),
+        limit: param("limit"),
+        nocache: param("nocache"),
+        page: param("page"),
+        q: param("q"),
+        resource: param("resource"),
+      })
+    );
     if (Result.isFailure(result)) {
       return errorResponse(result.failure);
     }
@@ -126,18 +136,20 @@ const handleConvert = (
     const asEmbed = noExplicitFormat && isEmbedUserAgent(userAgent);
     const asHtml = noExplicitFormat && !asEmbed && acceptPrefersHtml(accept);
 
-    const result = yield* convertTweetEffect({
-      context: param("context"),
-      format: param("format"),
-      full: param("full"),
-      handle: param("handle"),
-      id: param("id"),
-      nocache: param("nocache"),
-      replies: param("replies"),
-      thread: param("thread"),
-      url: param("url"),
-      userinfo: param("userinfo"),
-    });
+    const result = yield* Effect.result(
+      convertTweetEffect({
+        context: param("context"),
+        format: param("format"),
+        full: param("full"),
+        handle: param("handle"),
+        id: param("id"),
+        nocache: param("nocache"),
+        replies: param("replies"),
+        thread: param("thread"),
+        url: param("url"),
+        userinfo: param("userinfo"),
+      })
+    );
     if (Result.isFailure(result)) {
       return errorResponse(result.failure);
     }
@@ -213,6 +225,21 @@ const handleStatusRoutes = (
   return undefined;
 };
 
+const applicationLayer = (env: Env): Layer.Layer<Browse | Conversion> => {
+  const cacheLayer = layerWorker(env);
+  const providerLayer = Layer.mergeAll(layerFxTwitter, layerSyndication);
+  const postLookupLayer = layerPostLookupWithoutDependencies.pipe(
+    Layer.provide(providerLayer)
+  );
+  const browseLayer = layerBrowseWithoutDependencies.pipe(
+    Layer.provide([cacheLayer, layerFxTwitter])
+  );
+  const conversionLayer = layerConversionWithoutDependencies.pipe(
+    Layer.provide([cacheLayer, postLookupLayer])
+  );
+  return Layer.mergeAll(browseLayer, conversionLayer);
+};
+
 export const handleRequest = async (
   request: Request,
   env: Env = {}
@@ -237,9 +264,9 @@ export const handleRequest = async (
   const url = new URL(request.url);
   const path = url.pathname.replace(/\/+$/u, "") || "/";
   const query = url.searchParams;
-  const cacheLayer = layerWorker(env);
+  const appLayer = applicationLayer(env);
   const runRoute = (route: RoutedResponse): Promise<Response> =>
-    Effect.runPromise(Effect.provide(route, cacheLayer));
+    Effect.runPromise(Effect.provide(route, appLayer));
 
   try {
     const routed = handlePathRoutes(path, query, request);
@@ -251,8 +278,7 @@ export const handleRequest = async (
       return await runRoute(matched);
     }
   } catch (error) {
-    // Expected failures arrive as typed Result values inside the handlers;
-    // anything escaping to here is a defect: log it and answer a truthful 500.
+    // Expected failures are typed in application Effects; escaping is a defect.
     console.error(error);
     return jsonResponse(500, {
       code: "internal_error",
