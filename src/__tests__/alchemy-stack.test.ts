@@ -17,6 +17,7 @@ import XLookupStack, {
   XLookupWorker,
 } from "../../alchemy.run.js";
 import type { XLookupEnv } from "../../alchemy.run.js";
+import { resolveWorkerIdentity } from "../worker.js";
 
 describe("alchemy stack", () => {
   test("exports a well-formed stack program", () => {
@@ -60,5 +61,20 @@ describe("alchemy stack", () => {
     expectTypeOf<XLookupEnv>().toEqualTypeOf<{
       CACHE_TTL_SECONDS: string;
     }>();
+  });
+});
+
+describe(resolveWorkerIdentity, () => {
+  test("pins the production script name and custom domain only in prod", () => {
+    expect(resolveWorkerIdentity("prod")).toStrictEqual({
+      domain: "x-lookup.mynameistito.com",
+      name: "x-lookup",
+    });
+  });
+
+  test("derives an isolated identity for local dev and PR preview stages", () => {
+    expect(resolveWorkerIdentity("dev_mynameistito")).toStrictEqual({});
+    expect(resolveWorkerIdentity("pr-7")).toStrictEqual({});
+    expect(resolveWorkerIdentity("test")).toStrictEqual({});
   });
 });

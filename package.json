@@ -6,8 +6,10 @@
   "license": "MIT",
   "type": "module",
   "scripts": {
-    "dev": "wrangler dev",
-    "deploy": "wrangler deploy",
+    "dev": "alchemy dev --profile mynameistito",
+    "deploy": "alchemy deploy --stage prod --yes --adopt --profile mynameistito",
+    "plan": "alchemy plan --stage prod --profile mynameistito",
+    "destroy": "alchemy destroy --stage prod --profile mynameistito",
     "alchemy:check": "vitest --run src/__tests__/alchemy-stack.test.ts",
     "test": "vitest --run",
     "typecheck": "tsc --noEmit",
@@ -29,7 +31,6 @@
     "oxlint": "^1.79.0",
     "typescript": "npm:@typescript/typescript6@^6.0.2",
     "ultracite": "7.10.6",
-    "vitest": "^4.1.11",
-    "wrangler": "^4.125.0"
+    "vitest": "^4.1.11"
   }
 }
