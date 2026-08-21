@@ -33,6 +33,20 @@ export const XLookupWorker = Cloudflare.Worker("x-lookup", {
 export type XLookupEnv = Cloudflare.InferEnv<typeof XLookupWorker>;
 
 /**
+ * The stack's build program: registers {@link XLookupWorker} and resolves its
+ * public URL. Exported separately so tests can execute it against local state
+ * (`Alchemy.inMemoryState()`) without contacting Cloudflare or needing
+ * credentials.
+ */
+export const buildXLookupStack = Effect.gen(function* buildXLookupStack() {
+  const worker = yield* XLookupWorker;
+
+  return {
+    url: worker.url,
+  };
+});
+
+/**
  * The `x-lookup` Alchemy stack.
  *
  * Exported as the default export because the Alchemy CLI loads the stack
@@ -46,11 +60,5 @@ export default Alchemy.Stack(
     providers: Cloudflare.providers(),
     state: Cloudflare.state(),
   },
-  Effect.gen(function* buildXLookupStack() {
-    const worker = yield* XLookupWorker;
-
-    return {
-      url: worker.url,
-    };
-  })
+  buildXLookupStack
 );
