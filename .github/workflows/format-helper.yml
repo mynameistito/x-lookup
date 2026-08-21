@@ -1,0 +1,31 @@
+name: Format Helper
+
+on:
+  push:
+    branches:
+      - agent/issue-5-format-helper
+
+permissions:
+  contents: read
+
+jobs:
+  format:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - name: Apply Ultracite fixes
+        run: bunx ultracite fix
+        continue-on-error: true
+      - name: Print changed files
+        shell: bash
+        run: |
+          git diff --name-only
+          while IFS= read -r file; do
+            [ -f "$file" ] || continue
+            echo "FILE_BEGIN:$file"
+            base64 -w0 "$file"
+            echo
+            echo "FILE_END:$file"
+          done < <(git diff --name-only)
