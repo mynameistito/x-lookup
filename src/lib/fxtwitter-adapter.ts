@@ -1,17 +1,6 @@
 import { Effect, Schema } from "effect";
 import { HttpClient } from "effect/unstable/http";
 
-import {
-  FxTwitterNetworkError,
-  FxTwitterNonJsonError,
-  FxTwitterNotFoundError,
-  FxTwitterPrivateTweetError,
-  FxTwitterSchemaError,
-  FxTwitterSearchUnavailableError,
-  FxTwitterUpstreamError,
-} from "./provider-errors.js";
-import type { FxTwitterFailure } from "./provider-errors.js";
-import type { ProviderEffect } from "./provider-http.js";
 import { getParentStatusId } from "./fxtwitter-types.js";
 import type {
   FxArticle,
@@ -24,6 +13,17 @@ import type {
   FxReplyingTo,
   FxTweet,
 } from "./fxtwitter-types.js";
+import {
+  FxTwitterNetworkError,
+  FxTwitterNonJsonError,
+  FxTwitterNotFoundError,
+  FxTwitterPrivateTweetError,
+  FxTwitterSchemaError,
+  FxTwitterSearchUnavailableError,
+  FxTwitterUpstreamError,
+} from "./provider-errors.js";
+import type { FxTwitterFailure } from "./provider-errors.js";
+import type { ProviderEffect } from "./provider-http.js";
 
 const FX_BASE = "https://api.fxtwitter.com";
 const UA = "x-lookup/1.0";
@@ -176,6 +176,12 @@ const FxReplyingToTransportSchema = Schema.Union([
   Schema.Null,
 ]);
 
+const FxRepostedByTransportSchema = Schema.Union([
+  FxAuthorTransportSchema,
+  Schema.String,
+  Schema.Null,
+]);
+
 const FxTweetTransportSchema = Schema.Struct({
   article: Schema.optional(FxArticleTransportSchema),
   author: Schema.optional(FxAuthorTransportSchema),
@@ -196,9 +202,7 @@ const FxTweetTransportSchema = Schema.Struct({
   replying_to_status: Schema.optional(
     Schema.Union([Schema.Array(Schema.String), Schema.Null])
   ),
-  reposted_by: Schema.optional(
-    Schema.Union([FxAuthorTransportSchema, Schema.Null])
-  ),
+  reposted_by: Schema.optional(FxRepostedByTransportSchema),
   reposts: optionalNumber,
   retweets: optionalNumber,
   source: optionalString,
@@ -233,11 +237,21 @@ type FxMediaItemTransport = typeof FxMediaItemTransportSchema.Type;
 type FxMediaTransport = typeof FxMediaTransportSchema.Type;
 type FxPollTransport = typeof FxPollTransportSchema.Type;
 type FxArticleTransport = typeof FxArticleTransportSchema.Type;
-type FxEnvelopeTransport = typeof FxEnvelopeTransportSchema.Type;
+type FxRepostedByTransport = typeof FxRepostedByTransportSchema.Type;
+
+interface FxTweetPayload {
+  readonly value: unknown;
+}
+
+interface FxAuthorPayload {
+  readonly value: unknown;
+}
 
 const decodeEnvelope = Schema.decodeUnknownEffect(FxEnvelopeTransportSchema);
 const decodeTweetTransport = Schema.decodeUnknownEffect(FxTweetTransportSchema);
-const decodeAuthorTransport = Schema.decodeUnknownEffect(FxAuthorTransportSchema);
+const decodeAuthorTransport = Schema.decodeUnknownEffect(
+  FxAuthorTransportSchema
+);
 
 const CONTAINER_CONTENT_TYPES = new Map([
   ["m3u8", "application/vnd.apple.mpegurl"],
@@ -249,7 +263,9 @@ const containerContentType = (container?: string): string | undefined => {
   if (!container) {
     return undefined;
   }
-  return container.includes("/") ? container : CONTAINER_CONTENT_TYPES.get(container);
+  return container.includes("/")
+    ? container
+    : CONTAINER_CONTENT_TYPES.get(container);
 };
 
 const normalizeMediaItem = (item: FxMediaItemTransport): FxMediaItem => {
@@ -409,13 +425,17 @@ const normalizeArticle = (
       }
     : undefined;
 
+const isStringArray = (
+  value: typeof FxReplyingToTransportSchema.Type
+): value is readonly string[] => Array.isArray(value);
+
 const normalizeReplyingTo = (
   replyingTo: typeof FxReplyingToTransportSchema.Type | undefined
 ): FxReplyingTo | undefined => {
   if (replyingTo === undefined || replyingTo === null) {
     return replyingTo;
   }
-  if (Array.isArray(replyingTo)) {
+  if (isStringArray(replyingTo)) {
     return [...replyingTo];
   }
   return {
@@ -436,12 +456,18 @@ const normalizeReplyingToStatus = (
 };
 
 const normalizeRepostedBy = (
-  author: FxAuthorTransport | null | undefined
+  author: FxRepostedByTransport | undefined
 ): FxAuthor | null | undefined => {
   if (author === null) {
     return null;
   }
-  return author ? normalizeAuthor(author) : undefined;
+  if (author === undefined) {
+    return undefined;
+  }
+  if (Schema.is(Schema.String)(author)) {
+    return { screen_name: author };
+  }
+  return normalizeAuthor(author);
 };
 
 const schemaFailure = (
@@ -450,17 +476,17 @@ const schemaFailure = (
 ): FxTwitterSchemaError => new FxTwitterSchemaError({ cause, operation });
 
 const decodeTweet = (
-  payload: unknown,
+  payload: FxTweetPayload,
   operation: string
 ): Effect.Effect<FxTweet, FxTwitterSchemaError> =>
   Effect.gen(function* decodeTweetEffect() {
-    const raw = yield* decodeTweetTransport(payload).pipe(
+    const raw = yield* decodeTweetTransport(payload.value).pipe(
       Effect.mapError((cause) => schemaFailure(operation, cause))
     );
     const quote =
       raw.quote === undefined
         ? undefined
-        : yield* decodeTweet(raw.quote, operation);
+        : yield* decodeTweet({ value: raw.quote }, operation);
     return {
       article: normalizeArticle(raw.article),
       author: raw.author ? normalizeAuthor(raw.author) : undefined,
@@ -490,19 +516,16 @@ const decodeTweet = (
   });
 
 const decodeAuthor = (
-  payload: unknown,
+  payload: FxAuthorPayload,
   operation: string
 ): Effect.Effect<FxAuthor, FxTwitterSchemaError> =>
-  decodeAuthorTransport(payload).pipe(
+  decodeAuthorTransport(payload.value).pipe(
     Effect.map(normalizeAuthor),
     Effect.mapError((cause) => schemaFailure(operation, cause))
   );
 
 const fxFetchJson = Effect.fn("FxTwitter.fetchJson")(
-  function* fxFetchJsonEffect(
-    path: string,
-    operation: string
-  ): ProviderEffect<FxEnvelopeTransport, FxTwitterFailure> {
+  function* fxFetchJsonEffect(path: string, operation: string) {
     const client = yield* HttpClient.HttpClient;
     const response = yield* client
       .get(`${FX_BASE}/${path}`, {
@@ -571,7 +594,7 @@ export const fetchFxProfileEffect = Effect.fn("FxTwitter.fetchProfile")(
         new FxTwitterNotFoundError({ kind: "profile", operation })
       );
     }
-    return yield* decodeAuthor(data.user, operation);
+    return yield* decodeAuthor({ value: data.user }, operation);
   }
 );
 
@@ -589,7 +612,7 @@ export const fetchFxProfileStatusesEffect = Effect.fn(
     operation
   );
   const results = yield* Effect.all(
-    (data.results ?? []).map((item) => decodeTweet(item, operation))
+    (data.results ?? []).map((item) => decodeTweet({ value: item }, operation))
   );
   return {
     cursor: data.cursor
@@ -610,7 +633,9 @@ export const searchFxStatusesEffect = (
   return Effect.gen(function* searchFxStatusesEffectGenerator() {
     const data = yield* fxFetchJson(`2/search?${query}`, operation);
     const results = yield* Effect.all(
-      (data.results ?? []).map((item) => decodeTweet(item, operation))
+      (data.results ?? []).map((item) =>
+        decodeTweet({ value: item }, operation)
+      )
     );
     return {
       cursor: data.cursor
@@ -625,30 +650,32 @@ export const searchFxStatusesEffect = (
   );
 };
 
-export const fetchFxConnectionsEffect = Effect.fn(
-  "FxTwitter.fetchConnections"
-)(function* fetchFxConnectionsEffectGenerator(
-  handle: string,
-  relation: "followers" | "following",
-  cursor?: string,
-  count = 20
-) {
-  const operation = relation;
-  const query = encodeQuery({ count, cursor });
-  const data = yield* fxFetchJson(
-    `2/profile/${encodeURIComponent(handle)}/${relation}?${query}`,
-    operation
-  );
-  const results = yield* Effect.all(
-    (data.results ?? []).map((item) => decodeAuthor(item, operation))
-  );
-  return {
-    cursor: data.cursor
-      ? { bottom: data.cursor.bottom, top: data.cursor.top }
-      : undefined,
-    results,
-  } satisfies FxListResponse<FxAuthor>;
-});
+export const fetchFxConnectionsEffect = Effect.fn("FxTwitter.fetchConnections")(
+  function* fetchFxConnectionsEffectGenerator(
+    handle: string,
+    relation: "followers" | "following",
+    cursor?: string,
+    count = 20
+  ) {
+    const operation = relation;
+    const query = encodeQuery({ count, cursor });
+    const data = yield* fxFetchJson(
+      `2/profile/${encodeURIComponent(handle)}/${relation}?${query}`,
+      operation
+    );
+    const results = yield* Effect.all(
+      (data.results ?? []).map((item) =>
+        decodeAuthor({ value: item }, operation)
+      )
+    );
+    return {
+      cursor: data.cursor
+        ? { bottom: data.cursor.bottom, top: data.cursor.top }
+        : undefined,
+      results,
+    } satisfies FxListResponse<FxAuthor>;
+  }
+);
 
 export const fetchFxStatusEffect = Effect.fn("FxTwitter.fetchStatus")(
   function* fetchFxStatusEffectGenerator(id: string) {
@@ -660,7 +687,7 @@ export const fetchFxStatusEffect = Effect.fn("FxTwitter.fetchStatus")(
         new FxTwitterNotFoundError({ kind: "post", operation })
       );
     }
-    return yield* decodeTweet(raw, operation);
+    return yield* decodeTweet({ value: raw }, operation);
   }
 );
 
@@ -701,7 +728,7 @@ export const fetchFxThreadEffect = Effect.fn("FxTwitter.fetchThread")(
     const data = yield* fxFetchJson(`2/thread/${id}`, operation);
     if (data.thread?.length) {
       return yield* Effect.all(
-        data.thread.map((item) => decodeTweet(item, operation))
+        data.thread.map((item) => decodeTweet({ value: item }, operation))
       );
     }
     return [yield* fetchFxStatusEffect(id)];
@@ -731,7 +758,7 @@ export const fetchFxConversationRepliesEffect = Effect.fn(
   const primary = data.replies ?? data.results;
   const replies = primary ?? data.tweets ?? data.conversation;
   const decoded = yield* Effect.all(
-    (replies ?? []).map((item) => decodeTweet(item, operation))
+    (replies ?? []).map((item) => decodeTweet({ value: item }, operation))
   );
   return decoded
     .filter((tweet) => getParentStatusId(tweet) === id)

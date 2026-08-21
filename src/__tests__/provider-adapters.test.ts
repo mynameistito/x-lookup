@@ -31,9 +31,7 @@ const runWithClient = <A, E>(
   client: HttpClient.HttpClient
 ): Promise<A> =>
   Effect.runPromise(
-    program.pipe(
-      Effect.provide(Layer.succeed(HttpClient.HttpClient, client))
-    )
+    program.pipe(Effect.provide(Layer.succeed(HttpClient.HttpClient, client)))
   );
 
 const networkFailureClient: HttpClient.HttpClient = HttpClient.make((request) =>
@@ -254,7 +252,9 @@ describe("FxTwitter Effect adapter", () => {
       runWithClient(fetchFxStatusEffect("1"), networkFailureClient)
     ).rejects.toMatchObject({ code: "fxtwitter_network", status: 502 });
 
-    const nonJsonClient = makeClient(() => new Response("<html>blocked</html>"));
+    const nonJsonClient = makeClient(
+      () => new Response("<html>blocked</html>")
+    );
     await expect(
       runWithClient(fetchFxStatusEffect("1"), nonJsonClient)
     ).rejects.toMatchObject({ code: "fxtwitter_error", status: 502 });
@@ -400,18 +400,12 @@ describe("syndication Effect adapter", () => {
   test("classifies non-2xx, non-JSON, malformed, empty, and network failures", async () => {
     const missingClient = makeClient(() => new Response("{}", { status: 404 }));
     await expect(
-      runWithClient(
-        fetchSyndicationStatusEffect("alice", "123"),
-        missingClient
-      )
+      runWithClient(fetchSyndicationStatusEffect("alice", "123"), missingClient)
     ).rejects.toMatchObject({ code: "syndication_error", status: 404 });
 
     const nonJsonClient = makeClient(() => new Response("not-json"));
     await expect(
-      runWithClient(
-        fetchSyndicationStatusEffect("alice", "123"),
-        nonJsonClient
-      )
+      runWithClient(fetchSyndicationStatusEffect("alice", "123"), nonJsonClient)
     ).rejects.toMatchObject({ code: "syndication_error", status: 502 });
 
     const malformedClient = makeClient(() => Response.json({ text: 123 }));
