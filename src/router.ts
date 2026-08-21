@@ -3,7 +3,11 @@ import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 
 import { ROOT_MARKDOWN } from "./docs.js";
 import { browseResponse, parseBrowseRequest } from "./lib/browse.js";
-import type { BrowseFailure, BrowseInput, BrowseService } from "./lib/browse.js";
+import type {
+  BrowseFailure,
+  BrowseInput,
+  BrowseService,
+} from "./lib/browse.js";
 import {
   acceptPrefersHtml,
   markdownResponse,
@@ -50,10 +54,7 @@ type RoutedPayload = Effect.Effect<HttpPayload, BoundaryFailure>;
 const param = (query: URLSearchParams, key: string): string | undefined =>
   query.get(key) ?? undefined;
 
-const jsonErrorPayload = (
-  status: number,
-  body: ApiErrorBody
-): HttpPayload => ({
+const jsonErrorPayload = (status: number, body: ApiErrorBody): HttpPayload => ({
   body: JSON.stringify(body),
   headers: {
     "Access-Control-Allow-Origin": "*",
