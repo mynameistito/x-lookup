@@ -2,6 +2,7 @@
 name: coding-standards
 description: Correct-by-construction TypeScript standards. Use for TypeScript engineering or when another skill needs the user's coding standards.
 ---
+
 These standards describe how to design and write TypeScript code in this codebase. They are especially intended for agents: inspect existing code before adding patterns, libraries, Adapters, or abstractions, but apply these standards to all new and refactored behavior. Follow existing conventions only when they are compatible with these standards.
 
 ## Decision priority
@@ -67,13 +68,13 @@ type Result<T, E extends Error> =
 Prefer:
 
 ```ts
-Promise<Result<User, UserLookupError>>
+Promise<Result<User, UserLookupError>>;
 ```
 
 not:
 
 ```ts
-Promise<User> // rejects for ordinary lookup/storage failures
+Promise<User>; // rejects for ordinary lookup/storage failures
 ```
 
 Promise rejection is equivalent to throwing. Catch unclassified third-party rejection inside the owning Adapter and translate it into a known tagged error before it crosses the Adapter boundary. Rejection may escape application code only for a defect.
@@ -124,7 +125,7 @@ export class UserStoreUnavailable extends Error {
   constructor(
     readonly operation: "findActiveByEmail",
     readonly provider: "postgres",
-    readonly cause: unknown,
+    readonly cause: unknown
   ) {
     super(`User store unavailable during ${operation}`);
   }
@@ -134,7 +135,7 @@ export class UserStoreUnavailable extends Error {
 Keep error unions precise at module boundaries:
 
 ```ts
-Result<User, UserNotFound | UserStoreUnavailable>
+Result<User, UserNotFound | UserStoreUnavailable>;
 ```
 
 Avoid broad `AppError`-style types except near entrypoints, orchestration, logging, and rendering layers.
@@ -227,7 +228,11 @@ Prefer:
 
 ```ts
 type Invoice =
-  | { readonly _tag: "Draft"; readonly id: InvoiceId; readonly lines: NonEmptyArray<LineItem> }
+  | {
+      readonly _tag: "Draft";
+      readonly id: InvoiceId;
+      readonly lines: NonEmptyArray<LineItem>;
+    }
   | { readonly _tag: "Sent"; readonly id: InvoiceId; readonly sentAt: Instant }
   | { readonly _tag: "Paid"; readonly id: InvoiceId; readonly paidAt: Instant };
 ```
@@ -405,7 +410,9 @@ Because TypeScript is structurally typed, this works well:
 
 ```ts
 type UsersForPasswordReset = {
-  findActiveByEmail(email: EmailAddress): Promise<Result<ActiveUser, UserLookupError>>;
+  findActiveByEmail(
+    email: EmailAddress
+  ): Promise<Result<ActiveUser, UserLookupError>>;
 };
 
 export class PasswordReset {
@@ -675,7 +682,10 @@ For generics:
  * @param fn - The function applied to the success value.
  * @returns A result with the mapped success value, or the original error.
  */
-export function map<T, U, E>(result: Result<T, E>, fn: (value: T) => U): Result<U, E>;
+export function map<T, U, E>(
+  result: Result<T, E>,
+  fn: (value: T) => U
+): Result<U, E>;
 ```
 
 Use `@throws` only for unrecoverable defects, framework-required behavior, or temporary `notYetImplemented` paths. Do not document expected typed errors as throws.

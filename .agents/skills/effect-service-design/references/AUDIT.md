@@ -14,16 +14,16 @@ Enumerate source and test files, then find:
 
 For each service record:
 
-| Field | Question |
-| --- | --- |
-| Owner | Which module owns the capability's meaning? |
-| Contract | Where are the interface and tag? |
-| Constructor | Does `make` yield every dependency? |
-| Production | Which module owns the concrete `layer`? |
-| Tests | Is there an honest reusable test/local implementation? |
-| Consumers | Are capabilities yielded or drilled? |
+| Field        | Question                                                  |
+| ------------ | --------------------------------------------------------- |
+| Owner        | Which module owns the capability's meaning?               |
+| Contract     | Where are the interface and tag?                          |
+| Constructor  | Does `make` yield every dependency?                       |
+| Production   | Which module owns the concrete `layer`?                   |
+| Tests        | Is there an honest reusable test/local implementation?    |
+| Consumers    | Are capabilities yielded or drilled?                      |
 | Requirements | Do Effect requirements propagate to the composition root? |
-| Verdict | Keep, deepen, relocate, merge, remove, or create? |
+| Verdict      | Keep, deepen, relocate, merge, remove, or create?         |
 
 **Complete when:** every discovered service/tag and Layer appears exactly once in the inventory.
 
