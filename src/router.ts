@@ -1,288 +1,347 @@
-import { Effect, Layer, Result } from "effect";
+import { Effect, Result } from "effect";
+import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 
 import { ROOT_MARKDOWN } from "./docs.js";
-import type { Env } from "./env.js";
-import {
-  browseEffect,
-  browseResponse,
-  layerBrowseWithoutDependencies,
+import { browseResponse, parseBrowseRequest } from "./lib/browse.js";
+import type {
+  BrowseFailure,
+  BrowseInput,
+  BrowseService,
 } from "./lib/browse.js";
-import type { BrowseFailure, Browse } from "./lib/browse.js";
-import { layerWorker } from "./lib/cache.js";
 import {
   acceptPrefersHtml,
-  convertTweetEffect,
-  layerConversionWithoutDependencies,
   markdownResponse,
+  parseConvertRequest,
 } from "./lib/converter.js";
-import type { ConvertFailure, Conversion } from "./lib/converter.js";
+import type {
+  ConversionService,
+  ConvertFailure,
+  ConvertInput,
+} from "./lib/converter.js";
 import {
   embedResponse,
   isEmbedUserAgent,
   oembedResponse,
 } from "./lib/embed.js";
 import type { OEmbedQuery } from "./lib/embed.js";
+import type { HttpPayload } from "./lib/http.js";
 import { requestOrigin, wantsJson, wantsMarkdown } from "./lib/http.js";
-import {
-  layerFxTwitter,
-  layerSyndication,
-} from "./lib/provider-service-adapter.js";
-import { layerPostLookupWithoutDependencies } from "./lib/tweet-fetch.js";
 
 const HANDLE = "([A-Za-z0-9_]{1,15})";
 const STATUS_ROUTE = new RegExp(`^/${HANDLE}/status/(\\d+)$`, "u");
 const LIST_ROUTE = new RegExp(`^/${HANDLE}/(followers|following)$`, "u");
 const PROFILE_ROUTE = new RegExp(`^/${HANDLE}$`, "u");
 
+const API_CORS_HEADERS = {
+  "Access-Control-Allow-Headers": "Accept, Content-Type",
+  "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
+  "Access-Control-Allow-Origin": "*",
+} as const;
+
 interface ApiErrorBody {
-  code?: string;
-  error: string;
+  readonly code: string;
+  readonly error: string;
 }
 
-interface ApiResponse {
-  status: number;
-  headers: Record<string, string>;
-  body?: string;
+export interface HttpApplicationServices {
+  readonly browse: BrowseService;
+  readonly conversion: ConversionService;
 }
 
-type RoutedResponse = Effect.Effect<Response, never, Browse | Conversion>;
+type BoundaryFailure = BrowseFailure | ConvertFailure;
+type RoutedPayload = Effect.Effect<HttpPayload, BoundaryFailure>;
 
-const jsonResponse = (status: number, body: ApiErrorBody): Response =>
-  Response.json(body, {
-    headers: {
-      "Access-Control-Allow-Origin": "*",
-      "Content-Type": "application/json; charset=utf-8",
-    },
-    status,
-  });
+const param = (query: URLSearchParams, key: string): string | undefined =>
+  query.get(key) ?? undefined;
 
-const apiResponse = (result: ApiResponse): Response => {
-  const headers = new Headers(result.headers);
-  headers.set("Access-Control-Allow-Origin", "*");
-  headers.set("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS");
-  headers.set("Access-Control-Allow-Headers", "Accept, Content-Type");
-  return new Response(result.body ?? null, { headers, status: result.status });
-};
+const jsonErrorPayload = (status: number, body: ApiErrorBody): HttpPayload => ({
+  body: JSON.stringify(body),
+  headers: {
+    "Access-Control-Allow-Origin": "*",
+    "Content-Type": "application/json; charset=utf-8",
+  },
+  status,
+});
 
-const textResponse = (body: string): Response =>
-  new Response(body, {
-    headers: {
-      "Access-Control-Allow-Origin": "*",
-      "Cache-Control": "public, max-age=3600",
-      "Content-Type": "text/markdown; charset=utf-8",
-    },
-    status: 200,
-  });
+const withApiCors = (payload: HttpPayload): HttpPayload => ({
+  ...payload,
+  headers: {
+    ...payload.headers,
+    ...API_CORS_HEADERS,
+  },
+});
 
-/** Render an expected typed application failure onto the HTTP error contract. */
-const errorResponse = (failure: ConvertFailure | BrowseFailure): Response =>
-  jsonResponse(failure.status, {
+const docsPayload = (): HttpPayload => ({
+  body: ROOT_MARKDOWN,
+  headers: {
+    "Access-Control-Allow-Origin": "*",
+    "Cache-Control": "public, max-age=3600",
+    "Content-Type": "text/markdown; charset=utf-8",
+  },
+  status: 200,
+});
+
+/** Translate every expected domain/application/provider failure in one place. */
+const failurePayload = (failure: BoundaryFailure): HttpPayload =>
+  jsonErrorPayload(failure.status, {
     code: failure.code,
     error: failure.message,
   });
 
-const originOf = (request: Request): string =>
+const serverResponse = (
+  payload: HttpPayload,
+  withoutBody: boolean
+): HttpServerResponse.HttpServerResponse => {
+  const options = {
+    headers: payload.headers,
+    status: payload.status,
+  };
+  return withoutBody
+    ? HttpServerResponse.empty(options)
+    : HttpServerResponse.text(payload.body, options);
+};
+
+const originOf = (request: HttpServerRequest.HttpServerRequest): string =>
   requestOrigin({
-    headers: { host: request.headers.get("host") ?? undefined },
-    protocol: new URL(request.url).protocol,
+    headers: { host: request.headers.host },
+    protocol: new URL(request.originalUrl).protocol,
   });
 
-const handleBrowse = (
+const browseInput = (
   query: URLSearchParams,
-  request: Request
-): RoutedResponse =>
+  overrides: Partial<BrowseInput> = {}
+): BrowseInput => ({
+  cursor: param(query, "cursor"),
+  feed: param(query, "feed"),
+  format: param(query, "format"),
+  full: param(query, "full"),
+  handle: param(query, "handle"),
+  limit: param(query, "limit"),
+  nocache: param(query, "nocache"),
+  page: param(query, "page"),
+  q: param(query, "q"),
+  resource: param(query, "resource"),
+  ...overrides,
+});
+
+const convertInput = (
+  query: URLSearchParams,
+  overrides: Partial<ConvertInput> = {}
+): ConvertInput => ({
+  context: param(query, "context"),
+  format: param(query, "format"),
+  full: param(query, "full"),
+  handle: param(query, "handle"),
+  id: param(query, "id"),
+  nocache: param(query, "nocache"),
+  replies: param(query, "replies"),
+  thread: param(query, "thread"),
+  url: param(query, "url"),
+  userinfo: param(query, "userinfo"),
+  ...overrides,
+});
+
+const handleBrowse = (
+  input: BrowseInput,
+  request: HttpServerRequest.HttpServerRequest,
+  services: HttpApplicationServices
+): RoutedPayload =>
   Effect.gen(function* handleBrowseEffect() {
-    const param = (key: string): string | undefined =>
-      query.get(key) ?? undefined;
-    const result = yield* Effect.result(
-      browseEffect({
-        cursor: param("cursor"),
-        feed: param("feed"),
-        format: param("format"),
-        full: param("full"),
-        handle: param("handle"),
-        limit: param("limit"),
-        nocache: param("nocache"),
-        page: param("page"),
-        q: param("q"),
-        resource: param("resource"),
-      })
-    );
-    if (Result.isFailure(result)) {
-      return errorResponse(result.failure);
+    const parsed = parseBrowseRequest(input);
+    if (Result.isFailure(parsed)) {
+      return yield* Effect.fail(parsed.failure);
     }
-    const response = browseResponse(
-      result.success,
-      wantsJson(param("format"), request.headers.get("accept") ?? "")
+    const result = yield* services.browse.browse(parsed.success);
+    return withApiCors(
+      browseResponse(
+        result,
+        wantsJson(input.format, request.headers.accept ?? "")
+      )
     );
-    return apiResponse(response);
   });
 
 const handleConvert = (
-  query: URLSearchParams,
-  request: Request
-): RoutedResponse =>
+  input: ConvertInput,
+  request: HttpServerRequest.HttpServerRequest,
+  services: HttpApplicationServices
+): RoutedPayload =>
   Effect.gen(function* handleConvertEffect() {
-    const param = (key: string): string | undefined =>
-      query.get(key) ?? undefined;
-    const accept = request.headers.get("accept") ?? "";
-    const userAgent = request.headers.get("user-agent") ?? "";
-    const requestedFormat = param("format");
+    const accept = request.headers.accept ?? "";
+    const userAgent = request.headers["user-agent"] ?? "";
+    const requestedFormat = input.format ?? undefined;
     const asJson = wantsJson(requestedFormat, accept);
     const asMarkdown = wantsMarkdown(requestedFormat, accept);
     const noExplicitFormat = !requestedFormat && !asJson && !asMarkdown;
     const asEmbed = noExplicitFormat && isEmbedUserAgent(userAgent);
     const asHtml = noExplicitFormat && !asEmbed && acceptPrefersHtml(accept);
 
-    const result = yield* Effect.result(
-      convertTweetEffect({
-        context: param("context"),
-        format: param("format"),
-        full: param("full"),
-        handle: param("handle"),
-        id: param("id"),
-        nocache: param("nocache"),
-        replies: param("replies"),
-        thread: param("thread"),
-        url: param("url"),
-        userinfo: param("userinfo"),
-      })
-    );
-    if (Result.isFailure(result)) {
-      return errorResponse(result.failure);
+    const parsed = parseConvertRequest(input);
+    if (Result.isFailure(parsed)) {
+      return yield* Effect.fail(parsed.failure);
     }
-
-    const response = asEmbed
-      ? embedResponse(result.success, { origin: originOf(request), userAgent })
-      : markdownResponse(result.success, asJson, asHtml);
-    return apiResponse(response);
+    const result = yield* services.conversion.convert(parsed.success);
+    return withApiCors(
+      asEmbed
+        ? embedResponse(result, { origin: originOf(request), userAgent })
+        : markdownResponse(result, asJson, asHtml)
+    );
   });
 
-const handleOEmbed = (query: URLSearchParams, request: Request): Response => {
-  const param = (key: string): string | undefined =>
-    query.get(key) ?? undefined;
+const handleOEmbed = (
+  query: URLSearchParams,
+  request: HttpServerRequest.HttpServerRequest
+): HttpPayload => {
   const oembedQuery: OEmbedQuery = {
-    author: param("author"),
-    provider: param("provider"),
-    status: param("status"),
-    text: param("text"),
-    url: param("url"),
+    author: param(query, "author"),
+    provider: param(query, "provider"),
+    status: param(query, "status"),
+    text: param(query, "text"),
+    url: param(query, "url"),
   };
-  return apiResponse(oembedResponse(oembedQuery, originOf(request)));
+  return withApiCors(oembedResponse(oembedQuery, originOf(request)));
 };
 
-const handlePathRoutes = (
+const pathRoute = (
   path: string,
   query: URLSearchParams,
-  request: Request
-): RoutedResponse | undefined => {
+  request: HttpServerRequest.HttpServerRequest,
+  services: HttpApplicationServices
+): RoutedPayload | undefined => {
   if (path === "/" || path === "/docs") {
-    return Effect.succeed(textResponse(ROOT_MARKDOWN));
+    return Effect.succeed(docsPayload());
   }
   if (path === "/api/browse") {
-    return handleBrowse(query, request);
+    return handleBrowse(browseInput(query), request, services);
   }
   if (path === "/api/convert") {
-    return handleConvert(query, request);
+    return handleConvert(convertInput(query), request, services);
   }
   if (path === "/oembed") {
     return Effect.succeed(handleOEmbed(query, request));
   }
   if (path === "/search") {
-    query.set("resource", "search");
-    return handleBrowse(query, request);
+    return handleBrowse(
+      browseInput(query, { resource: "search" }),
+      request,
+      services
+    );
   }
   return undefined;
 };
 
-const handleStatusRoutes = (
+const rewrittenRoute = (
   path: string,
   query: URLSearchParams,
-  request: Request
-): RoutedResponse | undefined => {
+  request: HttpServerRequest.HttpServerRequest,
+  services: HttpApplicationServices
+): RoutedPayload | undefined => {
   const statusMatch = STATUS_ROUTE.exec(path);
   if (statusMatch) {
-    query.set("handle", statusMatch[1] ?? "");
-    query.set("id", statusMatch[2] ?? "");
-    return handleConvert(query, request);
+    return handleConvert(
+      convertInput(query, {
+        handle: statusMatch[1] ?? "",
+        id: statusMatch[2] ?? "",
+      }),
+      request,
+      services
+    );
   }
 
   const listMatch = LIST_ROUTE.exec(path);
   if (listMatch) {
-    query.set("resource", listMatch[2] ?? "");
-    query.set("handle", listMatch[1] ?? "");
-    return handleBrowse(query, request);
+    return handleBrowse(
+      browseInput(query, {
+        handle: listMatch[1] ?? "",
+        resource: listMatch[2] ?? "",
+      }),
+      request,
+      services
+    );
   }
 
   const profileMatch = PROFILE_ROUTE.exec(path);
   if (profileMatch) {
-    query.set("resource", "profile");
-    query.set("handle", profileMatch[1] ?? "");
-    return handleBrowse(query, request);
+    return handleBrowse(
+      browseInput(query, {
+        handle: profileMatch[1] ?? "",
+        resource: "profile",
+      }),
+      request,
+      services
+    );
   }
   return undefined;
 };
 
-const applicationLayer = (env: Env): Layer.Layer<Browse | Conversion> => {
-  const cacheLayer = layerWorker(env);
-  const providerLayer = Layer.mergeAll(layerFxTwitter, layerSyndication);
-  const postLookupLayer = layerPostLookupWithoutDependencies.pipe(
-    Layer.provide(providerLayer)
-  );
-  const browseLayer = layerBrowseWithoutDependencies.pipe(
-    Layer.provide([cacheLayer, layerFxTwitter])
-  );
-  const conversionLayer = layerConversionWithoutDependencies.pipe(
-    Layer.provide([cacheLayer, postLookupLayer])
-  );
-  return Layer.mergeAll(browseLayer, conversionLayer);
-};
-
-export const handleRequest = async (
-  request: Request,
-  env: Env = {}
-): Promise<Response> => {
+const routeRequest = (
+  request: HttpServerRequest.HttpServerRequest,
+  services: HttpApplicationServices
+): Effect.Effect<HttpServerResponse.HttpServerResponse> => {
   if (request.method === "OPTIONS") {
-    return new Response(null, {
-      headers: {
-        "Access-Control-Allow-Headers": "Accept, Content-Type",
-        "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
-        "Access-Control-Allow-Origin": "*",
-      },
-      status: 204,
-    });
+    return Effect.succeed(
+      HttpServerResponse.empty({ headers: API_CORS_HEADERS, status: 204 })
+    );
   }
   if (request.method !== "GET" && request.method !== "HEAD") {
-    return jsonResponse(405, {
-      code: "method_not_allowed",
-      error: "Method not allowed",
-    });
+    return Effect.succeed(
+      serverResponse(
+        jsonErrorPayload(405, {
+          code: "method_not_allowed",
+          error: "Method not allowed",
+        }),
+        false
+      )
+    );
   }
 
-  const url = new URL(request.url);
+  const url = new URL(request.originalUrl);
   const path = url.pathname.replace(/\/+$/u, "") || "/";
-  const query = url.searchParams;
-  const appLayer = applicationLayer(env);
-  const runRoute = (route: RoutedResponse): Promise<Response> =>
-    Effect.runPromise(Effect.provide(route, appLayer));
-
-  try {
-    const routed = handlePathRoutes(path, query, request);
-    if (routed) {
-      return await runRoute(routed);
-    }
-    const matched = handleStatusRoutes(path, query, request);
-    if (matched) {
-      return await runRoute(matched);
-    }
-  } catch (error) {
-    // Expected failures are typed in application Effects; escaping is a defect.
-    console.error(error);
-    return jsonResponse(500, {
-      code: "internal_error",
-      error: "Internal server error",
-    });
+  const route =
+    pathRoute(path, url.searchParams, request, services) ??
+    rewrittenRoute(path, url.searchParams, request, services);
+  if (!route) {
+    return Effect.succeed(
+      serverResponse(
+        jsonErrorPayload(404, { code: "not_found", error: "Not found." }),
+        request.method === "HEAD"
+      )
+    );
   }
 
-  return jsonResponse(404, { code: "not_found", error: "Not found." });
+  return route.pipe(
+    Effect.match({
+      onFailure: failurePayload,
+      onSuccess: (payload) => payload,
+    }),
+    Effect.map((payload) => serverResponse(payload, request.method === "HEAD"))
+  );
 };
+
+/**
+ * Effect-native HTTP application boundary.
+ *
+ * Alchemy supplies the active {@link HttpServerRequest.HttpServerRequest} per
+ * fetch event. Query/path values are parsed exactly once here before the parsed
+ * request enters the application services.
+ */
+export const makeHttpApplication = (
+  services: HttpApplicationServices
+): Effect.Effect<
+  HttpServerResponse.HttpServerResponse,
+  never,
+  HttpServerRequest.HttpServerRequest
+> =>
+  HttpServerRequest.HttpServerRequest.pipe(
+    Effect.flatMap((request) => routeRequest(request, services)),
+    Effect.catchCause(() =>
+      Effect.succeed(
+        serverResponse(
+          jsonErrorPayload(500, {
+            code: "internal_error",
+            error: "Internal server error",
+          }),
+          false
+        )
+      )
+    )
+  );

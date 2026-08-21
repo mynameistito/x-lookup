@@ -1,21 +1,12 @@
 import { Context, Effect, Layer, Result } from "effect";
 
-import {
-  Cache,
-  buildCacheKey,
-  cacheControlHeader,
-  layerIsolateMemory,
-} from "./cache.js";
+import { Cache, buildCacheKey, cacheControlHeader } from "./cache.js";
 import type { CacheStatus } from "./cache.js";
 import type { FxTweet } from "./fxtwitter.js";
 import type { HeaderMap, HttpPayload } from "./http.js";
 import { renderThreadMarkdown } from "./markdown.js";
 import { parse as parseOutputFormat } from "./output-format.js";
 import type { InvalidOutputFormat, OutputFormat } from "./output-format.js";
-import {
-  layerFxTwitter,
-  layerSyndication,
-} from "./provider-service-adapter.js";
 import { parseConvertFlag } from "./query-flag.js";
 import { parseContext, parseReplies, parseUserinfo } from "./query-modes.js";
 import type {
@@ -30,10 +21,7 @@ import { resolve } from "./status-target.js";
 import type { ResolveError, StatusTarget } from "./status-target.js";
 import { parse as parseThreadSelection } from "./thread-selection.js";
 import type { InvalidThread, ThreadSelection } from "./thread-selection.js";
-import {
-  layerPostLookupWithoutDependencies,
-  PostLookup,
-} from "./tweet-fetch.js";
+import { PostLookup } from "./tweet-fetch.js";
 import type { FetchSource, PostLookupFailure } from "./tweet-fetch.js";
 
 /** Raw, untrusted convert query values exactly as they arrive from HTTP. */
@@ -90,8 +78,8 @@ export interface ConvertSuccess {
 
 export interface ConversionService {
   readonly convert: (
-    input: ConvertInput
-  ) => Effect.Effect<ConvertSuccess, ConvertFailure>;
+    request: ConvertRequest
+  ) => Effect.Effect<ConvertSuccess, PostLookupFailure>;
 }
 
 /** Owns parsed conversion policy, post lookup, caching, truncation, and metadata. */
@@ -239,13 +227,8 @@ const makeConversion = Effect.gen(function* makeConversionService() {
   );
 
   const convert = Effect.fn("Conversion.convert")(function* convertEffect(
-    input: ConvertInput
+    request: ConvertRequest
   ) {
-    const parsed = parseConvertRequest(input);
-    if (Result.isFailure(parsed)) {
-      return yield* Effect.fail(parsed.failure);
-    }
-    const request = parsed.success;
     const cacheKey = buildCacheKey({
       compact: request.compact ? "1" : "0",
       context: request.context,
@@ -254,7 +237,7 @@ const makeConversion = Effect.gen(function* makeConversionService() {
       id: request.target.id,
       replies: request.replies,
       thread: request.thread.cacheToken,
-      userinfo: input.userinfo ?? "off",
+      userinfo: request.userinfo,
       v: 5,
     });
     const cached = yield* cache.getOrLoad(
@@ -274,26 +257,23 @@ export const layerConversionWithoutDependencies = Layer.effect(
   makeConversion
 );
 
-/** Invoke conversion orchestration through the public application service seam. */
+/** Invoke conversion orchestration with an already-parsed boundary value. */
+export const convertRequestEffect = (
+  request: ConvertRequest
+): Effect.Effect<ConvertSuccess, PostLookupFailure, Conversion> =>
+  Conversion.use((service) => service.convert(request));
+
+/** Raw-input compatibility helper for non-HTTP callers and focused parser tests. */
 export const convertTweetEffect = (
   input: ConvertInput
 ): Effect.Effect<ConvertSuccess, ConvertFailure, Conversion> =>
-  Conversion.use((service) => service.convert(input));
-
-const legacyPostLookupLayer = layerPostLookupWithoutDependencies.pipe(
-  Layer.provide(Layer.mergeAll(layerFxTwitter, layerSyndication))
-);
-const legacyConversionLayer = layerConversionWithoutDependencies.pipe(
-  Layer.provide([layerIsolateMemory(), legacyPostLookupLayer])
-);
-
-/** Promise compatibility bridge for callers not yet migrated to Effect. */
-export const convertTweet = (input: ConvertInput) =>
-  Effect.runPromise(
-    Effect.result(
-      Effect.provide(convertTweetEffect(input), legacyConversionLayer)
-    )
-  );
+  Effect.gen(function* convertTweetFromRawInput() {
+    const parsed = parseConvertRequest(input);
+    if (Result.isFailure(parsed)) {
+      return yield* Effect.fail(parsed.failure);
+    }
+    return yield* convertRequestEffect(parsed.success);
+  });
 
 export const acceptPrefersHtml = (accept: string): boolean => {
   if (accept.includes("application/json") || accept.includes("text/markdown")) {

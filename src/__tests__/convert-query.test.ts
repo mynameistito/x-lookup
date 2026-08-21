@@ -1,34 +1,19 @@
 import { Result } from "effect";
-import { beforeEach, describe, expect, test, vi } from "vitest";
+import { describe, expect, test } from "vitest";
 
-import { convertTweet } from "../lib/converter.js";
+import { parseConvertRequest } from "../lib/converter.js";
+import type { ConvertInput, ConvertRequest } from "../lib/converter.js";
 
-const respond = <T>(url: string, body: T, status = 200): Promise<Response> => {
-  if (!url.includes("api.fxtwitter.com")) {
-    return Promise.reject(new Error(`unexpected upstream: ${url}`));
-  }
-  return Promise.resolve(Response.json(body, { status }));
-};
-
-const stubFxStatus = (): void => {
-  vi.stubGlobal(
-    "fetch",
-    vi.fn<(url: string) => Promise<Response>>((url) =>
-      respond(url, { code: 200, status: { id: "42", text: "hello" } })
-    )
-  );
-};
-
-const succeed = async (input: Parameters<typeof convertTweet>[0]) => {
-  const result = await convertTweet(input);
+const succeed = (input: ConvertInput): ConvertRequest => {
+  const result = parseConvertRequest(input);
   if (Result.isFailure(result)) {
     throw new Error(`expected success, got: ${JSON.stringify(result.failure)}`);
   }
   return result.success;
 };
 
-const failureOf = async (input: Parameters<typeof convertTweet>[0]) => {
-  const result = await convertTweet(input);
+const failureOf = (input: ConvertInput) => {
+  const result = parseConvertRequest(input);
   if (Result.isSuccess(result)) {
     throw new Error("expected a typed failure, got success");
   }
@@ -38,28 +23,25 @@ const failureOf = async (input: Parameters<typeof convertTweet>[0]) => {
 const validUrl = "https://x.com/testuser/status/42";
 
 describe("convert format parsing", () => {
-  beforeEach(() => {
-    vi.unstubAllGlobals();
-    stubFxStatus();
-  });
-
   test.each([undefined, null, "", "markdown", "obsidian", "json"] as const)(
     "accepts format=%s",
-    async (format) => {
-      const result = await succeed({ format, url: validUrl });
+    (format) => {
+      const result = succeed({ format, url: validUrl });
       expect(["markdown", "obsidian", "json"]).toContain(result.format);
     }
   );
 
-  test("defaults to markdown when the parameter is absent or empty", async () => {
-    const absent = await succeed({ url: validUrl });
-    expect(absent.format).toBe("markdown");
-    const empty = await succeed({ format: "", url: validUrl });
-    expect(empty.format).toBe("markdown");
+  test("defaults to markdown when the parameter is absent or empty", () => {
+    const absent = succeed({ url: validUrl });
+    const empty = succeed({ format: "", url: validUrl });
+    expect({ absent: absent.format, empty: empty.format }).toStrictEqual({
+      absent: "markdown",
+      empty: "markdown",
+    });
   });
 
-  test("refuses unsupported formats with the historical contract", async () => {
-    const failure = await failureOf({ format: "rss", url: validUrl });
+  test("refuses unsupported formats with the historical contract", () => {
+    const failure = failureOf({ format: "rss", url: validUrl });
     expect(failure).toMatchObject({
       _tag: "InvalidOutputFormat",
       code: "invalid_format",
@@ -71,20 +53,16 @@ describe("convert format parsing", () => {
 });
 
 describe("convert userinfo/context/replies parsing", () => {
-  beforeEach(() => {
-    vi.unstubAllGlobals();
-    stubFxStatus();
-  });
-
   test.each([undefined, "", "off", "author", "all"] as const)(
     "accepts userinfo=%s",
-    async (userinfo) => {
-      await expect(succeed({ url: validUrl, userinfo })).resolves.toBeDefined();
+    (userinfo) => {
+      const result = succeed({ url: validUrl, userinfo });
+      expect(result.userinfo).toBeDefined();
     }
   );
 
-  test("refuses unsupported userinfo levels", async () => {
-    const failure = await failureOf({ url: validUrl, userinfo: "both" });
+  test("refuses unsupported userinfo levels", () => {
+    const failure = failureOf({ url: validUrl, userinfo: "both" });
     expect(failure).toMatchObject({
       _tag: "InvalidUserinfo",
       code: "invalid_userinfo",
@@ -95,13 +73,14 @@ describe("convert userinfo/context/replies parsing", () => {
 
   test.each([undefined, "", "full", "thread"] as const)(
     "accepts context=%s",
-    async (context) => {
-      await expect(succeed({ context, url: validUrl })).resolves.toBeDefined();
+    (context) => {
+      const result = succeed({ context, url: validUrl });
+      expect(result.context).toBeDefined();
     }
   );
 
-  test("refuses unsupported context modes", async () => {
-    const failure = await failureOf({ context: "conversation", url: validUrl });
+  test("refuses unsupported context modes", () => {
+    const failure = failureOf({ context: "conversation", url: validUrl });
     expect(failure).toMatchObject({
       _tag: "InvalidContext",
       code: "invalid_context",
@@ -112,13 +91,14 @@ describe("convert userinfo/context/replies parsing", () => {
 
   test.each([undefined, "", "top", "recent", "off"] as const)(
     "accepts replies=%s",
-    async (replies) => {
-      await expect(succeed({ replies, url: validUrl })).resolves.toBeDefined();
+    (replies) => {
+      const result = succeed({ replies, url: validUrl });
+      expect(result.replies).toBeDefined();
     }
   );
 
-  test("refuses unsupported replies modes", async () => {
-    const failure = await failureOf({ replies: "all", url: validUrl });
+  test("refuses unsupported replies modes", () => {
+    const failure = failureOf({ replies: "all", url: validUrl });
     expect(failure).toMatchObject({
       _tag: "InvalidReplies",
       code: "invalid_replies",
@@ -129,48 +109,40 @@ describe("convert userinfo/context/replies parsing", () => {
 });
 
 describe("convert boolean flag semantics", () => {
-  beforeEach(() => {
-    vi.unstubAllGlobals();
-    stubFxStatus();
-  });
-
   test.each(["1", "true", "yes"] as const)(
     "nocache=%s bypasses the cache (convert aliases)",
-    async (nocache) => {
-      const first = await succeed({ nocache, url: validUrl });
-      expect(first.cache).toBe("bypass");
+    (nocache) => {
+      const result = succeed({ nocache, url: validUrl });
+      expect(result.nocache).toBeTruthy();
     }
   );
 
   test.each(["0", "false", "junk", ""] as const)(
     "nocache=%s keeps caching enabled",
-    async (nocache) => {
-      const first = await succeed({ nocache, url: validUrl });
-      expect(first.cache).not.toBe("bypass");
+    (nocache) => {
+      const result = succeed({ nocache, url: validUrl });
+      expect(result.nocache).toBeFalsy();
     }
   );
 
-  test("full=yes restores rich rendering on convert endpoints", async () => {
-    const rich = await succeed({ full: "yes", url: validUrl });
-    expect(rich.compact).toBeFalsy();
-    const compact = await succeed({ full: "nope", url: validUrl });
-    expect(compact.compact).toBeTruthy();
+  test("full=yes restores rich rendering on convert endpoints", () => {
+    const rich = succeed({ full: "yes", url: validUrl });
+    const compact = succeed({ full: "nope", url: validUrl });
+    expect({ compact: compact.compact, rich: rich.compact }).toStrictEqual({
+      compact: true,
+      rich: false,
+    });
   });
 });
 
 describe("convert target via handle+id parameters", () => {
-  beforeEach(() => {
-    vi.unstubAllGlobals();
-    stubFxStatus();
+  test("resolves @-prefixed handles and digit-bearing ids", () => {
+    const result = succeed({ handle: "@Ada", id: "12a34" });
+    expect(result.target.canonicalUrl).toBe("https://x.com/Ada/status/1234");
   });
 
-  test("resolves @-prefixed handles and digit-bearing ids", async () => {
-    const result = await succeed({ handle: "@Ada", id: "12a34" });
-    expect(result.canonicalUrl).toBe("https://x.com/Ada/status/1234");
-  });
-
-  test("refuses pairs without a usable id", async () => {
-    const failure = await failureOf({ handle: "ada", id: "none" });
+  test("refuses pairs without a usable id", () => {
+    const failure = failureOf({ handle: "ada", id: "none" });
     expect(failure).toMatchObject({
       code: "invalid_params",
       status: 400,
@@ -179,8 +151,8 @@ describe("convert target via handle+id parameters", () => {
 });
 
 describe("convert parse-error precedence", () => {
-  test("format is parsed before the thread value", async () => {
-    const failure = await failureOf({
+  test("format is parsed before the thread value", () => {
+    const failure = failureOf({
       format: "rss",
       thread: "bad",
       url: validUrl,
@@ -188,8 +160,8 @@ describe("convert parse-error precedence", () => {
     expect(failure).toMatchObject({ _tag: "InvalidOutputFormat" });
   });
 
-  test("thread is parsed before userinfo, context, replies, and the target", async () => {
-    const failure = await failureOf({
+  test("thread is parsed before userinfo, context, replies, and the target", () => {
+    const failure = failureOf({
       context: "bad",
       replies: "bad",
       thread: "bad",
@@ -198,20 +170,22 @@ describe("convert parse-error precedence", () => {
     expect(failure).toMatchObject({ _tag: "InvalidThread" });
   });
 
-  test("userinfo is parsed before context", async () => {
-    const failure = await failureOf({ context: "bad", userinfo: "bad" });
+  test("userinfo is parsed before context", () => {
+    const failure = failureOf({ context: "bad", userinfo: "bad" });
     expect(failure).toMatchObject({ _tag: "InvalidUserinfo" });
   });
 
-  test("context is parsed before replies", async () => {
-    const failure = await failureOf({ context: "bad", replies: "bad" });
+  test("context is parsed before replies", () => {
+    const failure = failureOf({ context: "bad", replies: "bad" });
     expect(failure).toMatchObject({ _tag: "InvalidContext" });
   });
 
-  test("the target is resolved last", async () => {
-    const failure = await failureOf({ replies: "bad" });
-    expect(failure).toMatchObject({ _tag: "InvalidReplies" });
-    const missing = await failureOf({});
-    expect(missing).toMatchObject({ _tag: "StatusTargetMissing" });
+  test("the target is resolved last", () => {
+    const invalidReplies = failureOf({ replies: "bad" });
+    const missing = failureOf({});
+    expect({ invalidReplies, missing }).toMatchObject({
+      invalidReplies: { _tag: "InvalidReplies" },
+      missing: { _tag: "StatusTargetMissing" },
+    });
   });
 });
