@@ -1,12 +1,12 @@
-import { Result } from "effect";
+import { Effect, Result } from "effect";
 
 import {
+  Cache,
   buildCacheKey,
   cacheControlHeader,
-  memoryConfig,
-  withCache,
+  layerIsolateMemory,
 } from "./cache.js";
-import type { CacheStatus, RuntimeConfig } from "./cache.js";
+import type { CacheStatus } from "./cache.js";
 import { ConvertError } from "./errors.js";
 import type { FxTweet } from "./fxtwitter.js";
 import type { HeaderMap, HttpPayload } from "./http.js";
@@ -221,57 +221,69 @@ const convertTweetUncached = async (
 };
 
 /**
- * Convert a status request into rendered posts.
+ * Convert a status request using the cache authority supplied through Effect.
  *
- * Raw query values are parsed into a {@link ConvertRequest} first; parse
- * refusals and upstream provider failures both arrive as typed failure
- * values instead of thrown exceptions.
- *
- * The cache key preserves the historical identity exactly: raw `thread` and
- * `userinfo` parameter text (not the parsed values) distinguish entries, so
- * aliases like `thread=full` and `thread=100` remain separate.
- *
- * @param input - The raw query values.
- * @param config - Cache runtime configuration.
- * @returns The conversion result, or the typed failure.
+ * Only the cache seam is Effect-native here. The existing Promise-based tweet
+ * orchestration remains behind the loader bridge until the application-service
+ * migration in the next issue.
  */
-export const convertTweet = async (
-  input: ConvertInput,
-  config: RuntimeConfig = memoryConfig()
-): Promise<Result.Result<ConvertSuccess, ConvertFailure>> => {
-  const parsed = parseConvertRequest(input);
-  if (Result.isFailure(parsed)) {
-    return Result.fail(parsed.failure);
-  }
-  const request = parsed.success;
+export const convertTweetEffect = (
+  input: ConvertInput
+): Effect.Effect<
+  Result.Result<ConvertSuccess, ConvertFailure>,
+  never,
+  Cache
+> =>
+  Effect.gen(function* convertTweetCached() {
+    const parsed = parseConvertRequest(input);
+    if (Result.isFailure(parsed)) {
+      return Result.fail(parsed.failure);
+    }
+    const request = parsed.success;
 
-  const cacheKey = buildCacheKey({
-    compact: request.compact ? "1" : "0",
-    context: request.context,
-    format: request.format,
-    handle: request.target.handle.toLowerCase(),
-    id: request.target.id,
-    replies: request.replies,
-    thread: request.thread.cacheToken,
-    userinfo: input.userinfo ?? "off",
-    v: 5,
+    const cacheKey = buildCacheKey({
+      compact: request.compact ? "1" : "0",
+      context: request.context,
+      format: request.format,
+      handle: request.target.handle.toLowerCase(),
+      id: request.target.id,
+      replies: request.replies,
+      thread: request.thread.cacheToken,
+      userinfo: input.userinfo ?? "off",
+      v: 5,
+    });
+
+    const cache = yield* Cache;
+    return yield* cache
+      .getOrLoad(
+        cacheKey,
+        request.nocache,
+        Effect.tryPromise({
+          catch: (cause) => cause,
+          try: () => convertTweetUncached(request),
+        })
+      )
+      .pipe(
+        Effect.map(({ status, value }) =>
+          Result.succeed({ ...value, cache: status })
+        ),
+        Effect.catch((error) =>
+          error instanceof ConvertError
+            ? Effect.succeed(Result.fail(error))
+            : Effect.die(error)
+        )
+      );
   });
 
-  try {
-    const { value, status } = await withCache(
-      cacheKey,
-      request.nocache,
-      () => convertTweetUncached(request),
-      config
-    );
-    return Result.succeed({ ...value, cache: status });
-  } catch (error) {
-    if (error instanceof ConvertError) {
-      return Result.fail(error);
-    }
-    throw error;
-  }
-};
+const defaultCacheLayer = layerIsolateMemory();
+
+/** Temporary Promise bridge retained until conversion orchestration migrates. */
+export const convertTweet = (
+  input: ConvertInput
+): Promise<Result.Result<ConvertSuccess, ConvertFailure>> =>
+  Effect.runPromise(
+    Effect.provide(convertTweetEffect(input), defaultCacheLayer)
+  );
 
 export const acceptPrefersHtml = (accept: string): boolean => {
   if (accept.includes("application/json") || accept.includes("text/markdown")) {
