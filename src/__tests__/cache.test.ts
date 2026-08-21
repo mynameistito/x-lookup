@@ -13,11 +13,15 @@ import type { CacheStore, RuntimeConfig } from "../lib/cache.js";
 class FakeEdgeCache {
   private readonly store = new Map<string, string>();
 
-  async match(key: string): Promise<Response | undefined> {
+  match(key: string): Promise<Response | undefined> {
     const body = this.store.get(key);
-    return body === undefined
-      ? undefined
-      : new Response(body, { headers: { "Content-Type": "application/json" } });
+    const response =
+      body === undefined
+        ? undefined
+        : new Response(body, {
+            headers: { "Content-Type": "application/json" },
+          });
+    return Promise.resolve(response);
   }
 
   async put(key: string, response: Response): Promise<void> {
@@ -43,16 +47,19 @@ describe(MemoryStore, () => {
     await store.set("gone", "value", -1);
     await expect(store.get("gone")).resolves.toBeUndefined();
     await store.set("alive", "value", 60);
-    expect((await store.get("alive"))?.value).toBe("value");
+    const alive = await store.get("alive");
+    expect(alive?.value).toBe("value");
   });
 
   test("caps entries at 500 with oldest-first eviction", async () => {
     const store = new MemoryStore(new Map());
-    for (let index = 0; index < 505; index += 1) {
-      await store.set(`k${index}`, index, 60);
-    }
+    const seeds = Array.from({ length: 505 }, (_value, index) =>
+      store.set(`k${index}`, index, 60)
+    );
+    await Promise.all(seeds);
     await expect(store.get("k0")).resolves.toBeUndefined();
-    expect((await store.get("k504"))?.value).toBe(504);
+    const newest = await store.get("k504");
+    expect(newest?.value).toBe(504);
   });
 });
 
@@ -82,17 +89,14 @@ describe(CacheApiStore, () => {
     await store.set("same", 1, 60);
     await store.set("same", 2, 60);
     expect(edge.size).toBe(1);
-    expect((await store.get<number>("same"))?.value).toBe(2);
+    const entry = await store.get<number>("same");
+    expect(entry?.value).toBe(2);
   });
 
   test("survives a failing backend without throwing", async () => {
     const broken = {
-      match: async () => {
-        throw new Error("edge down");
-      },
-      put: async () => {
-        throw new Error("edge down");
-      },
+      match: () => Promise.reject(new Error("edge down")),
+      put: () => Promise.reject(new Error("edge down")),
     };
     const store = new CacheApiStore(broken);
     await expect(store.set("k", "v", 60)).resolves.toBeUndefined();
@@ -100,24 +104,20 @@ describe(CacheApiStore, () => {
   });
 });
 
-describe("withCache composition", () => {
-  function layered(): {
-    config: RuntimeConfig;
-    l1: MemoryStore;
-    l2: MemoryStore;
-  } {
-    const l1 = new MemoryStore(new Map());
-    const l2 = new MemoryStore(new Map());
-    const config: RuntimeConfig = { stores: [l1, l2], ttlSeconds: 60 };
-    return { config, l1, l2 };
-  }
+const layered = () => {
+  const l1 = new MemoryStore(new Map());
+  const l2 = new MemoryStore(new Map());
+  const config: RuntimeConfig = { stores: [l1, l2], ttlSeconds: 60 };
+  return { config, l1, l2 };
+};
 
+describe("withCache composition", () => {
   test("misses populate every layer, then hits come from L1", async () => {
     const { config } = layered();
     let calls = 0;
-    const load = async (): Promise<number> => {
+    const load = () => {
       calls += 1;
-      return 42;
+      return Promise.resolve(42);
     };
 
     const first = await withCache("k", false, load, config);
@@ -132,17 +132,23 @@ describe("withCache composition", () => {
     await l2.set("k", "from-l2", 60);
     await expect(l1.get("k")).resolves.toBeUndefined();
 
-    const result = await withCache("k", false, async () => "fresh", config);
+    const result = await withCache(
+      "k",
+      false,
+      () => Promise.resolve("fresh"),
+      config
+    );
     expect(result).toStrictEqual({ status: "hit", value: "from-l2" });
-    expect((await l1.get("k"))?.value).toBe("from-l2");
+    const backfilled = await l1.get("k");
+    expect(backfilled?.value).toBe("from-l2");
   });
 
   test("bypass skips reads and writes entirely", async () => {
     const { config, l1, l2 } = layered();
     let calls = 0;
-    const load = async (): Promise<string> => {
+    const load = () => {
       calls += 1;
-      return "v";
+      return Promise.resolve("v");
     };
 
     const result = await withCache("k", true, load, config);
@@ -155,8 +161,8 @@ describe("withCache composition", () => {
   test("keeps X-Cache semantics stable across store orders", async () => {
     const store: CacheStore = new MemoryStore(new Map());
     const config: RuntimeConfig = { stores: [store], ttlSeconds: 30 };
-    const miss = await withCache("x", false, async () => 1, config);
-    const hit = await withCache("x", false, async () => 2, config);
+    const miss = await withCache("x", false, () => Promise.resolve(1), config);
+    const hit = await withCache("x", false, () => Promise.resolve(2), config);
     expect(miss.status).toBe("miss");
     expect(hit).toStrictEqual({ status: "hit", value: 1 });
   });

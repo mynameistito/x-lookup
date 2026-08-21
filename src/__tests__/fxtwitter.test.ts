@@ -11,17 +11,25 @@ import {
 } from "../lib/fxtwitter.js";
 import type { FxTweet, FxReplyingTo } from "../lib/fxtwitter.js";
 
-function makeTweet(id: string, overrides: Partial<FxTweet> = {}): FxTweet {
-  return { id, text: `tweet ${id}`, ...overrides };
-}
+const makeTweet = (id: string, overrides: Partial<FxTweet> = {}): FxTweet => ({
+  id,
+  text: `tweet ${id}`,
+  ...overrides,
+});
 
-function fxStatusResponse(tweet: FxTweet) {
-  return { code: 200, status: tweet };
-}
+const fxStatusResponse = (tweet: FxTweet) => ({ code: 200, status: tweet });
 
-function fxThreadResponse(thread: FxTweet[]) {
-  return { code: 200, thread };
-}
+const fxThreadResponse = (thread: FxTweet[]) => ({ code: 200, thread });
+
+const replyingToFor = (index: number): FxReplyingTo | undefined => {
+  if (index === 0) {
+    return { status: "other" };
+  }
+  if (index === 1) {
+    return undefined;
+  }
+  return { status: "20" };
+};
 
 describe(getParentStatusId, () => {
   test("returns status from object replying_to", () => {
@@ -58,9 +66,7 @@ describe(getParentStatusId, () => {
     expect(getParentStatusId(makeTweet("100"))).toBeUndefined();
     expect(
       getParentStatusId(
-        makeTweet("200", {
-          replying_to: { screen_name: "alice" } as FxReplyingTo,
-        })
+        makeTweet("200", { replying_to: { screen_name: "alice" } })
       )
     ).toBeUndefined();
     expect(
@@ -72,7 +78,7 @@ describe(getParentStatusId, () => {
 
   test("prefers object replying_to.status and coerces to string", () => {
     const tweet = makeTweet("300", {
-      replying_to: { status: "200" } as FxReplyingTo,
+      replying_to: { status: "200" },
       replying_to_status: ["999"],
     });
     expect(getParentStatusId(tweet)).toBe("200");
@@ -90,7 +96,7 @@ describe(fetchFxConversationChain, () => {
       vi
         .fn()
         .mockResolvedValue(
-          new Response(JSON.stringify(fxStatusResponse(tweet)), { status: 200 })
+          Response.json(fxStatusResponse(tweet), { status: 200 })
         )
     );
 
@@ -100,29 +106,22 @@ describe(fetchFxConversationChain, () => {
   });
 
   test("walks the parent chain root-first across long threads", async () => {
-    const chain: Record<string, FxTweet> = {
-      "100": makeTweet("100"),
-      "200": makeTweet("200", {
-        replying_to: { status: "100" } as FxReplyingTo,
-      }),
-      "300": makeTweet("300", {
-        replying_to: { status: "200" } as FxReplyingTo,
-      }),
-      "400": makeTweet("400", {
-        replying_to: { status: "300" } as FxReplyingTo,
-      }),
-      "500": makeTweet("500", {
-        replying_to: { status: "400" } as FxReplyingTo,
-      }),
-    };
+    const root = makeTweet("100");
+    const chain: [id: string, tweet: FxTweet][] = [
+      ["100", root],
+      ["200", makeTweet("200", { replying_to: { status: "100" } })],
+      ["300", makeTweet("300", { replying_to: { status: "200" } })],
+      ["400", makeTweet("400", { replying_to: { status: "300" } })],
+      ["500", makeTweet("500", { replying_to: { status: "400" } })],
+    ];
 
     vi.stubGlobal(
       "fetch",
       vi.fn().mockImplementation((url: string) => {
-        const id = Object.keys(chain).find((k) => url.includes(`/status/${k}`));
-        const tweet = id ? chain[id] : chain["100"];
+        const entry = chain.find(([id]) => url.includes(`/status/${id}`));
+        const tweet = entry?.[1] ?? root;
         return Promise.resolve(
-          new Response(JSON.stringify(fxStatusResponse(tweet)), { status: 200 })
+          Response.json(fxStatusResponse(tweet), { status: 200 })
         );
       })
     );
@@ -138,21 +137,17 @@ describe(fetchFxConversationChain, () => {
   });
 
   test("stops walking when a cycle is detected", async () => {
-    const tweetA = makeTweet("100", {
-      replying_to: { status: "200" } as FxReplyingTo,
-    });
-    const tweetB = makeTweet("200", {
-      replying_to: { status: "100" } as FxReplyingTo,
-    });
+    const tweetA = makeTweet("100", { replying_to: { status: "200" } });
+    const tweetB = makeTweet("200", { replying_to: { status: "100" } });
     let callCount = 0;
 
     vi.stubGlobal(
       "fetch",
       vi.fn().mockImplementation((url: string) => {
-        callCount++;
+        callCount += 1;
         const tweet = url.includes("/status/100") ? tweetA : tweetB;
         return Promise.resolve(
-          new Response(JSON.stringify(fxStatusResponse(tweet)), { status: 200 })
+          Response.json(fxStatusResponse(tweet), { status: 200 })
         );
       })
     );
@@ -168,19 +163,18 @@ describe(fetchFxConversationChain, () => {
       replying_to: ["alice"],
       replying_to_status: ["100"],
     });
-    const tweets: Record<string, FxTweet> = { "100": root, "200": leaf };
+    const tweetFor = (url: string): FxTweet =>
+      url.includes("/status/200") ? leaf : root;
 
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockImplementation((url: string) => {
-        const id = Object.keys(tweets).find((k) =>
-          url.includes(`/status/${k}`)
-        );
-        const tweet = id ? tweets[id] : root;
-        return Promise.resolve(
-          new Response(JSON.stringify(fxStatusResponse(tweet)), { status: 200 })
-        );
-      })
+      vi
+        .fn()
+        .mockImplementation((url: string) =>
+          Promise.resolve(
+            Response.json(fxStatusResponse(tweetFor(url)), { status: 200 })
+          )
+        )
     );
 
     const result = await fetchFxConversationChain("200");
@@ -195,7 +189,7 @@ describe(fetchFxConversationChain, () => {
             duration: 4.5,
             formats: [
               {
-                bitrate: 832000,
+                bitrate: 832_000,
                 codec: "avc1",
                 container: "video/mp4",
                 url: "https://video/high.mp4",
@@ -218,7 +212,7 @@ describe(fetchFxConversationChain, () => {
       vi
         .fn()
         .mockResolvedValue(
-          new Response(JSON.stringify(fxStatusResponse(tweet)), { status: 200 })
+          Response.json(fxStatusResponse(tweet), { status: 200 })
         )
     );
     const result = await fetchFxConversationChain("20");
@@ -244,7 +238,7 @@ describe(fetchFxFullThread, () => {
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(
-        new Response(JSON.stringify(fxThreadResponse(tweets)), {
+        Response.json(fxThreadResponse(tweets), {
           status: 200,
         })
       )
@@ -261,13 +255,16 @@ describe(fetchFxFullThread, () => {
       vi.fn().mockImplementation((url: string) => {
         if (url.includes("/thread/")) {
           return Promise.resolve(
-            new Response(JSON.stringify({ code: 200, thread: [tweet] }), {
-              status: 200,
-            })
+            Response.json(
+              { code: 200, thread: [tweet] },
+              {
+                status: 200,
+              }
+            )
           );
         }
         return Promise.resolve(
-          new Response(JSON.stringify(fxStatusResponse(tweet)), { status: 200 })
+          Response.json(fxStatusResponse(tweet), { status: 200 })
         );
       })
     );
@@ -279,29 +276,30 @@ describe(fetchFxFullThread, () => {
 
   test("falls back to conversation chain when thread endpoint returns single tweet with parent", async () => {
     const root = makeTweet("100");
-    const leaf = makeTweet("200", {
-      replying_to: { status: "100" } as FxReplyingTo,
-    });
+    const leaf = makeTweet("200", { replying_to: { status: "100" } });
 
     vi.stubGlobal(
       "fetch",
       vi.fn().mockImplementation((url: string) => {
         if (url.includes("/thread/")) {
           return Promise.resolve(
-            new Response(JSON.stringify({ code: 200, thread: [leaf] }), {
-              status: 200,
-            })
+            Response.json(
+              { code: 200, thread: [leaf] },
+              {
+                status: 200,
+              }
+            )
           );
         }
         if (url.includes("/status/100")) {
           return Promise.resolve(
-            new Response(JSON.stringify(fxStatusResponse(root)), {
+            Response.json(fxStatusResponse(root), {
               status: 200,
             })
           );
         }
         return Promise.resolve(
-          new Response(JSON.stringify(fxStatusResponse(leaf)), { status: 200 })
+          Response.json(fxStatusResponse(leaf), { status: 200 })
         );
       })
     );
@@ -317,19 +315,13 @@ describe(fetchFxConversationReplies, () => {
       makeTweet(String(index + 1), {
         created_timestamp: index,
         likes: index,
-        replying_to:
-          index === 0
-            ? { status: "other" }
-            : (index === 1
-              ? undefined
-              : { status: "20" }),
+        replying_to: replyingToFor(index),
       })
     );
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValue(
-        new Response(JSON.stringify({ code: 200, replies }), { status: 200 })
-      );
+    const fetchMock = vi.fn<(url: string) => Promise<Response>>();
+    fetchMock.mockResolvedValue(
+      Response.json({ code: 200, replies }, { status: 200 })
+    );
     vi.stubGlobal("fetch", fetchMock);
 
     const result = await fetchFxConversationReplies("20", "recency", 10);
@@ -359,30 +351,35 @@ describe("upstream refusal gating", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(
-        new Response(JSON.stringify({ code: 404, message: "NOT_FOUND" }), {
-          status: 200,
-        })
+        Response.json(
+          { code: 404, message: "NOT_FOUND" },
+          {
+            status: 200,
+          }
+        )
       )
     );
 
-    const error = await searchFxStatuses("cloudflare", "latest").catch(
-      (error: unknown) => error
-    );
-    expect(error).toBeInstanceOf(ConvertError);
-    expect((error as ConvertError).status).toBe(502);
-    expect((error as ConvertError).code).toBe("search_unavailable");
+    let failure: unknown;
+    try {
+      await searchFxStatuses("cloudflare", "latest");
+    } catch (error) {
+      failure = error;
+    }
+    expect(failure).toBeInstanceOf(ConvertError);
+    expect(failure).toMatchObject({ code: "search_unavailable", status: 502 });
   });
 
   test("search still returns real results when upstream cooperates", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(
-        new Response(
-          JSON.stringify({
+        Response.json(
+          {
             code: 200,
             cursor: { bottom: "next" },
             results: [makeTweet("1")],
-          }),
+          },
           { status: 200 }
         )
       )
@@ -397,18 +394,23 @@ describe("upstream refusal gating", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(
-        new Response(JSON.stringify({ code: 404, message: "NOT_FOUND" }), {
-          status: 200,
-        })
+        Response.json(
+          { code: 404, message: "NOT_FOUND" },
+          {
+            status: 200,
+          }
+        )
       )
     );
 
-    const error = await fetchFxProfile("nobody").catch(
-      (error: unknown) => error
-    );
-    expect(error).toBeInstanceOf(ConvertError);
-    expect((error as ConvertError).status).toBe(404);
-    expect((error as ConvertError).code).toBe("not_found");
+    let failure: unknown;
+    try {
+      await fetchFxProfile("nobody");
+    } catch (error) {
+      failure = error;
+    }
+    expect(failure).toBeInstanceOf(ConvertError);
+    expect(failure).toMatchObject({ code: "not_found", status: 404 });
   });
 
   test("non-JSON upstream bodies surface as 502 instead of crashing", async () => {
@@ -421,11 +423,13 @@ describe("upstream refusal gating", () => {
         )
     );
 
-    const error = await fetchFxProfile("anyone").catch(
-      (error: unknown) => error
-    );
-    expect(error).toBeInstanceOf(ConvertError);
-    expect((error as ConvertError).status).toBe(502);
-    expect((error as ConvertError).code).toBe("fxtwitter_error");
+    let failure: unknown;
+    try {
+      await fetchFxProfile("anyone");
+    } catch (error) {
+      failure = error;
+    }
+    expect(failure).toBeInstanceOf(ConvertError);
+    expect(failure).toMatchObject({ code: "fxtwitter_error", status: 502 });
   });
 });

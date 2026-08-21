@@ -7,8 +7,8 @@ describe("syndication video mapping", () => {
 
   test("retains dimensions, duration, best direct URL, and every MP4 variant", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response(
-        JSON.stringify({
+      Response.json(
+        {
           id_str: "123",
           mediaDetails: [
             {
@@ -19,18 +19,18 @@ describe("syndication video mapping", () => {
                 duration_millis: 4500,
                 variants: [
                   {
+                    bitrate: 256_000,
+                    content_type: "video/mp4",
                     url: "https://video/low.mp4",
-                    content_type: "video/mp4",
-                    bitrate: 256000,
                   },
                   {
+                    bitrate: 832_000,
+                    content_type: "video/mp4",
                     url: "https://video/high.mp4",
-                    content_type: "video/mp4",
-                    bitrate: 832000,
                   },
                   {
-                    url: "https://video/stream.m3u8",
                     content_type: "application/x-mpegURL",
+                    url: "https://video/stream.m3u8",
                   },
                 ],
               },
@@ -38,7 +38,7 @@ describe("syndication video mapping", () => {
           ],
           text: "video",
           user: { screen_name: "alice" },
-        }),
+        },
         { status: 200 }
       )
     );
@@ -59,8 +59,8 @@ describe("syndication video mapping", () => {
 
   test("uses actual quoted_tweet identity and does not duplicate overlapping media", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response(
-        JSON.stringify({
+      Response.json(
+        {
           id_str: "123",
           mediaDetails: [
             { media_url_https: "https://img/one.jpg", type: "photo" },
@@ -73,7 +73,7 @@ describe("syndication video mapping", () => {
           },
           text: "container",
           user: { screen_name: "alice" },
-        }),
+        },
         { status: 200 }
       )
     );
@@ -87,13 +87,13 @@ describe("syndication video mapping", () => {
 
   test("leaves a quote source absent when its own identity is missing", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response(
-        JSON.stringify({
+      Response.json(
+        {
           id_str: "123",
           quoted_tweet: { text: "anonymous quote" },
           text: "container",
           user: { screen_name: "alice" },
-        }),
+        },
         { status: 200 }
       )
     );
@@ -103,8 +103,8 @@ describe("syndication video mapping", () => {
 
   test("deduplicates overlapping fallback media projections", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response(
-        JSON.stringify({
+      Response.json(
+        {
           entities: {
             media: [
               { media_url_https: "https://img/one.jpg", type: "photo" },
@@ -115,7 +115,7 @@ describe("syndication video mapping", () => {
           photos: [{ media_url_https: "https://img/one.jpg", type: "photo" }],
           text: "photos",
           user: { screen_name: "alice" },
-        }),
+        },
         { status: 200 }
       )
     );
@@ -129,8 +129,8 @@ describe("syndication video mapping", () => {
 
   test("maps user fields and reports truthful failures", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response(
-        JSON.stringify({
+      Response.json(
+        {
           id_str: "123",
           text: "hi",
           user: {
@@ -152,7 +152,7 @@ describe("syndication video mapping", () => {
             screen_name: "alice",
             statuses_count: 30,
           },
-        }),
+        },
         { status: 200 }
       )
     );

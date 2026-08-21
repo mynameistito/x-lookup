@@ -15,18 +15,30 @@ export interface OriginRequest {
   protocol?: string;
 }
 
-function headerValue(value: string | string[] | undefined): string | undefined {
-  return Array.isArray(value) ? value[0] : value;
+/** A header bag that tolerates later mutation (e.g. conditional Cache-Control). */
+export interface HeaderMap {
+  [header: string]: string;
 }
 
-function hostnameOf(host: string | undefined): string | undefined {
+/** The common shape every endpoint handler returns before transport. */
+export interface HttpPayload {
+  status: number;
+  headers: Record<string, string>;
+  body: string;
+}
+
+const headerValue = (
+  value: string | string[] | undefined
+): string | undefined => (Array.isArray(value) ? value[0] : value);
+
+const hostnameOf = (host: string | undefined): string | undefined => {
   if (!host) {
     return undefined;
   }
-  return host.split(",")[0]?.trim().replace(/:\d+$/, "") || undefined;
-}
+  return host.split(",")[0]?.trim().replace(/:\d+$/u, "") || undefined;
+};
 
-function requestProtocol(req: OriginRequest): "http" | "https" {
+const requestProtocol = (req: OriginRequest): "http" | "https" => {
   const forwarded = headerValue(req.headers["x-forwarded-proto"])
     ?.split(",")[0]
     ?.trim()
@@ -38,37 +50,37 @@ function requestProtocol(req: OriginRequest): "http" | "https" {
     return "http";
   }
   return "https";
-}
+};
 
 /** Resolve a safe origin for absolute links; only known hosts are honored. */
-export function requestOrigin(
+export const requestOrigin = (
   req: OriginRequest,
   fallback = DEFAULT_ORIGIN
-): string {
+): string => {
   const hostHeader = headerValue(req.headers.host);
   const hostname = hostnameOf(hostHeader);
   if (hostname && KNOWN_HOSTS.has(hostname)) {
     return `${requestProtocol(req)}://${hostHeader}`;
   }
   return fallback;
-}
+};
 
-export function wantsJson(
+export const wantsJson = (
   format: string | null | undefined,
   accept: string
-): boolean {
+): boolean => {
   if (format) {
     return format === "json";
   }
   return accept.includes("application/json");
-}
+};
 
-export function wantsMarkdown(
+export const wantsMarkdown = (
   format: string | null | undefined,
   accept: string
-): boolean {
+): boolean => {
   if (format) {
     return format === "markdown" || format === "obsidian";
   }
   return accept.includes("text/markdown");
-}
+};

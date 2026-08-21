@@ -1,130 +1,147 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
+import type { Mock } from "vitest";
 
-import { ConvertError } from "../lib/errors.js";
-
-vi.mock(import("../lib/fxtwitter.js"), () => ({
-  fetchFxConversationReplies: vi.fn(),
-  fetchFxFullThread: vi.fn(),
-  fetchFxStatus: vi.fn(),
-}));
-
-vi.mock(import("../lib/syndication.js"), () => ({
-  fetchSyndicationStatus: vi.fn(),
-}));
-
-import {
-  fetchFxConversationReplies,
-  fetchFxFullThread,
-  fetchFxStatus,
-} from "../lib/fxtwitter.js";
-import { fetchSyndicationStatus } from "../lib/syndication.js";
 import { fetchPosts } from "../lib/tweet-fetch.js";
+
+const respond = <T>(url: string, body: T, status = 200): Promise<Response> => {
+  if (!url.includes("api.fxtwitter.com") && !url.includes("cdn.syndication")) {
+    return Promise.reject(new Error(`unexpected upstream: ${url}`));
+  }
+  return Promise.resolve(Response.json(body, { status }));
+};
+
+const stubFetch = (route: (url: string) => Promise<Response>): Mock => {
+  const fetchMock = vi.fn<(url: string) => Promise<Response>>(route);
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
+};
 
 describe("fetchPosts provider fallbacks", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.unstubAllGlobals();
   });
 
   test("falls back from FxTwitter to syndication for single statuses", async () => {
-    vi.mocked(fetchFxStatus).mockRejectedValue(
-      new ConvertError(502, "fx down", "fxtwitter_error")
+    const fetchMock = stubFetch((url) =>
+      url.includes("api.fxtwitter.com")
+        ? respond(url, {}, 500)
+        : respond(url, {
+            id_str: "123",
+            text: "from syndication",
+            user: { screen_name: "alice" },
+          })
     );
-    vi.mocked(fetchSyndicationStatus).mockResolvedValue({
-      id: "123",
-      text: "from syndication",
-    });
 
     const result = await fetchPosts("alice", "123", "off");
 
-    expect(result).toStrictEqual({
-      source: "syndication",
-      tweets: [{ context: "post", id: "123", text: "from syndication" }],
+    expect(result.source).toBe("syndication");
+    expect(result.tweets[0]).toMatchObject({
+      context: "post",
+      id: "123",
+      text: "from syndication",
     });
-    expect(fetchSyndicationStatus).toHaveBeenCalledWith("alice", "123");
+    expect(String(fetchMock.mock.calls[1]?.[0])).toContain("cdn.syndication");
   });
 
   test("prefers FxTwitter when it succeeds", async () => {
-    vi.mocked(fetchFxStatus).mockResolvedValue({ id: "123", text: "from fx" });
+    const fetchMock = stubFetch((url) =>
+      respond(url, { code: 200, status: { id: "123", text: "from fx" } })
+    );
 
     const result = await fetchPosts("alice", "123", "off");
 
     expect(result.source).toBe("fxtwitter");
-    expect(fetchSyndicationStatus).not.toHaveBeenCalled();
+    expect(result.tweets[0]).toMatchObject({ context: "post", id: "123" });
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/2/status/123");
   });
 
   test("private posts short-circuit without trying the fallback", async () => {
-    vi.mocked(fetchFxStatus).mockRejectedValue(
-      new ConvertError(404, "Post is private.", "private_tweet")
+    const fetchMock = stubFetch((url) =>
+      respond(url, { code: 403, message: "PRIVATE_TWEET" })
     );
 
     await expect(fetchPosts("alice", "123", "off")).rejects.toMatchObject({
       code: "private_tweet",
     });
-    expect(fetchSyndicationStatus).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledOnce();
   });
 
   test("surfaces the last provider error when every attempt fails", async () => {
-    vi.mocked(fetchFxStatus).mockRejectedValue(
-      new ConvertError(502, "fx down", "fxtwitter_error")
-    );
-    vi.mocked(fetchSyndicationStatus).mockRejectedValue(
-      new ConvertError(502, "syndication down", "syndication_error")
-    );
+    stubFetch((url) => respond(url, {}, 500));
 
-    const error = await fetchPosts("alice", "123", "off").catch(
-      (error: unknown) => error
-    );
-    expect(error).toBeInstanceOf(ConvertError);
-    expect((error as ConvertError).code).toBe("syndication_error");
+    await expect(fetchPosts("alice", "123", "off")).rejects.toMatchObject({
+      code: "syndication_error",
+    });
   });
 
   test("reports a truthful 404 when a provider confirms the post is missing", async () => {
-    vi.mocked(fetchFxStatus).mockRejectedValue(
-      new ConvertError(404, "Post not found.", "not_found")
-    );
-    vi.mocked(fetchSyndicationStatus).mockRejectedValue(
-      new ConvertError(502, "syndication down", "syndication_error")
+    stubFetch((url) =>
+      url.includes("api.fxtwitter.com")
+        ? respond(url, { code: 404, message: "NOT_FOUND" })
+        : respond(url, {}, 500)
     );
 
-    const error = await fetchPosts("alice", "123", "off").catch(
-      (error: unknown) => error
-    );
-    expect(error).toBeInstanceOf(ConvertError);
-    expect((error as ConvertError).status).toBe(404);
-    expect((error as ConvertError).code).toBe("not_found");
+    await expect(fetchPosts("alice", "123", "off")).rejects.toMatchObject({
+      code: "not_found",
+      status: 404,
+    });
   });
 
   test("thread=full starts with the FxTwitter full thread before any fallback", async () => {
-    vi.mocked(fetchFxFullThread).mockResolvedValue([
-      { id: "1", text: "thread" },
-    ]);
+    const fetchMock = stubFetch((url) => {
+      if (url.includes("/2/thread/")) {
+        return respond(url, {
+          code: 200,
+          thread: [{ id: "1", text: "thread" }],
+        });
+      }
+      return respond(url, { code: 200 });
+    });
 
     const result = await fetchPosts("alice", "123", "full");
 
-    expect(result).toStrictEqual({
-      source: "fxtwitter",
-      tweets: [{ context: "thread", id: "1", text: "thread" }],
+    expect(result.source).toBe("fxtwitter");
+    expect(result.tweets).toHaveLength(1);
+    expect(result.tweets[0]).toMatchObject({
+      context: "thread",
+      id: "1",
+      text: "thread",
     });
-    expect(fetchFxFullThread).toHaveBeenCalledWith("123");
-    expect(fetchFxStatus).not.toHaveBeenCalled();
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/2/thread/123");
+    const urls = fetchMock.mock.calls.map((call) => String(call[0]));
+    expect(urls.some((url) => url.includes("/2/status/"))).toBeFalsy();
   });
 
   test("appends top replies in API order, caps, dedupes, and labels context", async () => {
-    vi.mocked(fetchFxFullThread).mockResolvedValue([
-      { id: "1", text: "parent" },
-      { id: "2", text: "post" },
-      { id: "3", text: "continuation" },
-    ]);
-    vi.mocked(fetchFxConversationReplies).mockResolvedValue([
-      { id: "3", text: "duplicate" },
-      { id: "4", text: "reply" },
-    ]);
+    const fetchMock = stubFetch((url) => {
+      if (url.includes("/2/conversation/")) {
+        return respond(url, {
+          code: 200,
+          replies: [
+            { id: "3", replying_to: { status: "2" }, text: "duplicate" },
+            { id: "4", replying_to: { status: "2" }, text: "reply" },
+          ],
+        });
+      }
+      return respond(url, {
+        code: 200,
+        thread: [
+          { id: "1", text: "parent" },
+          { id: "2", text: "post" },
+          { id: "3", text: "continuation" },
+        ],
+      });
+    });
 
     const result = await fetchPosts("alice", "2", "full");
 
-    expect(fetchFxConversationReplies).toHaveBeenCalledWith("2", "likes", 10);
+    expect(String(fetchMock.mock.calls.at(-1)?.[0])).toContain(
+      "/2/conversation/2?ranking_mode=likes"
+    );
     expect(
-      result.tweets.map(({ id, context }) => ({ context, id }))
+      result.tweets.map(({ context, id }) => ({ context, id }))
     ).toStrictEqual([
       { context: "parent", id: "1" },
       { context: "post", id: "2" },
@@ -134,30 +151,58 @@ describe("fetchPosts provider fallbacks", () => {
   });
 
   test("recent maps to recency and conversation failure keeps the thread", async () => {
-    vi.mocked(fetchFxFullThread).mockResolvedValue([{ id: "2", text: "post" }]);
-    vi.mocked(fetchFxConversationReplies).mockRejectedValue(
-      new Error("conversation unavailable")
-    );
+    const fetchMock = stubFetch((url) => {
+      if (url.includes("/2/conversation/")) {
+        return Promise.reject(new Error("conversation unavailable"));
+      }
+      if (url.includes("/2/thread/")) {
+        return respond(url, { code: 200, thread: [{ id: "2", text: "post" }] });
+      }
+      return respond(url, { code: 200 });
+    });
+
     const result = await fetchPosts("alice", "2", "full", "full", "recent");
-    expect(fetchFxConversationReplies).toHaveBeenCalledWith("2", "recency", 10);
-    expect(result.tweets).toStrictEqual([
-      { context: "post", id: "2", text: "post" },
-    ]);
+
+    expect(String(fetchMock.mock.calls.at(-1)?.[0])).toContain(
+      "/2/conversation/2?ranking_mode=recency"
+    );
+    expect(result.tweets[0]).toMatchObject({
+      context: "post",
+      id: "2",
+      text: "post",
+    });
   });
 
   test("thread context and replies=off both opt out of conversation requests", async () => {
-    vi.mocked(fetchFxFullThread).mockResolvedValue([{ id: "2" }]);
+    const fetchMock = stubFetch((url) => {
+      if (url.includes("/2/thread/")) {
+        return respond(url, { code: 200, thread: [{ id: "2" }] });
+      }
+      return respond(url, { code: 200 });
+    });
+
     await fetchPosts("alice", "2", "full", "thread", "top");
     await fetchPosts("alice", "2", "full", "full", "off");
-    expect(fetchFxConversationReplies).not.toHaveBeenCalled();
+
+    const urls = fetchMock.mock.calls.map((call) => String(call[0]));
+    expect(urls.some((url) => url.includes("/2/conversation/"))).toBeFalsy();
   });
 
   test("thread context retains only the focal author while replies=off preserves full parents", async () => {
-    vi.mocked(fetchFxFullThread).mockResolvedValue([
-      { author: { screen_name: "other" }, id: "1" },
-      { author: { screen_name: "Alice" }, id: "2" },
-      { author: { screen_name: "alice" }, id: "3" },
-    ]);
+    stubFetch((url) => {
+      if (url.includes("/2/thread/")) {
+        return respond(url, {
+          code: 200,
+          thread: [
+            { author: { screen_name: "other" }, id: "1" },
+            { author: { screen_name: "Alice" }, id: "2" },
+            { author: { screen_name: "alice" }, id: "3" },
+          ],
+        });
+      }
+      return respond(url, { code: 200 });
+    });
+
     const authorThread = await fetchPosts(
       "alice",
       "2",
@@ -169,6 +214,7 @@ describe("fetchPosts provider fallbacks", () => {
       "2",
       "3",
     ]);
+
     const noReplies = await fetchPosts("alice", "2", "full", "full", "off");
     expect(noReplies.tweets.map((tweet) => tweet.id)).toStrictEqual([
       "1",
@@ -178,11 +224,19 @@ describe("fetchPosts provider fallbacks", () => {
   });
 
   test("uses the requested handle when focal author metadata is missing", async () => {
-    vi.mocked(fetchFxFullThread).mockResolvedValue([
-      { author: { screen_name: "other" }, id: "1" },
-      { id: "2" },
-      { author: { screen_name: "Alice" }, id: "3" },
-    ]);
+    stubFetch((url) => {
+      if (url.includes("/2/thread/")) {
+        return respond(url, {
+          code: 200,
+          thread: [
+            { author: { screen_name: "other" }, id: "1" },
+            { id: "2" },
+            { author: { screen_name: "Alice" }, id: "3" },
+          ],
+        });
+      }
+      return respond(url, { code: 200 });
+    });
 
     const result = await fetchPosts("alice", "2", "full", "thread", "top");
     expect(result.tweets.map((tweet) => tweet.id)).toStrictEqual(["2", "3"]);

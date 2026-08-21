@@ -2,6 +2,7 @@ import { ConvertError } from "./errors.js";
 
 const FX_BASE = "https://api.fxtwitter.com";
 const UA = "x-lookup/1.0";
+const MAX_CHAIN_DEPTH = 100;
 
 export interface FxAuthor {
   id?: string;
@@ -103,6 +104,9 @@ export type FxReplyingTo =
     }
   | null;
 
+/** How a post relates to the status requested by the caller. */
+export type TweetContext = "parent" | "post" | "thread" | "reply";
+
 export interface FxTweet {
   url?: string;
   id?: string;
@@ -128,8 +132,7 @@ export interface FxTweet {
   article?: FxArticle;
   poll?: FxPoll;
   community_note?: unknown;
-  /** How this post relates to the status requested by the caller. */
-  context?: "parent" | "post" | "thread" | "reply";
+  context?: TweetContext;
 }
 
 interface FxApiResponse {
@@ -157,33 +160,42 @@ export interface FxListResponse<T> {
   cursor?: FxCursor;
 }
 
-function normalizeMediaItem(item: FxMediaItem): FxMediaItem {
+const CONTAINER_CONTENT_TYPES = new Map([
+  ["m3u8", "application/vnd.apple.mpegurl"],
+  ["mp4", "video/mp4"],
+  ["webm", "video/webm"],
+]);
+
+const containerContentType = (container?: string): string | undefined => {
+  if (!container) {
+    return undefined;
+  }
+  if (container.includes("/")) {
+    return container;
+  }
+  return CONTAINER_CONTENT_TYPES.get(container);
+};
+
+const durationToMs = (duration: number | undefined): number | undefined =>
+  duration === undefined ? undefined : duration * 1000;
+
+const normalizeMediaItem = (item: FxMediaItem): FxMediaItem => {
   const formatVariants = item.formats
     ?.filter((format) => format.url)
     .map((format) => ({
       bitrate: format.bitrate,
-      content_type: format.container?.includes("/")
-        ? format.container
-        : format.container === "mp4"
-          ? "video/mp4"
-          : format.container === "webm"
-            ? "video/webm"
-            : format.container === "m3u8"
-              ? "application/vnd.apple.mpegurl"
-              : undefined,
+      content_type: containerContentType(format.container),
       url: format.url,
     }));
   return {
     ...item,
     alt: item.alt ?? item.altText,
-    duration_ms:
-      item.duration_ms ??
-      (item.duration == null ? undefined : item.duration * 1000),
+    duration_ms: item.duration_ms ?? durationToMs(item.duration),
     variants: item.variants ?? formatVariants,
   };
-}
+};
 
-function normalizeMedia(media?: FxMedia): FxMedia | undefined {
+const normalizeMedia = (media?: FxMedia): FxMedia | undefined => {
   if (!media || Object.keys(media).length === 0) {
     return undefined;
   }
@@ -198,23 +210,21 @@ function normalizeMedia(media?: FxMedia): FxMedia | undefined {
     photos: map(media.photos),
     videos: map(media.videos),
   };
-}
+};
 
-function normalizeTweet(raw: FxTweet): FxTweet {
-  return {
-    ...raw,
-    media: normalizeMedia(raw.media),
-    quote: raw.quote ? normalizeTweet(raw.quote) : undefined,
-    retweets: raw.retweets ?? raw.reposts,
-  };
-}
+const normalizeTweet = (raw: FxTweet): FxTweet => ({
+  ...raw,
+  media: normalizeMedia(raw.media),
+  quote: raw.quote ? normalizeTweet(raw.quote) : undefined,
+  retweets: raw.retweets ?? raw.reposts,
+});
 
-function pickTweet(data: FxApiResponse): FxTweet | undefined {
+const pickTweet = (data: FxApiResponse): FxTweet | undefined => {
   const raw = data.status ?? data.tweet;
   return raw ? normalizeTweet(raw) : undefined;
-}
+};
 
-async function fxFetchJson<T>(path: string): Promise<T> {
+const fxFetchJson = async <T>(path: string): Promise<T> => {
   let response: Response;
   try {
     response = await fetch(`${FX_BASE}/${path}`, {
@@ -230,6 +240,8 @@ async function fxFetchJson<T>(path: string): Promise<T> {
 
   let data: FxApiResponse & T;
   try {
+    // SAFETY: FxTwitter API paths answer with a JSON envelope; non-JSON
+    // bodies are rejected by the parse guard around this assignment.
     data = (await response.json()) as FxApiResponse & T;
   } catch {
     throw new ConvertError(
@@ -259,16 +271,17 @@ async function fxFetchJson<T>(path: string): Promise<T> {
     );
   }
 
+  // SAFETY: the envelope was parsed as FxApiResponse & T; T is the payload
+  // carried by that same envelope object.
   return data as T;
-}
+};
 
-async function fxFetch(path: string): Promise<FxApiResponse> {
-  return fxFetchJson<FxApiResponse>(path);
-}
+const fxFetch = (path: string): Promise<FxApiResponse> =>
+  fxFetchJson<FxApiResponse>(path);
 
-function encodeQuery(
+const encodeQuery = (
   params: Record<string, string | number | undefined>
-): string {
+): string => {
   const query = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
     if (value !== undefined && value !== "") {
@@ -276,9 +289,9 @@ function encodeQuery(
     }
   }
   return query.toString();
-}
+};
 
-export async function fetchFxProfile(handle: string): Promise<FxAuthor> {
+export const fetchFxProfile = async (handle: string): Promise<FxAuthor> => {
   const data = await fxFetchJson<{ user?: FxAuthor }>(
     `2/profile/${encodeURIComponent(handle)}`
   );
@@ -286,13 +299,13 @@ export async function fetchFxProfile(handle: string): Promise<FxAuthor> {
     throw new ConvertError(404, "Profile not found.", "not_found");
   }
   return data.user;
-}
+};
 
-export async function fetchFxProfileStatuses(
+export const fetchFxProfileStatuses = async (
   handle: string,
   cursor?: string,
   count = 20
-): Promise<FxListResponse<FxTweet>> {
+): Promise<FxListResponse<FxTweet>> => {
   const query = encodeQuery({ count, cursor, with_replies: "false" });
   const data = await fxFetchJson<Partial<FxListResponse<FxTweet>>>(
     `2/profile/${encodeURIComponent(handle)}/statuses?${query}`
@@ -301,19 +314,19 @@ export async function fetchFxProfileStatuses(
     cursor: data.cursor,
     results: (data.results ?? []).map(normalizeTweet),
   };
-}
+};
 
 /**
  * Search via FxTwitter. FxTwitter refuses some datacenter egress IPs with a
  * NOT_FOUND body; that must surface as 502 `search_unavailable`, never a fake
  * "post not found".
  */
-export async function searchFxStatuses(
+export const searchFxStatuses = async (
   queryText: string,
   feed: string,
   cursor?: string,
   count = 20
-): Promise<FxListResponse<FxTweet>> {
+): Promise<FxListResponse<FxTweet>> => {
   const query = encodeQuery({ count, cursor, feed, q: queryText });
   try {
     const data = await fxFetchJson<Partial<FxListResponse<FxTweet>>>(
@@ -333,31 +346,31 @@ export async function searchFxStatuses(
     }
     throw error;
   }
-}
+};
 
-export async function fetchFxConnections(
+export const fetchFxConnections = async (
   handle: string,
   relation: "followers" | "following",
   cursor?: string,
   count = 20
-): Promise<FxListResponse<FxAuthor>> {
+): Promise<FxListResponse<FxAuthor>> => {
   const query = encodeQuery({ count, cursor });
   const data = await fxFetchJson<Partial<FxListResponse<FxAuthor>>>(
     `2/profile/${encodeURIComponent(handle)}/${relation}?${query}`
   );
   return { cursor: data.cursor, results: data.results ?? [] };
-}
+};
 
-export async function fetchFxStatus(id: string): Promise<FxTweet> {
+export const fetchFxStatus = async (id: string): Promise<FxTweet> => {
   const data = await fxFetch(`2/status/${id}`);
   const tweet = pickTweet(data);
   if (!tweet) {
     throw new ConvertError(404, "Post not found.", "not_found");
   }
   return tweet;
-}
+};
 
-export function getParentStatusId(tweet: FxTweet): string | undefined {
+export const getParentStatusId = (tweet: FxTweet): string | undefined => {
   const replyingTo = tweet.replying_to;
   if (replyingTo && !Array.isArray(replyingTo)) {
     const { status } = replyingTo;
@@ -372,88 +385,87 @@ export function getParentStatusId(tweet: FxTweet): string | undefined {
   }
 
   return undefined;
-}
+};
+
+const walkParentChain = async (
+  currentId: string,
+  walked: FxTweet[],
+  seen: Set<string>
+): Promise<FxTweet[]> => {
+  if (seen.has(currentId) || walked.length >= MAX_CHAIN_DEPTH) {
+    return walked.toReversed();
+  }
+  seen.add(currentId);
+  try {
+    const tweet = await fetchFxStatus(currentId);
+    walked.push(tweet);
+    const parentId = getParentStatusId(tweet);
+    return parentId
+      ? walkParentChain(parentId, walked, seen)
+      : walked.toReversed();
+  } catch (error) {
+    if (error instanceof ConvertError && error.code === "private_tweet") {
+      throw error;
+    }
+    return walked.toReversed();
+  }
+};
 
 /** Walk parent replies from root through the given status id (inclusive). */
-export async function fetchFxConversationChain(id: string): Promise<FxTweet[]> {
-  const walked: FxTweet[] = [];
-  const seen = new Set<string>();
-  let currentId: string | undefined = id;
+export const fetchFxConversationChain = (id: string): Promise<FxTweet[]> =>
+  walkParentChain(id, [], new Set());
 
-  while (currentId && walked.length < 100) {
-    if (seen.has(currentId)) {
-      break;
-    }
-    seen.add(currentId);
-
-    try {
-      const tweet = await fetchFxStatus(currentId);
-      walked.push(tweet);
-      currentId = getParentStatusId(tweet);
-    } catch (error) {
-      if (error instanceof ConvertError && error.code === "private_tweet") {
-        throw error;
-      }
-      break;
-    }
-  }
-
-  walked.reverse();
-  return walked;
-}
-
-export async function fetchFxThread(id: string): Promise<FxTweet[]> {
+export const fetchFxThread = async (id: string): Promise<FxTweet[]> => {
   const data = await fxFetch(`2/thread/${id}`);
   if (data.thread?.length) {
     return data.thread.map(normalizeTweet);
   }
   return [await fetchFxStatus(id)];
-}
+};
 
 export type FxReplyRanking = "likes" | "recency";
 
+const tweetTimestamp = (tweet: FxTweet): number => {
+  const { created_timestamp: timestamp } = tweet;
+  return timestamp === undefined
+    ? Date.parse(tweet.created_at ?? "") || 0
+    : timestamp;
+};
+
 /** Fetch ranked replies from FxTwitter's v2 conversation endpoint. */
-export async function fetchFxConversationReplies(
+export const fetchFxConversationReplies = async (
   id: string,
   rankingMode: FxReplyRanking = "likes",
   limit = 10
-): Promise<FxTweet[]> {
+): Promise<FxTweet[]> => {
   const query = encodeQuery({ ranking_mode: rankingMode });
   const data = await fxFetchJson<FxConversationResponse>(
     `2/conversation/${encodeURIComponent(id)}?${query}`
   );
-  const results = (
-    data.replies ??
-    data.results ??
-    data.tweets ??
-    data.conversation ??
-    []
-  )
+  const primary = data.replies ?? data.results;
+  const replies = primary ?? data.tweets ?? data.conversation;
+  const ranked = (replies ?? [])
     .map(normalizeTweet)
-    .filter((tweet) => getParentStatusId(tweet) === id);
-  const timestamp = (tweet: FxTweet) =>
-    tweet.created_timestamp == null
-      ? Date.parse(tweet.created_at ?? "") || 0
-      : tweet.created_timestamp;
-  results.sort((a, b) => {
-    const primary =
-      rankingMode === "likes"
-        ? (b.likes ?? 0) - (a.likes ?? 0)
-        : timestamp(b) - timestamp(a);
-    return (
-      primary ||
-      timestamp(b) - timestamp(a) ||
-      String(a.id ?? "").localeCompare(String(b.id ?? ""))
-    );
-  });
-  return results.slice(0, limit);
-}
+    .filter((tweet) => getParentStatusId(tweet) === id)
+    .toSorted((a, b) => {
+      const byRanking =
+        rankingMode === "likes"
+          ? (b.likes ?? 0) - (a.likes ?? 0)
+          : tweetTimestamp(b) - tweetTimestamp(a);
+      return (
+        byRanking ||
+        tweetTimestamp(b) - tweetTimestamp(a) ||
+        String(a.id ?? "").localeCompare(String(b.id ?? ""))
+      );
+    });
+  return ranked.slice(0, limit);
+};
 
 /**
  * Full thread: FxTwitter thread endpoint (author threads + reply chains), with a
  * parent-walk fallback when the endpoint returns only the requested status.
  */
-export async function fetchFxFullThread(id: string): Promise<FxTweet[]> {
+export const fetchFxFullThread = async (id: string): Promise<FxTweet[]> => {
   const fromThread = await fetchFxThread(id);
   if (fromThread.length > 1) {
     return fromThread;
@@ -466,4 +478,4 @@ export async function fetchFxFullThread(id: string): Promise<FxTweet[]> {
 
   const chain = await fetchFxConversationChain(id);
   return chain.length > 0 ? chain : [tweet];
-}
+};

@@ -6,14 +6,16 @@ import {
 } from "./cache.js";
 import type { CacheStatus, RuntimeConfig } from "./cache.js";
 import { ConvertError } from "./errors.js";
+import type { FxTweet } from "./fxtwitter.js";
+import type { HeaderMap, HttpPayload } from "./http.js";
 import { renderThreadMarkdown } from "./markdown.js";
 import type { UserinfoLevel } from "./markdown.js";
 import { fetchPosts } from "./tweet-fetch.js";
 import type { ContextMode, FetchSource, RepliesMode } from "./tweet-fetch.js";
 
-export type OutputFormat = "markdown" | "obsidian" | "json";
+export { ConvertError } from "./errors.js";
 
-export { ConvertError };
+export type OutputFormat = "markdown" | "obsidian" | "json";
 
 export interface ConvertInput {
   url?: string | null;
@@ -40,7 +42,11 @@ export interface ConvertSuccess {
   compact: boolean;
 }
 
-import type { FxTweet } from "./fxtwitter.js";
+export interface StatusTarget {
+  canonicalUrl: string;
+  handle: string;
+  id: string;
+}
 
 const ALLOWED_HOSTS = new Set([
   "x.com",
@@ -50,21 +56,14 @@ const ALLOWED_HOSTS = new Set([
   "x-lookup.mynameistito.com",
 ]);
 const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1"]);
-const STATUS_PATH = /^\/([^/?#]+)\/status\/(\d+)\/?$/;
+const STATUS_PATH = /^\/(?<handle>[^/?#]+)\/status\/(?<id>\d+)\/?$/u;
 
-function hostAllowed(host: string): boolean {
-  return (
-    ALLOWED_HOSTS.has(host) ||
-    LOCAL_HOSTS.has(host) ||
-    host.endsWith(".workers.dev")
-  );
-}
+const hostAllowed = (host: string): boolean =>
+  ALLOWED_HOSTS.has(host) ||
+  LOCAL_HOSTS.has(host) ||
+  host.endsWith(".workers.dev");
 
-export function parseStatusUrl(raw: string): {
-  handle: string;
-  id: string;
-  canonicalUrl: string;
-} {
+export const parseStatusUrl = (raw: string): StatusTarget => {
   let parsed: URL;
   try {
     parsed = new URL(raw.trim());
@@ -76,7 +75,7 @@ export function parseStatusUrl(raw: string): {
     );
   }
 
-  const host = parsed.hostname.replace(/^www\./, "");
+  const host = parsed.hostname.replace(/^www\./u, "");
 
   if (!hostAllowed(host)) {
     throw new ConvertError(
@@ -95,27 +94,22 @@ export function parseStatusUrl(raw: string): {
     );
   }
 
-  const handle = match[1];
-  const id = match[2];
+  const { handle = "", id = "" } = match.groups ?? {};
   return {
     canonicalUrl: `https://x.com/${handle}/status/${id}`,
     handle,
     id,
   };
-}
+};
 
-export function resolveTarget(input: ConvertInput): {
-  canonicalUrl: string;
-  handle: string;
-  id: string;
-} {
+export const resolveTarget = (input: ConvertInput): StatusTarget => {
   if (input.url) {
     return parseStatusUrl(input.url);
   }
 
   if (input.handle && input.id) {
-    const handle = input.handle.replace(/^@/, "");
-    const id = input.id.replaceAll(/\D/g, "");
+    const handle = input.handle.replace(/^@/u, "");
+    const id = input.id.replaceAll(/\D/gu, "");
     if (!handle || !id) {
       throw new ConvertError(
         400,
@@ -135,9 +129,9 @@ export function resolveTarget(input: ConvertInput): {
     "Missing required `url` query parameter.",
     "missing_url"
   );
-}
+};
 
-function parseFormat(raw: string | null | undefined): OutputFormat {
+const parseFormat = (raw?: string | null): OutputFormat => {
   if (!raw || raw === "markdown") {
     return "markdown";
   }
@@ -152,11 +146,11 @@ function parseFormat(raw: string | null | undefined): OutputFormat {
     "`format` must be `markdown`, `obsidian`, or `json`.",
     "invalid_format"
   );
-}
+};
 
 const DEFAULT_THREAD = "full";
 
-function canonicalThreadCacheValue(raw: string | null | undefined): string {
+const canonicalThreadCacheValue = (raw?: string | null): string => {
   if (raw === "off") {
     return "off";
   }
@@ -164,12 +158,14 @@ function canonicalThreadCacheValue(raw: string | null | undefined): string {
     return DEFAULT_THREAD;
   }
   return raw;
+};
+
+interface ThreadSelection {
+  limit: number;
+  mode: "off" | "full";
 }
 
-function parseThread(raw: string | null | undefined): {
-  mode: "off" | "full";
-  limit: number;
-} {
+const parseThread = (raw: string | null | undefined): ThreadSelection => {
   if (raw === "off") {
     return { limit: 1, mode: "off" };
   }
@@ -178,9 +174,9 @@ function parseThread(raw: string | null | undefined): {
     return { limit: 100, mode: "full" };
   }
 
-  const n = Number.parseInt(raw, 10);
-  if (Number.isFinite(n) && n >= 2 && n <= 100) {
-    return { limit: n, mode: "full" };
+  const parsed = Math.trunc(Number(raw));
+  if (Number.isFinite(parsed) && parsed >= 2 && parsed <= 100) {
+    return { limit: parsed, mode: "full" };
   }
 
   throw new ConvertError(
@@ -188,9 +184,9 @@ function parseThread(raw: string | null | undefined): {
     "`thread` must be `off`, `full`, `conversation`, or a number from 2 to 100.",
     "invalid_thread"
   );
-}
+};
 
-function parseUserinfo(raw: string | null | undefined): UserinfoLevel {
+const parseUserinfo = (raw?: string | null): UserinfoLevel => {
   if (!raw || raw === "off") {
     return "off";
   }
@@ -205,19 +201,21 @@ function parseUserinfo(raw: string | null | undefined): UserinfoLevel {
     "`userinfo` must be `off`, `author`, or `all`.",
     "invalid_userinfo"
   );
-}
+};
 
-function parseBoolean(raw: string | boolean | null | undefined): boolean {
+type FlagValue = string | boolean | null | undefined;
+
+const parseBoolean = (raw: FlagValue): boolean => {
   if (raw === true) {
     return true;
   }
-  if (raw === false || raw == null) {
+  if (raw === false || raw === null || raw === undefined) {
     return false;
   }
   return raw === "1" || raw === "true" || raw === "yes";
-}
+};
 
-function parseContext(raw: string | null | undefined): ContextMode {
+const parseContext = (raw?: string | null): ContextMode => {
   if (!raw || raw === "full") {
     return "full";
   }
@@ -229,9 +227,9 @@ function parseContext(raw: string | null | undefined): ContextMode {
     "`context` must be `full` or `thread`.",
     "invalid_context"
   );
-}
+};
 
-function parseReplies(raw: string | null | undefined): RepliesMode {
+const parseReplies = (raw?: string | null): RepliesMode => {
   if (!raw || raw === "top") {
     return "top";
   }
@@ -243,9 +241,9 @@ function parseReplies(raw: string | null | undefined): RepliesMode {
     "`replies` must be `top`, `recent`, or `off`.",
     "invalid_replies"
   );
-}
+};
 
-function withSourceUrls(tweet: FxTweet, fallback?: string): FxTweet {
+const withSourceUrls = (tweet: FxTweet, fallback?: string): FxTweet => {
   const handle = tweet.author?.screen_name;
   const url =
     tweet.url ??
@@ -257,26 +255,27 @@ function withSourceUrls(tweet: FxTweet, fallback?: string): FxTweet {
     quote: tweet.quote ? withSourceUrls(tweet.quote) : undefined,
     url,
   };
-}
+};
 
-function limitPostsByRole(
+const limitPostsByRole = (
   posts: FxTweet[],
   requestedId: string,
   limit: number
-): FxTweet[] {
+): FxTweet[] => {
   if (posts.length <= limit) {
     return posts;
   }
+  const priorityFor = (post: FxTweet): number => {
+    if (post.id === requestedId) {
+      return 0;
+    }
+    return post.context === "parent" || post.context === "thread" ? 1 : 2;
+  };
   const focalIndex = posts.findIndex((post) => post.id === requestedId);
   const candidates = posts.map((post, index) => ({
     index,
     post,
-    priority:
-      post.id === requestedId
-        ? 0
-        : (post.context === "parent" || post.context === "thread"
-          ? 1
-          : 2),
+    priority: priorityFor(post),
   }));
   candidates.sort((a, b) => {
     if (a.priority !== b.priority) {
@@ -292,13 +291,13 @@ function limitPostsByRole(
     candidates.slice(0, limit).map(({ index }) => index)
   );
   return posts.filter((_post, index) => selected.has(index));
-}
+};
 
 type ConvertPayload = Omit<ConvertSuccess, "cache">;
 
-async function convertTweetUncached(
+const convertTweetUncached = async (
   format: OutputFormat,
-  thread: { mode: "off" | "full"; limit: number },
+  thread: ThreadSelection,
   userinfo: UserinfoLevel,
   canonicalUrl: string,
   handle: string,
@@ -306,7 +305,7 @@ async function convertTweetUncached(
   compact: boolean,
   context: ContextMode,
   replies: RepliesMode
-): Promise<ConvertPayload> {
+): Promise<ConvertPayload> => {
   const warnings: string[] = [];
 
   const { tweets, source } = await fetchPosts(
@@ -352,12 +351,12 @@ async function convertTweetUncached(
     source,
     warnings,
   };
-}
+};
 
-export async function convertTweet(
+export const convertTweet = async (
   input: ConvertInput,
   config: RuntimeConfig = memoryConfig()
-): Promise<ConvertSuccess> {
+): Promise<ConvertSuccess> => {
   const format = parseFormat(input.format);
   const thread = parseThread(input.thread);
   const userinfo = parseUserinfo(input.userinfo);
@@ -382,7 +381,7 @@ export async function convertTweet(
   const { value, status } = await withCache(
     cacheKey,
     nocache,
-    async () =>
+    () =>
       convertTweetUncached(
         format,
         thread,
@@ -398,28 +397,27 @@ export async function convertTweet(
   );
 
   return { ...value, cache: status };
-}
+};
 
-export function acceptPrefersHtml(accept: string): boolean {
+export const acceptPrefersHtml = (accept: string): boolean => {
   if (accept.includes("application/json") || accept.includes("text/markdown")) {
     return false;
   }
   return accept.includes("text/html");
-}
+};
 
-function escapeHtml(value: string): string {
-  return value
+const escapeHtml = (value: string): string =>
+  value
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;");
-}
 
-export function htmlMarkdownPage(
+export const htmlMarkdownPage = (
   markdown: string,
   canonicalUrl: string
-): string {
-  return `<!doctype html>
+): string =>
+  `<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
@@ -432,18 +430,13 @@ export function htmlMarkdownPage(
 </head>
 <body><pre>${escapeHtml(markdown)}</pre></body>
 </html>`;
-}
 
-export function markdownResponse(
+export const markdownResponse = (
   result: ConvertSuccess,
   asJson = false,
   asHtml = false
-): {
-  status: number;
-  headers: Record<string, string>;
-  body: string;
-} {
-  const sharedHeaders: Record<string, string> = {
+): HttpPayload => {
+  const sharedHeaders: HeaderMap = {
     Vary: "Accept, User-Agent",
     "X-Cache": result.cache.toUpperCase(),
     "X-Converter": "x-lookup",
@@ -493,4 +486,4 @@ export function markdownResponse(
     },
     status: 200,
   };
-}
+};

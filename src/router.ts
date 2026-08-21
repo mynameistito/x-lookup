@@ -18,9 +18,14 @@ import type { OEmbedQuery } from "./lib/embed.js";
 import { requestOrigin, wantsJson, wantsMarkdown } from "./lib/http.js";
 
 const HANDLE = "([A-Za-z0-9_]{1,15})";
-const STATUS_ROUTE = new RegExp(`^/${HANDLE}/status/(\\d+)$`);
-const LIST_ROUTE = new RegExp(`^/${HANDLE}/(followers|following)$`);
-const PROFILE_ROUTE = new RegExp(`^/${HANDLE}$`);
+const STATUS_ROUTE = new RegExp(`^/${HANDLE}/status/(\\d+)$`, "u");
+const LIST_ROUTE = new RegExp(`^/${HANDLE}/(followers|following)$`, "u");
+const PROFILE_ROUTE = new RegExp(`^/${HANDLE}$`, "u");
+
+interface ApiErrorBody {
+  code?: string;
+  error: string;
+}
 
 interface ApiResponse {
   status: number;
@@ -28,8 +33,8 @@ interface ApiResponse {
   body?: string;
 }
 
-const jsonResponse = (status: number, body: unknown): Response =>
-  new Response(JSON.stringify(body), {
+const jsonResponse = (status: number, body: ApiErrorBody): Response =>
+  Response.json(body, {
     headers: {
       "Access-Control-Allow-Origin": "*",
       "Content-Type": "application/json; charset=utf-8",
@@ -55,7 +60,7 @@ const textResponse = (body: string): Response =>
     status: 200,
   });
 
-const fail = (error: unknown): Response => {
+const fail = (error: ConvertError | Error): Response => {
   if (error instanceof ConvertError) {
     return jsonResponse(error.status, {
       code: error.code,
@@ -75,11 +80,11 @@ const originOf = (request: Request): string =>
     protocol: new URL(request.url).protocol,
   });
 
-async function handleBrowse(
+const handleBrowse = async (
   query: URLSearchParams,
   request: Request,
   config: RuntimeConfig
-): Promise<Response> {
+): Promise<Response> => {
   const param = (key: string): string | undefined =>
     query.get(key) ?? undefined;
   const result = await browse(
@@ -102,13 +107,13 @@ async function handleBrowse(
     wantsJson(param("format"), request.headers.get("accept") ?? "")
   );
   return apiResponse(response);
-}
+};
 
-async function handleConvert(
+const handleConvert = async (
   query: URLSearchParams,
   request: Request,
   config: RuntimeConfig
-): Promise<Response> {
+): Promise<Response> => {
   const param = (key: string): string | undefined =>
     query.get(key) ?? undefined;
   const accept = request.headers.get("accept") ?? "";
@@ -116,14 +121,9 @@ async function handleConvert(
   const requestedFormat = param("format");
   const asJson = wantsJson(requestedFormat, accept);
   const asMarkdown = wantsMarkdown(requestedFormat, accept);
-  const asEmbed =
-    !requestedFormat && !asJson && !asMarkdown && isEmbedUserAgent(userAgent);
-  const asHtml =
-    !requestedFormat &&
-    !asJson &&
-    !asMarkdown &&
-    !asEmbed &&
-    acceptPrefersHtml(accept);
+  const noExplicitFormat = !requestedFormat && !asJson && !asMarkdown;
+  const asEmbed = noExplicitFormat && isEmbedUserAgent(userAgent);
+  const asHtml = noExplicitFormat && !asEmbed && acceptPrefersHtml(accept);
 
   const result = await convertTweet(
     {
@@ -145,9 +145,9 @@ async function handleConvert(
     ? embedResponse(result, { origin: originOf(request), userAgent })
     : markdownResponse(result, asJson, asHtml);
   return apiResponse(response);
-}
+};
 
-function handleOEmbed(query: URLSearchParams, request: Request): Response {
+const handleOEmbed = (query: URLSearchParams, request: Request): Response => {
   const param = (key: string): string | undefined =>
     query.get(key) ?? undefined;
   const oembedQuery: OEmbedQuery = {
@@ -158,12 +158,66 @@ function handleOEmbed(query: URLSearchParams, request: Request): Response {
     url: param("url"),
   };
   return apiResponse(oembedResponse(oembedQuery, originOf(request)));
-}
+};
 
-export async function handleRequest(
+const handlePathRoutes = (
+  path: string,
+  query: URLSearchParams,
+  request: Request,
+  config: RuntimeConfig
+): Promise<Response> | Response | undefined => {
+  if (path === "/" || path === "/docs") {
+    return textResponse(ROOT_MARKDOWN);
+  }
+  if (path === "/api/browse") {
+    return handleBrowse(query, request, config);
+  }
+  if (path === "/api/convert") {
+    return handleConvert(query, request, config);
+  }
+  if (path === "/oembed") {
+    return handleOEmbed(query, request);
+  }
+  if (path === "/search") {
+    query.set("resource", "search");
+    return handleBrowse(query, request, config);
+  }
+  return undefined;
+};
+
+const handleStatusRoutes = (
+  path: string,
+  query: URLSearchParams,
+  request: Request,
+  config: RuntimeConfig
+): Promise<Response> | undefined => {
+  const statusMatch = STATUS_ROUTE.exec(path);
+  if (statusMatch) {
+    query.set("handle", statusMatch[1] ?? "");
+    query.set("id", statusMatch[2] ?? "");
+    return handleConvert(query, request, config);
+  }
+
+  const listMatch = LIST_ROUTE.exec(path);
+  if (listMatch) {
+    query.set("resource", listMatch[2] ?? "");
+    query.set("handle", listMatch[1] ?? "");
+    return handleBrowse(query, request, config);
+  }
+
+  const profileMatch = PROFILE_ROUTE.exec(path);
+  if (profileMatch) {
+    query.set("resource", "profile");
+    query.set("handle", profileMatch[1] ?? "");
+    return handleBrowse(query, request, config);
+  }
+  return undefined;
+};
+
+export const handleRequest = async (
   request: Request,
   env: Env = {}
-): Promise<Response> {
+): Promise<Response> => {
   if (request.method === "OPTIONS") {
     return new Response(null, {
       headers: {
@@ -182,51 +236,24 @@ export async function handleRequest(
   }
 
   const url = new URL(request.url);
-  const path = url.pathname.replace(/\/+$/, "") || "/";
+  const path = url.pathname.replace(/\/+$/u, "") || "/";
   const query = url.searchParams;
   const config = workerConfig(env);
 
   try {
-    if (path === "/" || path === "/docs") {
-      return textResponse(ROOT_MARKDOWN);
+    const routed = handlePathRoutes(path, query, request, config);
+    if (routed) {
+      return await routed;
     }
-    if (path === "/api/browse") {
-      return await handleBrowse(query, request, config);
-    }
-    if (path === "/api/convert") {
-      return await handleConvert(query, request, config);
-    }
-    if (path === "/oembed") {
-      return handleOEmbed(query, request);
-    }
-    if (path === "/search") {
-      query.set("resource", "search");
-      return await handleBrowse(query, request, config);
-    }
-
-    const statusMatch = STATUS_ROUTE.exec(path);
-    if (statusMatch) {
-      query.set("handle", statusMatch[1] ?? "");
-      query.set("id", statusMatch[2] ?? "");
-      return await handleConvert(query, request, config);
-    }
-
-    const listMatch = LIST_ROUTE.exec(path);
-    if (listMatch) {
-      query.set("resource", listMatch[2] ?? "");
-      query.set("handle", listMatch[1] ?? "");
-      return await handleBrowse(query, request, config);
-    }
-
-    const profileMatch = PROFILE_ROUTE.exec(path);
-    if (profileMatch) {
-      query.set("resource", "profile");
-      query.set("handle", profileMatch[1] ?? "");
-      return await handleBrowse(query, request, config);
+    const matched = handleStatusRoutes(path, query, request, config);
+    if (matched) {
+      return await matched;
     }
   } catch (error) {
-    return fail(error);
+    // SAFETY: handler failures are ConvertError or Error; fail() normalizes
+    // anything unexpected into a truthful 500.
+    return fail(error as Error);
   }
 
   return jsonResponse(404, { code: "not_found", error: "Not found." });
-}
+};

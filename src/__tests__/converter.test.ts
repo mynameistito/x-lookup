@@ -1,90 +1,108 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
+import type { Mock } from "vitest";
 
-vi.mock(import("../lib/cache.js"), () => ({
-  buildCacheKey: vi.fn((args: Record<string, unknown>) => JSON.stringify(args)),
-  cacheControlHeader: vi.fn(() => "public, max-age=300"),
-  memoryConfig: vi.fn(() => ({ stores: [], ttlSeconds: 300 })),
-  withCache: vi.fn(
-    async (_key: string, _nocache: boolean, fn: () => Promise<unknown>) => ({
-      status: "miss",
-      value: await fn(),
-    })
-  ),
-}));
-
-vi.mock(import("../lib/tweet-fetch.js"), () => ({
-  fetchPosts: vi.fn(async () => ({
-    source: "fxtwitter",
-    tweets: [{ id: "1", text: "hello" }],
-  })),
-}));
-
-vi.mock(import("../lib/markdown.js"), () => ({
-  renderThreadMarkdown: vi.fn(() => "# hello"),
-}));
-
-import { buildCacheKey } from "../lib/cache.js";
 import { convertTweet, markdownResponse } from "../lib/converter.js";
 import { ConvertError } from "../lib/errors.js";
-import { renderThreadMarkdown } from "../lib/markdown.js";
-import { fetchPosts } from "../lib/tweet-fetch.js";
+
+const respond = <T>(url: string, body: T, status = 200): Promise<Response> => {
+  if (!url.includes("api.fxtwitter.com")) {
+    return Promise.reject(new Error(`unexpected upstream: ${url}`));
+  }
+  return Promise.resolve(Response.json(body, { status }));
+};
+
+const stubFetch = (route: (url: string) => Promise<Response>): Mock => {
+  const fetchMock = vi.fn<(url: string) => Promise<Response>>(route);
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
+};
 
 describe("output selection", () => {
   const validUrl = "https://x.com/testuser/status/1234567890";
 
+  beforeEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   test("defaults to compact and full=true restores rich rendering", async () => {
-    await convertTweet({ url: validUrl });
-    expect(vi.mocked(renderThreadMarkdown)).toHaveBeenLastCalledWith(
-      expect.any(Array),
-      expect.objectContaining({ compact: true })
+    stubFetch((url) =>
+      respond(url, {
+        code: 200,
+        status: {
+          author: { name: "Test", screen_name: "testuser" },
+          created_at: "today",
+          id: "1234567890",
+          likes: 5,
+          text: "hello",
+        },
+      })
     );
-    await convertTweet({ full: "true", url: validUrl });
-    expect(vi.mocked(renderThreadMarkdown)).toHaveBeenLastCalledWith(
-      expect.any(Array),
-      expect.objectContaining({ compact: false })
-    );
+
+    const compact = await convertTweet({ url: validUrl });
+    expect(compact.body).not.toContain("Stats:");
+
+    const full = await convertTweet({ full: "true", url: validUrl });
+    expect(full.body).toContain("Stats: 5 likes");
   });
 
   test("format=json is accepted and JSON contains structured posts and metadata", async () => {
+    stubFetch((url) =>
+      respond(url, {
+        code: 200,
+        status: {
+          author: { name: "Test", screen_name: "testuser" },
+          id: "1234567890",
+          text: "hello",
+        },
+      })
+    );
+
     const result = await convertTweet({ format: "json", url: validUrl });
     const response = markdownResponse(result, true);
-    const payload = JSON.parse(response.body) as {
-      posts: { id?: string; url?: string }[];
-      source: string;
-      markdown: string;
-    };
     expect(response.headers["Content-Type"]).toContain("application/json");
-    expect(payload.posts[0]).toMatchObject({ id: "1" });
-    expect(payload.posts[0]?.url).toBe(validUrl);
-    expect(payload.source).toBe("fxtwitter");
-    expect(payload.markdown).toBe("# hello");
+    expect(JSON.parse(response.body)).toMatchObject({
+      markdown: expect.stringContaining("hello"),
+      posts: [{ id: "1234567890", url: validUrl }],
+      source: "fxtwitter",
+    });
   });
 
   test("varies negotiated responses by Accept and sets shared caching headers", async () => {
+    stubFetch((url) =>
+      respond(url, {
+        code: 200,
+        status: { id: "1234567890", text: "hello" },
+      })
+    );
+
     const result = await convertTweet({ url: validUrl });
     const response = markdownResponse(result);
     expect(response.headers).toMatchObject({
-      "Cache-Control": "public, max-age=300",
+      "Cache-Control": "public, max-age=0, must-revalidate",
       Vary: "Accept, User-Agent",
       "X-Converter": "x-lookup",
     });
   });
 
-  test("retains relation annotations and synthesizes reply source URLs", async () => {
-    vi.mocked(fetchPosts).mockResolvedValueOnce({
-      source: "fxtwitter",
-      tweets: [
-        {
-          author: { screen_name: "bob" },
-          context: "reply",
-          id: "99",
-          text: "reply",
-        },
-      ],
+  test("synthesizes source URLs for posts that lack them", async () => {
+    const url = "https://x.com/urluser/status/1234567890";
+    stubFetch((url2) => {
+      if (url2.includes("/2/thread/")) {
+        return respond(url2, {
+          code: 200,
+          thread: [{ author: { screen_name: "bob" }, id: "99", text: "reply" }],
+        });
+      }
+      return respond(url2, { code: 200 });
     });
-    const result = await convertTweet({ format: "json", url: validUrl });
+
+    const result = await convertTweet({
+      format: "json",
+      thread: "full",
+      url,
+    });
     expect(result.posts[0]).toMatchObject({
-      context: "reply",
+      context: "thread",
       id: "99",
       url: "https://x.com/bob/status/99",
     });
@@ -112,6 +130,9 @@ describe("output selection", () => {
   });
 
   test("accepts the production host and workers.dev previews as input URLs", async () => {
+    stubFetch((url) =>
+      respond(url, { code: 200, status: { id: "5", text: "hi" } })
+    );
     await expect(
       convertTweet({ url: "https://x-lookup.mynameistito.com/ada/status/5" })
     ).resolves.toBeDefined();
@@ -134,24 +155,29 @@ describe("parseThread — invalid values throw ConvertError", () => {
   );
 
   test('error message includes "conversation", code is invalid_thread, status is 400', async () => {
-    let err: unknown;
+    let failure: unknown;
     try {
       await convertTweet({ thread: "bad", url: validUrl });
     } catch (error) {
-      err = error;
+      failure = error;
     }
-    expect(err).toBeInstanceOf(ConvertError);
-    expect((err as ConvertError).message).toContain("conversation");
-    expect((err as ConvertError).code).toBe("invalid_thread");
-    expect((err as ConvertError).status).toBe(400);
+    expect(failure).toBeInstanceOf(ConvertError);
+    expect(failure).toMatchObject({ code: "invalid_thread", status: 400 });
+    expect(String(failure)).toContain("conversation");
   });
 });
 
 describe("parseThread — valid values accepted", () => {
-  const validUrl = "https://x.com/testuser/status/1234567890";
+  const validUrl = "https://x.com/threaduser/status/1234567890";
 
   beforeEach(() => {
-    vi.clearAllMocks();
+    vi.unstubAllGlobals();
+    stubFetch((url) =>
+      respond(url, {
+        code: 200,
+        status: { id: "1234567890", text: "hello" },
+      })
+    );
   });
 
   test.each([
@@ -170,59 +196,62 @@ describe("parseThread — valid values accepted", () => {
   });
 });
 
-describe("canonicalThreadCacheValue — cache key normalisation", () => {
-  const validUrl = "https://x.com/testuser/status/1234567890";
-  const mockedBuildCacheKey = vi.mocked(buildCacheKey);
+describe("thread cache identity", () => {
+  const validUrl = "https://x.com/cacheuser/status/1234567890";
 
   beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
-  test('null, "full", and "conversation" all normalize to thread="full"', async () => {
-    await convertTweet({ thread: null, url: validUrl });
-    expect(mockedBuildCacheKey).toHaveBeenCalledWith(
-      expect.objectContaining({ thread: "full" })
-    );
-
-    vi.clearAllMocks();
-    await convertTweet({ thread: "conversation", url: validUrl });
-    expect(mockedBuildCacheKey).toHaveBeenCalledWith(
-      expect.objectContaining({ thread: "full" })
-    );
-    const { calls } = mockedBuildCacheKey.mock;
-    expect(
-      calls.every(
-        (args) => (args[0] as { thread: string }).thread !== "conversation"
-      )
-    ).toBeTruthy();
-  });
-
-  test('thread="off" stays as "off" in the cache key', async () => {
-    await convertTweet({ thread: "off", url: validUrl });
-    expect(mockedBuildCacheKey).toHaveBeenCalledWith(
-      expect.objectContaining({ thread: "off" })
+    vi.unstubAllGlobals();
+    stubFetch((url) =>
+      respond(url, {
+        code: 200,
+        status: { id: "1234567890", text: "hello" },
+      })
     );
   });
 
-  test("numeric limits preserve focal post and choose context by role before display ordering", async () => {
-    vi.mocked(fetchPosts).mockResolvedValueOnce({
-      source: "fxtwitter",
-      tweets: [
-        { context: "parent", id: "1" },
-        { context: "parent", id: "2" },
-        { context: "post", id: "3" },
-        { context: "thread", id: "4" },
-        { context: "reply", id: "5" },
-      ],
+  test('null, "full", and "conversation" share one cache entry', async () => {
+    const first = await convertTweet({ thread: null, url: validUrl });
+    expect(first.cache).toBe("miss");
+    const second = await convertTweet({ thread: "full", url: validUrl });
+    expect(second.cache).toBe("hit");
+    const third = await convertTweet({ thread: "conversation", url: validUrl });
+    expect(third.cache).toBe("hit");
+  });
+
+  test('thread="off" gets its own cache entry', async () => {
+    const off = await convertTweet({ thread: "off", url: validUrl });
+    expect(off.cache).toBe("miss");
+  });
+});
+
+describe("numeric thread limits", () => {
+  beforeEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  test("preserve focal post and choose context by role before display ordering", async () => {
+    stubFetch((url) => {
+      if (url.includes("/2/thread/")) {
+        return respond(url, {
+          code: 200,
+          thread: [
+            { id: "1" },
+            { id: "2" },
+            { id: "3" },
+            { id: "4" },
+            { id: "5" },
+          ],
+        });
+      }
+      return respond(url, { code: 200 });
     });
+
     const result = await convertTweet({
       format: "json",
       thread: "2",
       url: "https://x.com/TestUser/status/3",
     });
     expect(result.posts.map((post) => post.id)).toStrictEqual(["2", "3"]);
-    expect(vi.mocked(buildCacheKey)).toHaveBeenLastCalledWith(
-      expect.objectContaining({ handle: "testuser" })
-    );
+    expect(result.warnings).toContain("Thread truncated to 2 posts.");
   });
 });

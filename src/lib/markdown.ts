@@ -16,7 +16,7 @@ export interface RenderOptions {
   compact?: boolean;
 }
 
-function mediaItems(media?: FxMedia): FxMediaItem[] {
+const mediaItems = (media?: FxMedia): FxMediaItem[] => {
   if (!media) {
     return [];
   }
@@ -28,55 +28,85 @@ function mediaItems(media?: FxMedia): FxMediaItem[] {
     ...(media.videos ?? []),
     ...(media.animated ?? []),
   ];
-}
+};
 
-function renderMedia(media?: FxMedia): string[] {
+const variantLabel = (variant: {
+  bitrate?: number;
+  content_type?: string;
+}): string => {
+  if (variant.bitrate) {
+    return `${variant.bitrate}bps`;
+  }
+  return variant.content_type ?? "MP4";
+};
+
+const variantLink = (variant: {
+  bitrate?: number;
+  content_type?: string;
+  url: string;
+}): string => `[${variantLabel(variant)}](${variant.url})`;
+
+const videoDetails = (item: FxMediaItem): string[] => {
+  const details = [
+    item.duration_ms === undefined
+      ? undefined
+      : `duration: ${item.duration_ms}ms`,
+    item.width !== undefined && item.height !== undefined
+      ? `${item.width}×${item.height}`
+      : undefined,
+    item.bitrate === undefined ? undefined : `${item.bitrate}bps`,
+  ].filter((part): part is string => Boolean(part));
+  return details.length ? [`> Video: ${details.join(" · ")}`] : [];
+};
+
+const videoLines = (
+  item: FxMediaItem,
+  url?: string,
+  thumb?: string
+): string[] => {
   const lines: string[] = [];
-  for (const item of mediaItems(media)) {
-    const type = (item.type ?? "").toLowerCase();
-    const url = item.url ?? item.thumbnail_url;
-    const thumb = item.thumbnail_url ?? item.url;
-    if (!url && !thumb) {
-      continue;
-    }
-
-    if (type === "photo" || type === "image") {
-      lines.push(`> ![image](${url})`);
-    } else if (type === "video") {
-      if (url) {
-        lines.push(`> [video](${url})`);
-      }
-      if (thumb && thumb !== url) {
-        lines.push(`> ![video thumbnail](${thumb})`);
-      }
-      const details = [
-        item.duration_ms == null
-          ? undefined
-          : `duration: ${item.duration_ms}ms`,
-        item.width != null && item.height != null
-          ? `${item.width}×${item.height}`
-          : undefined,
-        item.bitrate == null ? undefined : `${item.bitrate}bps`,
-      ].filter((part): part is string => Boolean(part));
-      if (details.length) {
-        lines.push(`> Video: ${details.join(" · ")}`);
-      }
-      const variants = item.variants?.filter((variant) => variant.url);
-      if (variants?.length) {
-        lines.push(
-          `> Variants: ${variants.map((variant) => `[${variant.bitrate ? `${variant.bitrate}bps` : (variant.content_type ?? "MP4")}](${variant.url})`).join(" · ")}`
-        );
-      }
-    } else if (type === "gif" || type === "animated_gif") {
-      lines.push(`> [animated_gif](${thumb ?? url})`);
-    } else if (url) {
-      lines.push(`> [media](${url})`);
-    }
+  if (url) {
+    lines.push(`> [video](${url})`);
+  }
+  if (thumb && thumb !== url) {
+    lines.push(`> ![video thumbnail](${thumb})`);
+  }
+  lines.push(...videoDetails(item));
+  const variants = item.variants?.filter((variant) => variant.url);
+  if (variants?.length) {
+    lines.push(`> Variants: ${variants.map(variantLink).join(" · ")}`);
   }
   return lines;
-}
+};
 
-function articleToMarkdown(article: FxArticle): string[] {
+const mediaLines = (item: FxMediaItem): string[] => {
+  const type = (item.type ?? "").toLowerCase();
+  const url = item.url ?? item.thumbnail_url;
+  const thumb = item.thumbnail_url ?? item.url;
+  if (!url && !thumb) {
+    return [];
+  }
+  if (type === "photo" || type === "image") {
+    return [`> ![image](${url})`];
+  }
+  if (type === "video") {
+    return videoLines(item, url, thumb);
+  }
+  if (type === "gif" || type === "animated_gif") {
+    return [`> [animated_gif](${thumb ?? url})`];
+  }
+  return url ? [`> [media](${url})`] : [];
+};
+
+const renderMedia = (media?: FxMedia): string[] => {
+  const lines: string[] = [];
+  for (const item of mediaItems(media)) {
+    lines.push(...mediaLines(item));
+  }
+  return lines;
+};
+
+const articleToMarkdown = (article: FxArticle): string[] => {
   const lines: string[] = [];
   if (article.title) {
     lines.push(`## ${article.title}`, "");
@@ -110,9 +140,9 @@ function articleToMarkdown(article: FxArticle): string[] {
   }
 
   return lines;
-}
+};
 
-function authorInfoBlock(author: FxAuthor): string[] {
+const authorInfoBlock = (author: FxAuthor): string[] => {
   const lines: string[] = ["### Author", ""];
   if (author.name) {
     lines.push(`- **Name:** ${author.name}`);
@@ -131,10 +161,10 @@ function authorInfoBlock(author: FxAuthor): string[] {
       `- **Website:** ${author.website.display_url ?? author.website.url}`
     );
   }
-  if (author.followers != null) {
+  if (author.followers !== undefined) {
     lines.push(`- **Followers:** ${author.followers.toLocaleString()}`);
   }
-  if (author.following != null) {
+  if (author.following !== undefined) {
     lines.push(`- **Following:** ${author.following.toLocaleString()}`);
   }
   if (author.joined) {
@@ -142,26 +172,26 @@ function authorInfoBlock(author: FxAuthor): string[] {
   }
   lines.push("");
   return lines;
-}
+};
 
-function statsLine(tweet: FxTweet): string | undefined {
+const statsLine = (tweet: FxTweet): string | undefined => {
   const parts: string[] = [];
-  if (tweet.likes != null) {
+  if (tweet.likes !== undefined) {
     parts.push(`${tweet.likes.toLocaleString()} likes`);
   }
-  if (tweet.retweets != null) {
+  if (tweet.retweets !== undefined) {
     parts.push(`${tweet.retweets.toLocaleString()} reposts`);
   }
-  if (tweet.replies != null) {
+  if (tweet.replies !== undefined) {
     parts.push(`${tweet.replies.toLocaleString()} replies`);
   }
-  if (tweet.views != null) {
+  if (tweet.views !== undefined && tweet.views !== null) {
     parts.push(`${tweet.views.toLocaleString()} views`);
   }
   return parts.length ? parts.join(" · ") : undefined;
-}
+};
 
-function tweetUrl(tweet: FxTweet, fallback?: string): string {
+const tweetUrl = (tweet: FxTweet, fallback?: string): string => {
   if (tweet.url) {
     return tweet.url;
   }
@@ -171,20 +201,21 @@ function tweetUrl(tweet: FxTweet, fallback?: string): string {
     return `https://x.com/${handle}/status/${id}`;
   }
   return fallback ?? "Unavailable (post identity missing)";
-}
+};
 
-function renderQuote(quote: FxTweet): string[] {
+const renderQuote = (quote: FxTweet): string[] => {
   const lines: string[] = ["> **Quoted post**", ">"];
   const author = quote.author?.name ?? quote.author?.screen_name ?? "Unknown";
   const handle = quote.author?.screen_name;
-  lines.push(`> **${author}**${handle ? ` @${handle}` : ""}`);
+  const handleSuffix = handle ? ` @${handle}` : "";
+  lines.push(`> **${author}**${handleSuffix}`);
   if (quote.text) {
     for (const line of quote.text.split("\n")) {
       lines.push(`> ${line}`);
     }
   }
   for (const mediaLine of renderMedia(quote.media)) {
-    lines.push(`> ${mediaLine.replace(/^> /, "")}`);
+    lines.push(`> ${mediaLine.replace(/^> /u, "")}`);
   }
   if (quote.quote) {
     for (const nestedLine of renderQuote(quote.quote)) {
@@ -193,16 +224,82 @@ function renderQuote(quote: FxTweet): string[] {
   }
   lines.push(`> Source: ${tweetUrl(quote)}`, ">");
   return lines;
-}
+};
 
-function renderSingleTweet(
+const obsidianPreamble = (
+  tweet: FxTweet,
+  author: string,
+  handle: string | undefined,
+  heading: string | null,
+  index: number,
+  source: string,
+  total: number
+): string[] => {
+  const lines: string[] = [];
+  if (index === 0) {
+    const tags = ["twitter", "x"];
+    if (handle) {
+      tags.push(handle);
+    }
+    lines.push("---", `source: ${source}`, `author: ${author}`);
+    if (handle) {
+      lines.push(`author_handle: ${handle}`);
+    }
+    if (tweet.created_at) {
+      lines.push(`published: ${tweet.created_at}`);
+    }
+    if (total > 1) {
+      lines.push(`thread_posts: ${total}`);
+    }
+    lines.push(`tags: [${tags.join(", ")}]`, "---", "");
+  }
+  if (heading) {
+    lines.push(heading, "");
+  }
+  return lines;
+};
+
+const fullHeader = (
+  heading: string | null,
+  author: string,
+  handle?: string
+): string[] => {
+  if (heading) {
+    return [heading, ""];
+  }
+  const lines = [`**${author}**`];
+  if (handle) {
+    lines.push(`@${handle}`);
+  }
+  lines.push("");
+  return lines;
+};
+
+const contentLines = (tweet: FxTweet, includeAuthorMeta: boolean): string[] => {
+  const lines: string[] = [];
+  if (includeAuthorMeta && tweet.author) {
+    lines.push(...authorInfoBlock(tweet.author));
+  }
+  if (tweet.article) {
+    lines.push(...articleToMarkdown(tweet.article));
+  }
+  if (tweet.text?.trim()) {
+    lines.push(tweet.text.trim(), "");
+  }
+  lines.push(...renderMedia(tweet.media));
+  if (tweet.quote) {
+    lines.push(...renderQuote(tweet.quote), "");
+  }
+  return lines;
+};
+
+const renderSingleTweet = (
   tweet: FxTweet,
   opts: RenderOptions,
   index: number,
   total: number,
   includeAuthorMeta: boolean
-): string[] {
-  const lines: string[] = [];
+): string[] => {
   const author = tweet.author?.name ?? "Unknown";
   const handle = tweet.author?.screen_name;
   const source = tweetUrl(
@@ -219,94 +316,53 @@ function renderSingleTweet(
         } as const
       )[tweet.context]
     : undefined;
-  const heading =
-    total > 1 || relation
-      ? `## ${relation ? `${relation} · ` : ""}${index + 1}/${total} — ${author}${handle ? ` (@${handle})` : ""}`
-      : null;
+  const relationPrefix = relation ? `${relation} · ` : "";
+  const handleSuffix = handle ? ` (@${handle})` : "";
+  const boldLabel = `${relationPrefix}${author}${handleSuffix}`;
+  const headingLabel = `${relationPrefix}${index + 1}/${total} — ${boldLabel}`;
+  const heading = total > 1 || relation ? `## ${headingLabel}` : null;
+  const lines: string[] = [];
 
   if (opts.format === "obsidian") {
-    if (index === 0) {
-      const tags = ["twitter", "x"];
-      if (handle) {
-        tags.push(handle);
-      }
-      lines.push("---", `source: ${source}`, `author: ${author}`);
-      if (handle) {
-        lines.push(`author_handle: ${handle}`);
-      }
-      if (tweet.created_at) {
-        lines.push(`published: ${tweet.created_at}`);
-      }
-      if (total > 1) {
-        lines.push(`thread_posts: ${total}`);
-      }
-      lines.push(`tags: [${tags.join(", ")}]`, "---", "");
-    }
-    if (heading) {
-      lines.push(heading, "");
-    }
+    lines.push(
+      ...obsidianPreamble(tweet, author, handle, heading, index, source, total)
+    );
   } else if (opts.compact) {
-    if (heading) {
-      lines.push(heading, "");
-    } else {
-      lines.push(
-        `**${relation ? `${relation} · ` : ""}${author}${handle ? ` (@${handle})` : ""}**`,
-        ""
-      );
-    }
+    lines.push(...(heading ? [heading, ""] : [`**${boldLabel}**`, ""]));
   } else {
-    if (heading) {
-      lines.push(heading, "");
-    } else {
-      lines.push(`**${author}**`);
-      if (handle) {lines.push(`@${handle}`);}
-      lines.push("");
+    lines.push(...fullHeader(heading, author, handle), `Source: ${source}`);
+    if (tweet.created_at) {
+      lines.push(`Date: ${tweet.created_at}`);
     }
-    lines.push(`Source: ${source}`);
-    if (tweet.created_at) {lines.push(`Date: ${tweet.created_at}`);}
     const stats = statsLine(tweet);
-    if (stats) {lines.push(`Stats: ${stats}`);}
+    if (stats) {
+      lines.push(`Stats: ${stats}`);
+    }
     lines.push("");
   }
 
-  if (includeAuthorMeta && tweet.author) {
-    lines.push(...authorInfoBlock(tweet.author));
-  }
-
-  if (tweet.article) {
-    lines.push(...articleToMarkdown(tweet.article));
-  }
-
-  if (tweet.text?.trim()) {
-    lines.push(tweet.text.trim(), "");
-  }
-
-  lines.push(...renderMedia(tweet.media));
-
-  if (tweet.quote) {
-    lines.push(...renderQuote(tweet.quote), "");
-  }
+  lines.push(...contentLines(tweet, includeAuthorMeta));
 
   if (opts.compact && opts.format !== "obsidian") {
     lines.push(`Source: ${source}`);
   }
 
   return lines;
-}
+};
 
-export function renderThreadMarkdown(
+export const renderThreadMarkdown = (
   tweets: FxTweet[],
   opts: RenderOptions
-): string {
+): string => {
   const lines: string[] = [];
   const seenAuthors = new Set<string>();
 
-  for (let i = 0; i < tweets.length; i++) {
-    const tweet = tweets[i];
+  for (let index = 0; index < tweets.length; index += 1) {
+    const tweet = tweets[index];
     const handle = tweet.author?.screen_name ?? "";
     let includeAuthorMeta = false;
 
-    if (opts.userinfo === "author" && i === 0 && tweet.author) {
+    if (opts.userinfo === "author" && index === 0 && tweet.author) {
       includeAuthorMeta = true;
     } else if (
       opts.userinfo === "all" &&
@@ -319,12 +375,12 @@ export function renderThreadMarkdown(
     }
 
     lines.push(
-      ...renderSingleTweet(tweet, opts, i, tweets.length, includeAuthorMeta)
+      ...renderSingleTweet(tweet, opts, index, tweets.length, includeAuthorMeta)
     );
-    if (i < tweets.length - 1) {
+    if (index < tweets.length - 1) {
       lines.push("---", "");
     }
   }
 
   return lines.join("\n").trim();
-}
+};

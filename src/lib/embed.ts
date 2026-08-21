@@ -1,22 +1,21 @@
 import type { ConvertSuccess } from "./converter.js";
 import type { FxMedia, FxMediaItem, FxPoll, FxTweet } from "./fxtwitter.js";
+import type { HeaderMap, HttpPayload } from "./http.js";
 
 export const SITE_NAME = "x-lookup";
 export const THEME_COLOR = "#146c43";
 
 /** Social preview crawlers that should receive Open Graph HTML. */
 export const EMBED_UA_REGEX =
-  /discordbot|telegrambot|slackbot|slack-img|whatsapp|facebookexternalhit|facebot|linkedinbot|skypeuripreview|vkshare|pinterest|redditbot|embedly|iframely|steamchaturllookup|revoltchat|matrixpreviewbot/i;
+  /discordbot|telegrambot|slackbot|slack-img|whatsapp|facebookexternalhit|facebot|linkedinbot|skypeuripreview|vkshare|pinterest|redditbot|embedly|iframely|steamchaturllookup|revoltchat|matrixpreviewbot/iu;
 
-export const NATIVE_MULTI_IMAGE_UA_REGEX = /discordbot|matrixpreviewbot/i;
+export const NATIVE_MULTI_IMAGE_UA_REGEX = /discordbot|matrixpreviewbot/iu;
 
-export function isEmbedUserAgent(userAgent: string): boolean {
-  return EMBED_UA_REGEX.test(userAgent);
-}
+export const isEmbedUserAgent = (userAgent: string): boolean =>
+  EMBED_UA_REGEX.test(userAgent);
 
-export function supportsNativeMultiImage(userAgent: string): boolean {
-  return NATIVE_MULTI_IMAGE_UA_REGEX.test(userAgent);
-}
+export const supportsNativeMultiImage = (userAgent: string): boolean =>
+  NATIVE_MULTI_IMAGE_UA_REGEX.test(userAgent);
 
 export interface EmbedOptions {
   origin: string;
@@ -31,15 +30,24 @@ export interface OEmbedQuery {
   provider?: string | null;
 }
 
-function escapeAttr(value: string): string {
-  return value
+export interface OEmbedPayload {
+  author_name: string;
+  author_url: string;
+  provider_name: string;
+  provider_url: string;
+  title: string;
+  type: string;
+  version: string;
+}
+
+const escapeAttr = (value: string): string =>
+  value
     .replaceAll("&", "&amp;")
     .replaceAll('"', "&quot;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;");
-}
 
-export function formatCount(num: number): string {
+export const formatCount = (num: number): string => {
   if (num >= 1e6) {
     return `${(num / 1e6).toFixed(2)}M`;
   }
@@ -50,9 +58,9 @@ export function formatCount(num: number): string {
     return `${(num / 1e3).toFixed(1)}K`;
   }
   return String(num);
-}
+};
 
-export function socialProof(tweet: FxTweet): string | undefined {
+export const socialProof = (tweet: FxTweet): string | undefined => {
   const parts: string[] = [];
   if ((tweet.replies ?? 0) > 0) {
     parts.push(`💬 ${formatCount(tweet.replies ?? 0)}`);
@@ -67,17 +75,19 @@ export function socialProof(tweet: FxTweet): string | undefined {
     parts.push(`👁️ ${formatCount(tweet.views ?? 0)}`);
   }
   return parts.length ? parts.join("   ") : undefined;
-}
+};
 
-function quoteBlock(quote: FxTweet): string {
+const quoteBlock = (quote: FxTweet): string => {
   const name = quote.author?.name ?? "Unknown";
   const handle = quote.author?.screen_name;
   const header = handle ? `Quoting ${name} (@${handle})` : `Quoting ${name}`;
   const text = quote.text?.trim();
   return text ? `\n${header}\n\n${text}` : `\n${header}`;
-}
+};
 
-function pollBlock(poll: FxPoll, barLength = 32): string {
+const voteNoun = (count: number): string => (count === 1 ? "vote" : "votes");
+
+const pollBlock = (poll: FxPoll, barLength = 32): string => {
   const lines: string[] = [""];
   for (const choice of poll.choices ?? []) {
     const pct = choice.percentage ?? 0;
@@ -87,19 +97,18 @@ function pollBlock(poll: FxPoll, barLength = 32): string {
   }
   const votes = poll.total_votes;
   const timeLeft = poll.time_left_en;
-  const footer = [
-    votes == null ? undefined : `${votes} ${votes === 1 ? "vote" : "votes"}`,
-    timeLeft,
-  ]
+  const voteLabel =
+    votes === undefined ? undefined : `${votes} ${voteNoun(votes)}`;
+  const footer = [voteLabel, timeLeft]
     .filter((part): part is string => Boolean(part))
     .join(" · ");
   if (footer) {
     lines.push("", footer);
   }
   return `\n${lines.join("\n")}`;
-}
+};
 
-export function embedDescription(tweet: FxTweet): string {
+export const embedDescription = (tweet: FxTweet): string => {
   let text = tweet.text ?? "";
   if (tweet.poll && Array.isArray(tweet.poll.choices)) {
     text += pollBlock(tweet.poll);
@@ -108,12 +117,12 @@ export function embedDescription(tweet: FxTweet): string {
     text += quoteBlock(tweet.quote);
   }
   return text;
-}
+};
 
-export function pickFocalTweet(
+export const pickFocalTweet = (
   posts: FxTweet[],
   requestedId?: string
-): FxTweet | undefined {
+): FxTweet | undefined => {
   if (requestedId) {
     const match = posts.find((post) => post.id === requestedId);
     if (match) {
@@ -121,32 +130,37 @@ export function pickFocalTweet(
     }
   }
   return posts.find((post) => post.context === "post") ?? posts[0];
-}
+};
 
-function isPlayableMp4(url: string, contentType?: string): boolean {
+const isPlayableMp4 = (url: string, contentType?: string): boolean => {
   if (contentType === "video/mp4") {
     return true;
   }
-  return /\.mp4(?:$|[?#])/i.test(url);
-}
+  return /\.mp4(?:$|[?#])/iu.test(url);
+};
 
-function bestVideoUrl(item: FxMediaItem): string | undefined {
-  const mp4s = item.variants
-    ?.filter(
+const bestVideoUrl = (item: FxMediaItem): string | undefined => {
+  const [best] = (item.variants ?? [])
+    .filter(
       (variant) =>
-        variant.url && isPlayableMp4(variant.url, variant.content_type)
+        Boolean(variant.url) && isPlayableMp4(variant.url, variant.content_type)
     )
-    .sort((a, b) => (b.bitrate ?? 0) - (a.bitrate ?? 0));
-  if (mp4s?.[0]?.url) {
-    return mp4s[0].url;
+    .toSorted((a, b) => (b.bitrate ?? 0) - (a.bitrate ?? 0));
+  if (best?.url) {
+    return best.url;
   }
   if (item.url && isPlayableMp4(item.url, item.format)) {
     return item.url;
   }
   return undefined;
+};
+
+interface Dimensions {
+  height: number;
+  width: number;
 }
 
-function videoDimensions(item: FxMediaItem): { width: number; height: number } {
+const videoDimensions = (item: FxMediaItem): Dimensions => {
   let width = item.width ?? 1280;
   let height = item.height ?? 720;
   if (width > 1920 || height > 1920) {
@@ -157,17 +171,15 @@ function videoDimensions(item: FxMediaItem): { width: number; height: number } {
     height *= 2;
   }
   return { height, width };
-}
+};
 
-function firstVideo(media?: FxMedia): FxMediaItem | undefined {
-  return media?.videos?.[0] ?? media?.animated?.[0];
-}
+const firstVideo = (media?: FxMedia): FxMediaItem | undefined =>
+  media?.videos?.[0] ?? media?.animated?.[0];
 
-function mosaicUrl(media?: FxMedia): string | undefined {
-  return media?.mosaic?.formats?.jpeg ?? media?.mosaic?.formats?.webp;
-}
+const mosaicUrl = (media?: FxMedia): string | undefined =>
+  media?.mosaic?.formats?.jpeg ?? media?.mosaic?.formats?.webp;
 
-function photoTags(photo: FxMediaItem): string[] {
+const photoTags = (photo: FxMediaItem): string[] => {
   if (!photo.url) {
     return [];
   }
@@ -175,7 +187,7 @@ function photoTags(photo: FxMediaItem): string[] {
     `<meta property="twitter:image" content="${escapeAttr(photo.url)}">`,
     `<meta property="og:image" content="${escapeAttr(photo.url)}">`,
   ];
-  if (photo.width != null && photo.height != null) {
+  if (photo.width !== undefined && photo.height !== undefined) {
     const w = String(photo.width);
     const h = String(photo.height);
     tags.push(
@@ -193,9 +205,9 @@ function photoTags(photo: FxMediaItem): string[] {
     );
   }
   return tags;
-}
+};
 
-function videoTags(video: FxMediaItem): string[] {
+const videoTags = (video: FxMediaItem): string[] => {
   const url = bestVideoUrl(video);
   if (!url) {
     return [];
@@ -221,16 +233,18 @@ function videoTags(video: FxMediaItem): string[] {
     );
   }
   return tags;
-}
+};
 
 interface MediaPlan {
   card: "summary" | "summary_large_image" | "player";
   tags: string[];
 }
 
-function stillImagePlan(item: FxMediaItem | undefined): MediaPlan | undefined {
+const stillImagePlan = (
+  item: FxMediaItem | undefined
+): MediaPlan | undefined => {
   const url = item?.thumbnail_url ?? item?.url;
-  if (!url || /\.m3u8(?:$|[?#])/i.test(url)) {
+  if (!url || /\.m3u8(?:$|[?#])/iu.test(url)) {
     return undefined;
   }
   return {
@@ -240,69 +254,71 @@ function stillImagePlan(item: FxMediaItem | undefined): MediaPlan | undefined {
       `<meta property="og:image" content="${escapeAttr(url)}">`,
     ],
   };
-}
+};
 
-function mediaPlan(
-  tweet: FxTweet,
-  multiImage: boolean,
+const videoPlan = (
+  video: FxMediaItem,
   staticVideoFallback: boolean
-): MediaPlan {
-  const own = tweet.media;
-  const quoted = tweet.quote?.media;
-  const video = firstVideo(own) ?? firstVideo(quoted);
-  if (video) {
-    if (staticVideoFallback && video.thumbnail_url) {
-      const still = stillImagePlan(video);
-      if (still) {
-        return still;
-      }
-    }
-    if (bestVideoUrl(video)) {
-      return { card: "player", tags: videoTags(video) };
-    }
+): MediaPlan | undefined => {
+  if (staticVideoFallback && video.thumbnail_url) {
     const still = stillImagePlan(video);
     if (still) {
       return still;
     }
   }
+  if (bestVideoUrl(video)) {
+    return { card: "player", tags: videoTags(video) };
+  }
+  return stillImagePlan(video);
+};
 
-  const photos = own?.photos?.filter((photo) => photo.url) ?? [];
-  const quotedPhotos = quoted?.photos?.filter((photo) => photo.url) ?? [];
-  const ownMosaic = mosaicUrl(own);
-  const quotedMosaic = mosaicUrl(quoted);
+const mosaicTags = (mosaic: string): string[] => [
+  `<meta property="twitter:image" content="${escapeAttr(mosaic)}">`,
+  `<meta property="og:image" content="${escapeAttr(mosaic)}">`,
+];
 
+const imagePlan = (
+  mosaic: string | undefined,
+  photos: FxMediaItem[],
+  multiImage: boolean
+): MediaPlan | undefined => {
   if (photos.length > 1 && multiImage) {
     return { card: "summary_large_image", tags: photos.flatMap(photoTags) };
   }
-  if (ownMosaic && photos.length > 1) {
-    return {
-      card: "summary_large_image",
-      tags: [
-        `<meta property="twitter:image" content="${escapeAttr(ownMosaic)}">`,
-        `<meta property="og:image" content="${escapeAttr(ownMosaic)}">`,
-      ],
-    };
+  if (mosaic && photos.length > 1) {
+    return { card: "summary_large_image", tags: mosaicTags(mosaic) };
   }
-  if (photos[0]) {
-    return { card: "summary_large_image", tags: photoTags(photos[0]) };
+  const [first] = photos;
+  return first
+    ? { card: "summary_large_image", tags: photoTags(first) }
+    : undefined;
+};
+
+const mediaPlan = (
+  tweet: FxTweet,
+  multiImage: boolean,
+  staticVideoFallback: boolean
+): MediaPlan => {
+  const own = tweet.media;
+  const quoted = tweet.quote?.media;
+  const video = firstVideo(own) ?? firstVideo(quoted);
+  if (video) {
+    const plan = videoPlan(video, staticVideoFallback);
+    if (plan) {
+      return plan;
+    }
   }
-  if (quotedPhotos.length > 1 && multiImage) {
-    return {
-      card: "summary_large_image",
-      tags: quotedPhotos.flatMap(photoTags),
-    };
+
+  const ownPhotos = (own?.photos ?? []).filter((photo) => photo.url);
+  const ownPlan = imagePlan(mosaicUrl(own), ownPhotos, multiImage);
+  if (ownPlan) {
+    return ownPlan;
   }
-  if (quotedMosaic && quotedPhotos.length > 1) {
-    return {
-      card: "summary_large_image",
-      tags: [
-        `<meta property="twitter:image" content="${escapeAttr(quotedMosaic)}">`,
-        `<meta property="og:image" content="${escapeAttr(quotedMosaic)}">`,
-      ],
-    };
-  }
-  if (quotedPhotos[0]) {
-    return { card: "summary_large_image", tags: photoTags(quotedPhotos[0]) };
+
+  const quotedPhotos = (quoted?.photos ?? []).filter((photo) => photo.url);
+  const quotedPlan = imagePlan(mosaicUrl(quoted), quotedPhotos, multiImage);
+  if (quotedPlan) {
+    return quotedPlan;
   }
 
   const avatar = tweet.author?.avatar_url;
@@ -317,9 +333,12 @@ function mediaPlan(
     };
   }
   return { card: "summary", tags: [] };
-}
+};
 
-export function buildEmbedHtml(tweet: FxTweet, options: EmbedOptions): string {
+export const buildEmbedHtml = (
+  tweet: FxTweet,
+  options: EmbedOptions
+): string => {
   const handle = tweet.author?.screen_name ?? "i";
   const name = tweet.author?.name ?? handle;
   const id = tweet.id ?? "0";
@@ -332,7 +351,7 @@ export function buildEmbedHtml(tweet: FxTweet, options: EmbedOptions): string {
   const media = mediaPlan(
     tweet,
     multiImage,
-    /slackbot|slack-img/i.test(userAgent)
+    /slackbot|slack-img/iu.test(userAgent)
   );
   const oembed = new URL("/oembed", options.origin);
   oembed.searchParams.set("url", canonical);
@@ -365,13 +384,14 @@ ${tags.join("\n")}
 </head>
 <body></body>
 </html>`;
-}
+};
 
-export function embedResponse(
+export const embedResponse = (
   result: ConvertSuccess,
   options: EmbedOptions
-): { status: number; headers: Record<string, string>; body: string } {
-  const requestedId = result.canonicalUrl.match(/\/status\/(\d+)/)?.[1];
+): HttpPayload => {
+  const match = /\/status\/(?<id>\d+)/u.exec(result.canonicalUrl);
+  const requestedId = match?.groups?.id;
   const tweet = pickFocalTweet(result.posts, requestedId);
   if (!tweet) {
     return {
@@ -384,7 +404,7 @@ export function embedResponse(
     };
   }
 
-  const headers: Record<string, string> = {
+  const headers: HeaderMap = {
     "Content-Type": "text/html; charset=utf-8",
     Vary: "Accept, User-Agent",
     "X-Cache": result.cache.toUpperCase(),
@@ -399,12 +419,34 @@ export function embedResponse(
   }
 
   return { body: buildEmbedHtml(tweet, options), headers, status: 200 };
-}
+};
 
-export function oembedPayload(
+const parseStatusUrlSafe = (
+  raw: string
+): { handle: string; id: string; canonicalUrl: string } | undefined => {
+  try {
+    const parsed = new URL(raw);
+    const match = /^\/(?<handle>[^/?#]+)\/status\/(?<id>\d+)\/?$/u.exec(
+      parsed.pathname
+    );
+    const { handle = "", id = "" } = match?.groups ?? {};
+    if (!handle || !id) {
+      return undefined;
+    }
+    return {
+      canonicalUrl: `https://x.com/${handle}/status/${id}`,
+      handle,
+      id,
+    };
+  } catch {
+    return undefined;
+  }
+};
+
+export const oembedPayload = (
   query: OEmbedQuery,
   origin: string
-): Record<string, string> {
+): OEmbedPayload => {
   const fromUrl = query.url ? parseStatusUrlSafe(query.url) : undefined;
   const author = fromUrl?.handle || query.author || "i";
   const status = fromUrl?.id || query.status || "0";
@@ -420,38 +462,17 @@ export function oembedPayload(
     type: query.provider ? "rich" : "link",
     version: "1.0",
   };
-}
+};
 
-function parseStatusUrlSafe(
-  raw: string
-): { handle: string; id: string; canonicalUrl: string } | undefined {
-  try {
-    const parsed = new URL(raw);
-    const match = /^\/([^/?#]+)\/status\/(\d+)\/?$/.exec(parsed.pathname);
-    if (!match) {
-      return undefined;
-    }
-    return {
-      canonicalUrl: `https://x.com/${match[1]}/status/${match[2]}`,
-      handle: match[1],
-      id: match[2],
-    };
-  } catch {
-    return undefined;
-  }
-}
-
-export function oembedResponse(
+export const oembedResponse = (
   query: OEmbedQuery,
   origin: string
-): { status: number; headers: Record<string, string>; body: string } {
-  return {
-    body: JSON.stringify(oembedPayload(query, origin)),
-    headers: {
-      "Access-Control-Allow-Origin": "*",
-      "Cache-Control": "public, max-age=3600",
-      "Content-Type": "application/json; charset=utf-8",
-    },
-    status: 200,
-  };
-}
+): HttpPayload => ({
+  body: JSON.stringify(oembedPayload(query, origin)),
+  headers: {
+    "Access-Control-Allow-Origin": "*",
+    "Cache-Control": "public, max-age=3600",
+    "Content-Type": "application/json; charset=utf-8",
+  },
+  status: 200,
+});

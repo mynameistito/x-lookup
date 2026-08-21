@@ -17,11 +17,11 @@ export interface FetchResult {
 export type ContextMode = "full" | "thread";
 export type RepliesMode = "top" | "recent" | "off";
 
-function annotateAndDedupe(
+const annotateAndDedupe = (
   thread: FxTweet[],
   requestedId: string,
   replies: FxTweet[]
-): FxTweet[] {
+): FxTweet[] => {
   const requestedIndex = thread.findIndex((tweet) => tweet.id === requestedId);
   const seen = new Set<string>();
   const output: FxTweet[] = [];
@@ -34,25 +34,29 @@ function annotateAndDedupe(
     }
     output.push({ ...tweet, context });
   };
+  const contextFor = (tweet: FxTweet, index: number): FxTweet["context"] => {
+    if (tweet.id === requestedId) {
+      return "post";
+    }
+    return requestedIndex !== -1 && index < requestedIndex
+      ? "parent"
+      : "thread";
+  };
 
-  thread.forEach((tweet, index) => {
-    const context =
-      tweet.id === requestedId
-        ? "post"
-        : (requestedIndex >= 0 && index < requestedIndex
-          ? "parent"
-          : "thread");
-    add(tweet, context);
-  });
-  replies.forEach((tweet) => add(tweet, "reply"));
+  for (const [index, tweet] of thread.entries()) {
+    add(tweet, contextFor(tweet, index));
+  }
+  for (const tweet of replies) {
+    add(tweet, "reply");
+  }
   return output;
-}
+};
 
-function focalAuthorThread(
+const focalAuthorThread = (
   thread: FxTweet[],
   requestedId: string,
   requestedHandle: string
-): FxTweet[] {
+): FxTweet[] => {
   const focal = thread.find((tweet) => tweet.id === requestedId);
   const authorId = focal?.author?.id;
   const handle =
@@ -68,17 +72,13 @@ function focalAuthorThread(
       handle && tweet.author?.screen_name?.toLowerCase() === handle
     );
   });
-}
-
-function isHardNotFound(error: unknown): boolean {
-  return error instanceof ConvertError && error.code === "private_tweet";
-}
+};
 
 /** Free providers only: FxTwitter first, then Twitter's syndication endpoint. */
-async function fetchStatusWithFallback(
+const fetchStatusWithFallback = (
   handle: string,
   id: string
-): Promise<FetchResult> {
+): Promise<FetchResult> => {
   const attempts: (() => Promise<FetchResult>)[] = [
     async () => ({ source: "fxtwitter", tweets: [await fetchFxStatus(id)] }),
     async () => ({
@@ -87,45 +87,54 @@ async function fetchStatusWithFallback(
     }),
   ];
 
-  let lastError: unknown;
-  let notFound: ConvertError | undefined;
-
-  for (const attempt of attempts) {
+  const run = async (
+    index: number,
+    notFound?: ConvertError,
+    lastError?: ConvertError
+  ): Promise<FetchResult> => {
+    const attempt = attempts[index];
+    if (!attempt) {
+      throw (
+        notFound ??
+        lastError ??
+        new ConvertError(
+          502,
+          "All fetch providers failed.",
+          "all_providers_failed"
+        )
+      );
+    }
     try {
       return await attempt();
     } catch (error) {
-      lastError = error;
-      if (isHardNotFound(error)) {
+      if (error instanceof ConvertError && error.code === "private_tweet") {
         throw error;
       }
       // Prefer a truthful "missing" verdict from any provider over later
       // upstream failures when everything else failed.
-      if (!notFound && error instanceof ConvertError && error.status === 404) {
-        notFound = error;
-      }
-    }
-  }
-
-  if (notFound) {
-    throw notFound;
-  }
-
-  throw lastError instanceof ConvertError
-    ? lastError
-    : new ConvertError(
-        502,
-        "All fetch providers failed.",
-        "all_providers_failed"
+      const nextNotFound =
+        notFound ??
+        (error instanceof ConvertError && error.status === 404
+          ? error
+          : undefined);
+      return run(
+        index + 1,
+        nextNotFound,
+        error instanceof ConvertError ? error : lastError
       );
-}
+    }
+  };
 
-export async function fetchPosts(
+  return run(0);
+};
+
+export const fetchPosts = async (
   handle: string,
   id: string,
   threadMode: "off" | "full",
   contextMode: ContextMode = "full",
   repliesMode: RepliesMode = "top"
-): Promise<FetchResult> {
+): Promise<FetchResult> => {
   if (threadMode === "off") {
     const result = await fetchStatusWithFallback(handle, id);
     return { ...result, tweets: annotateAndDedupe(result.tweets, id, []) };
@@ -154,11 +163,11 @@ export async function fetchPosts(
       tweets: annotateAndDedupe(thread, id, replies),
     };
   } catch (error) {
-    if (isHardNotFound(error)) {
+    if (error instanceof ConvertError && error.code === "private_tweet") {
       throw error;
     }
   }
 
   const result = await fetchStatusWithFallback(handle, id);
   return { ...result, tweets: annotateAndDedupe(result.tweets, id, []) };
-}
+};

@@ -1,130 +1,117 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
+import type { Mock } from "vitest";
 
-vi.mock(import("../lib/browse.js"), () => ({
-  browse: vi.fn(),
-  browseResponse: vi.fn(),
-}));
-
-vi.mock(import("../lib/converter.js"), () => {
-  class TestConvertError extends Error {
-    readonly status: number;
-    readonly code?: string;
-    constructor(status: number, message: string, code?: string) {
-      super(message);
-      this.status = status;
-      this.code = code;
-    }
-  }
-  return {
-    ConvertError: TestConvertError,
-    acceptPrefersHtml: vi.fn(() => false),
-    convertTweet: vi.fn(),
-    markdownResponse: vi.fn(),
-  };
-});
-
-vi.mock(import("../lib/embed.js"), () => ({
-  embedResponse: vi.fn(),
-  isEmbedUserAgent: vi.fn(() => false),
-  oembedResponse: vi.fn(),
-}));
-
-import { browse, browseResponse } from "../lib/browse.js";
-import { ConvertError, convertTweet } from "../lib/converter.js";
 import { handleRequest } from "../router.js";
 
-const markdown = {
-  body: "# md\n",
-  headers: { "Content-Type": "text/markdown; charset=utf-8" },
-  status: 200,
+const respond = <T>(url: string, body: T, status = 200): Promise<Response> => {
+  if (!url.includes("api.fxtwitter.com")) {
+    return Promise.reject(new Error(`unexpected upstream: ${url}`));
+  }
+  return Promise.resolve(Response.json(body, { status }));
 };
+
+const stubFetch = (route: (url: string) => Promise<Response>): Mock => {
+  const fetchMock = vi.fn<(url: string) => Promise<Response>>(route);
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
+};
+
+const post = {
+  author: { name: "Ada", screen_name: "ada" },
+  id: "1",
+  text: "hello world",
+  url: "https://x.com/ada/status/1",
+};
+
+const stubFx = (): Mock =>
+  stubFetch((url) => {
+    if (url.includes("/2/search")) {
+      return respond(url, { code: 200, results: [post] });
+    }
+    if (url.includes("/statuses")) {
+      return respond(url, {
+        code: 200,
+        cursor: { bottom: "next" },
+        results: [post],
+      });
+    }
+    if (url.includes("/2/thread/") || url.includes("/2/conversation/")) {
+      return respond(url, { code: 200, results: [], thread: [post] });
+    }
+    return respond(url, {
+      code: 200,
+      user: { name: "Ada", screen_name: "ada" },
+    });
+  });
 
 const get = (path: string) => new Request(`http://localhost:8787${path}`);
 
-beforeEach(() => vi.clearAllMocks());
-
 describe("router routing", () => {
+  beforeEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   test("routes /search to the search resource with the query", async () => {
-    vi.mocked(browse).mockResolvedValue({ resource: "search" } as never);
-    vi.mocked(browseResponse).mockReturnValue(markdown);
+    const fetchMock = stubFx();
 
     const response = await handleRequest(get("/search?q=cloudflare&limit=3"));
 
-    expect(browse).toHaveBeenCalledWith(
-      expect.objectContaining({
-        limit: "3",
-        q: "cloudflare",
-        resource: "search",
-      }),
-      expect.anything()
-    );
     expect(response.status).toBe(200);
-    await expect(response.text()).resolves.toBe("# md\n");
+    expect(response.headers.get("Content-Type")).toContain("text/markdown");
+    await expect(response.text()).resolves.toContain("hello world");
+    const upstream = String(fetchMock.mock.calls[0]?.[0]);
+    expect(upstream).toContain("q=cloudflare");
+    expect(upstream).toContain("count=3");
   });
 
   test("routes profile, followers, and following handles", async () => {
-    vi.mocked(browse).mockResolvedValue({ resource: "profile" } as never);
-    vi.mocked(browseResponse).mockReturnValue(markdown);
+    const fetchMock = stubFx();
 
     await handleRequest(get("/mynameistito"));
     await handleRequest(get("/mynameistito/followers?limit=5"));
     await handleRequest(get("/mynameistito/following"));
 
-    expect(vi.mocked(browse).mock.calls[0]?.[0]).toMatchObject({
-      handle: "mynameistito",
-      resource: "profile",
-    });
-    expect(vi.mocked(browse).mock.calls[1]?.[0]).toMatchObject({
-      handle: "mynameistito",
-      limit: "5",
-      resource: "followers",
-    });
-    expect(vi.mocked(browse).mock.calls[2]?.[0]).toMatchObject({
-      handle: "mynameistito",
-      resource: "following",
-    });
+    const urls = fetchMock.mock.calls.map((call) => String(call[0]));
+    expect(
+      urls.some((url) => url.endsWith("/2/profile/mynameistito"))
+    ).toBeTruthy();
+    expect(
+      urls.some((url) => url.includes("/2/profile/mynameistito/followers"))
+    ).toBeTruthy();
+    expect(urls.some((url) => url.includes("count=5"))).toBeTruthy();
+    expect(
+      urls.some((url) => url.includes("/2/profile/mynameistito/following"))
+    ).toBeTruthy();
   });
 
   test("routes status rewrites to the converter with handle and id", async () => {
-    vi.mocked(convertTweet).mockResolvedValue({ source: "fxtwitter" } as never);
-    vi.mocked(
-      (await import("../lib/converter.js")).markdownResponse
-    ).mockReturnValue(markdown);
+    const fetchMock = stubFx();
 
     const response = await handleRequest(get("/ada/status/123?thread=full"));
 
-    expect(convertTweet).toHaveBeenCalledWith(
-      expect.objectContaining({ handle: "ada", id: "123", thread: "full" }),
-      expect.anything()
-    );
     expect(response.status).toBe(200);
+    const urls = fetchMock.mock.calls.map((call) => String(call[0]));
+    expect(urls.some((url) => url.includes("/2/thread/123"))).toBeTruthy();
   });
 
   test("serves /api/browse directly", async () => {
-    vi.mocked(browse).mockResolvedValue({ resource: "profile" } as never);
-    vi.mocked(browseResponse).mockReturnValue(markdown);
+    const fetchMock = stubFx();
 
-    await handleRequest(get("/api/browse?resource=profile&handle=ada"));
-
-    expect(browse).toHaveBeenCalledWith(
-      expect.objectContaining({ handle: "ada", resource: "profile" }),
-      expect.anything()
+    const response = await handleRequest(
+      get("/api/browse?resource=profile&handle=ada")
     );
+
+    expect(response.status).toBe(200);
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/2/profile/ada");
   });
 
-  test("maps ConvertError to its status and JSON body", async () => {
-    vi.mocked(browse).mockRejectedValue(
-      new ConvertError(
-        502,
-        "X search is unavailable upstream.",
-        "search_unavailable"
-      )
-    );
+  test("maps upstream search refusals to their status and JSON body", async () => {
+    stubFetch((url) => respond(url, { code: 404, message: "NOT_FOUND" }));
 
     const response = await handleRequest(get("/search?q=cloudflare"));
 
     expect(response.status).toBe(502);
-    await expect(response.json()).resolves.toStrictEqual({
+    await expect(response.json()).resolves.toMatchObject({
       code: "search_unavailable",
       error: "X search is unavailable upstream.",
     });
@@ -156,8 +143,7 @@ describe("router routing", () => {
   });
 
   test("supports HEAD requests on API routes", async () => {
-    vi.mocked(browse).mockResolvedValue({ resource: "search" } as never);
-    vi.mocked(browseResponse).mockReturnValue(markdown);
+    stubFx();
 
     const response = await handleRequest(
       new Request("http://localhost:8787/search?q=x", { method: "HEAD" })

@@ -13,6 +13,7 @@ import {
   searchFxStatuses,
 } from "./fxtwitter.js";
 import type { FxAuthor, FxListResponse, FxTweet } from "./fxtwitter.js";
+import type { HeaderMap, HttpPayload } from "./http.js";
 
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 50;
@@ -20,17 +21,20 @@ const MAX_PAGE = 10;
 
 export type BrowseResource = "profile" | "search" | "followers" | "following";
 
+type FlagValue = string | boolean | null;
+type CountValue = string | number | null;
+
 export interface BrowseInput {
   resource?: string | null;
   handle?: string | null;
   q?: string | null;
   feed?: string | null;
   cursor?: string | null;
-  page?: string | number | null;
-  limit?: string | number | null;
-  full?: string | boolean | null;
+  page?: CountValue;
+  limit?: CountValue;
+  full?: FlagValue;
   format?: string | null;
-  nocache?: string | boolean | null;
+  nocache?: FlagValue;
 }
 
 export interface BrowseResult {
@@ -48,21 +52,20 @@ export interface BrowseResult {
   cache: CacheStatus;
 }
 
-function positiveInt(
-  value: string | number | null | undefined,
+const positiveInt = (
+  value: CountValue | undefined,
   fallback: number
-): number {
-  const parsed = Number.parseInt(String(value ?? ""), 10);
+): number => {
+  const parsed = Math.trunc(Number(String(value ?? "")));
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
-}
+};
 
-function truthy(value: string | boolean | null | undefined): boolean {
-  return value === true || value === "true" || value === "1";
-}
+const truthy = (value?: FlagValue): boolean =>
+  value === true || value === "true" || value === "1";
 
-function validHandle(value: string | null | undefined): string {
-  const handle = (value ?? "").replace(/^@/, "");
-  if (!/^[A-Za-z0-9_]{1,15}$/.test(handle)) {
+const validHandle = (value?: string | null): string => {
+  const handle = (value ?? "").replace(/^@/u, "");
+  if (!/^[A-Za-z0-9_]{1,15}$/u.test(handle)) {
     throw new ConvertError(
       400,
       "A valid X handle is required.",
@@ -70,61 +73,61 @@ function validHandle(value: string | null | undefined): string {
     );
   }
   return handle;
-}
+};
 
-export function isOriginalPost(post: FxTweet): boolean {
-  return (
-    !post.replying_to && !post.replying_to_status?.length && !post.reposted_by
-  );
-}
+export const isOriginalPost = (post: FxTweet): boolean =>
+  !post.replying_to && !post.replying_to_status?.length && !post.reposted_by;
 
-async function walkPages<T>(
+const walkPages = <T>(
   page: number,
   cursor: string | undefined,
   fetchPage: (cursor?: string) => Promise<FxListResponse<T>>
-): Promise<FxListResponse<T>> {
-  let current = cursor;
-  let result: FxListResponse<T> = { results: [] };
-  const walks = cursor ? 1 : page;
-  for (let index = 0; index < walks; index += 1) {
-    result = await fetchPage(current);
-    if (index < walks - 1) {
-      current = result.cursor?.bottom;
-      if (!current) {
-        return { results: [] };
-      }
+): Promise<FxListResponse<T>> => {
+  const walk = async (
+    remaining: number,
+    current: string | undefined
+  ): Promise<FxListResponse<T>> => {
+    const result = await fetchPage(current);
+    if (remaining <= 1) {
+      return result;
     }
-  }
-  return result;
-}
+    const next = result.cursor?.bottom;
+    return next ? walk(remaining - 1, next) : { results: [] };
+  };
+  return walk(cursor ? 1 : page, cursor);
+};
 
-function postLine(post: FxTweet, full: boolean): string {
+const postLine = (post: FxTweet, full: boolean): string => {
   const handle = post.author?.screen_name ?? "unknown";
+  const profileUrl = `https://x.com/${handle}`;
   const url =
     post.url ??
-    (post.id
-      ? `https://x.com/${handle}/status/${post.id}`
-      : `https://x.com/${handle}`);
-  const text = (post.text ?? "").replaceAll(/\s+/g, " ").trim();
+    (post.id ? `https://x.com/${handle}/status/${post.id}` : profileUrl);
+  const text = (post.text ?? "").replaceAll(/\s+/gu, " ").trim();
+  const likes = post.likes ?? 0;
+  const reposts = post.retweets ?? 0;
+  const replies = post.replies ?? 0;
   const metrics = full
-    ? ` — ${post.likes ?? 0} likes, ${post.retweets ?? 0} reposts, ${post.replies ?? 0} replies`
+    ? ` — ${likes} likes, ${reposts} reposts, ${replies} replies`
     : "";
   const date = full && post.created_at ? ` (${post.created_at})` : "";
-  return `- [@${handle}](${`https://x.com/${handle}`}): ${text}${date}${metrics} [Source](${url})`;
-}
+  return `- [@${handle}](${profileUrl}): ${text}${date}${metrics} [Source](${url})`;
+};
 
-function userLine(user: FxAuthor, full: boolean): string {
+const userLine = (user: FxAuthor, full: boolean): string => {
   const handle = user.screen_name ?? "unknown";
-  const details = full
-    ? ` — ${user.followers ?? 0} followers${user.description ? ` — ${user.description.replaceAll(/\s+/g, " ")}` : ""}`
+  const bio = user.description
+    ? ` — ${user.description.replaceAll(/\s+/gu, " ")}`
     : "";
-  return `- [${user.name ?? `@${handle}`} (@${handle})](https://x.com/${handle})${details}`;
-}
+  const details = full ? ` — ${user.followers ?? 0} followers${bio}` : "";
+  const displayName = user.name ?? `@${handle}`;
+  return `- [${displayName} (@${handle})](https://x.com/${handle})${details}`;
+};
 
-function continuation(
+const continuation = (
   input: BrowseInput,
   result: Omit<BrowseResult, "markdown" | "cache">
-): string | undefined {
+): string | undefined => {
   if (!result.nextCursor) {
     return undefined;
   }
@@ -146,34 +149,33 @@ function continuation(
     }
     path = "/search";
   } else {
-    path = `/${result.handle}${result.resource === "profile" ? "" : `/${result.resource}`}`;
+    const suffix = result.resource === "profile" ? "" : `/${result.resource}`;
+    path = `/${result.handle}${suffix}`;
   }
   const cursorParams = new URLSearchParams(controls);
   cursorParams.set("cursor", result.nextCursor);
   const pageParams = new URLSearchParams(controls);
   pageParams.set("page", String(result.page + 1));
   return `[Continue →](${path}?${cursorParams.toString()}) · [Next page (${result.page + 1}) →](${path}?${pageParams.toString()})`;
-}
+};
 
-function renderMarkdown(
+const renderMarkdown = (
   input: BrowseInput,
   result: Omit<BrowseResult, "markdown" | "cache">,
   full: boolean
-): string {
+): string => {
   const lines: string[] = [];
   if (result.resource === "profile" && result.profile) {
-    const p = result.profile;
-    const handle = p.screen_name ?? result.handle ?? "unknown";
-    lines.push(
-      `# [${p.name ?? `@${handle}`} (@${handle})](https://x.com/${handle})`,
-      ""
-    );
-    if (p.description) {
-      lines.push(p.description, "");
+    const { profile } = result;
+    const handle = profile.screen_name ?? result.handle ?? "unknown";
+    const displayName = profile.name ?? `@${handle}`;
+    lines.push(`# [${displayName} (@${handle})](https://x.com/${handle})`, "");
+    if (profile.description) {
+      lines.push(profile.description, "");
     }
     if (full) {
       lines.push(
-        `Followers: ${p.followers ?? 0} · Following: ${p.following ?? 0} · Posts: ${p.statuses ?? 0}`,
+        `Followers: ${profile.followers ?? 0} · Following: ${profile.following ?? 0} · Posts: ${profile.statuses ?? 0}`,
         ""
       );
     }
@@ -199,16 +201,16 @@ function renderMarkdown(
     lines.push("", next);
   }
   return `${lines.join("\n").trim()}\n`;
-}
+};
 
 type BrowsePayload = Omit<BrowseResult, "cache">;
 
-async function browseUncached(
+const browseUncached = async (
   input: BrowseInput,
   resource: BrowseResource,
   page: number,
   limit: number
-): Promise<BrowsePayload> {
+): Promise<BrowsePayload> => {
   const full = truthy(input.full);
   if (resource === "search") {
     const query = input.q?.trim();
@@ -270,20 +272,26 @@ async function browseUncached(
     users: list.results.slice(0, limit),
   };
   return { ...base, markdown: renderMarkdown(input, base, full) };
-}
+};
 
-export async function browse(
+export const browse = async (
   input: BrowseInput,
   config: RuntimeConfig = memoryConfig()
-): Promise<BrowseResult> {
-  const resource = input.resource as BrowseResource;
-  if (!["profile", "search", "followers", "following"].includes(resource)) {
+): Promise<BrowseResult> => {
+  const { resource } = input;
+  if (
+    !resource ||
+    !["profile", "search", "followers", "following"].includes(resource)
+  ) {
     throw new ConvertError(
       400,
       "Unsupported browse resource.",
       "invalid_resource"
     );
   }
+  // SAFETY: the includes() check above verified resource against the
+  // BrowseResource union.
+  const typedResource = resource as BrowseResource;
   if (input.format && input.format !== "markdown" && input.format !== "json") {
     throw new ConvertError(
       400,
@@ -302,23 +310,23 @@ export async function browse(
     limit,
     page,
     q: input.q ?? "",
-    resource,
+    resource: typedResource,
     v: 2,
   });
   const cached = await withCache(
     key,
     truthy(input.nocache),
-    () => browseUncached(input, resource, page, limit),
+    () => browseUncached(input, typedResource, page, limit),
     config
   );
   return { ...cached.value, cache: cached.status };
-}
+};
 
-export function browseResponse(
+export const browseResponse = (
   result: BrowseResult,
   asJson: boolean
-): { status: number; headers: Record<string, string>; body: string } {
-  const headers: Record<string, string> = {
+): HttpPayload => {
+  const headers: HeaderMap = {
     "Content-Type": asJson
       ? "application/json; charset=utf-8"
       : "text/markdown; charset=utf-8",
@@ -336,4 +344,4 @@ export function browseResponse(
     headers,
     status: 200,
   };
-}
+};

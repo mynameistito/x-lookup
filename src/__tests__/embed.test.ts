@@ -131,19 +131,25 @@ describe("counts and description", () => {
 });
 
 describe("embed HTML", () => {
-  test("Discord gets repeated og:image tags and oEmbed discovery on the request origin", () => {
-    const html = buildEmbedHtml(photoTweet, {
-      origin: "https://x-lookup.mynameistito.com",
-      userAgent: "Discordbot/2.0",
-    });
+  const discordOptions = {
+    origin: "https://x-lookup.mynameistito.com",
+    userAgent: "Discordbot/2.0",
+  };
+
+  test("Discord gets core card metadata for multi-photo posts", () => {
+    const html = buildEmbedHtml(photoTweet, discordOptions);
     expect(html).toContain('og:title" content="Nathan (@nthglsn)"');
     expect(html).toContain(
       'og:description" content="&gt; X offers to sell the @claw handle'
     );
     expect(html).toContain('twitter:card" content="summary_large_image"');
+    expect(html).toContain('og:site_name" content="x-lookup"');
+  });
+
+  test("Discord gets repeated og:image tags and oEmbed discovery on the request origin", () => {
+    const html = buildEmbedHtml(photoTweet, discordOptions);
     expect(html).toContain('og:image" content="https://pbs.twimg.com/one.jpg"');
     expect(html).toContain('og:image" content="https://pbs.twimg.com/two.jpg"');
-    expect(html).toContain('og:site_name" content="x-lookup"');
     expect(html).toContain(
       'rel="alternate" type="application/json+oembed" href="https://x-lookup.mynameistito.com/oembed?url='
     );
@@ -154,7 +160,7 @@ describe("embed HTML", () => {
       origin: "https://x-lookup.mynameistito.com",
       userAgent: "TelegramBot (like TwitterBot)",
     });
-    expect(html.match(/og:image/g)).toHaveLength(1);
+    expect(html.match(/og:image/gu)).toHaveLength(1);
     expect(html).toContain("https://mosaic.fxtwitter.com/jpeg/one/two");
   });
 
@@ -165,7 +171,7 @@ describe("embed HTML", () => {
       media: {
         videos: [
           {
-            bitrate: 832000,
+            bitrate: 832_000,
             format: "video/mp4",
             height: 720,
             thumbnail_url: "https://img/thumb.jpg",
@@ -173,9 +179,9 @@ describe("embed HTML", () => {
             url: "https://video/high.mp4",
             variants: [
               {
-                url: "https://video/high.mp4",
+                bitrate: 832_000,
                 content_type: "video/mp4",
-                bitrate: 832000,
+                url: "https://video/high.mp4",
               },
             ],
             width: 1280,

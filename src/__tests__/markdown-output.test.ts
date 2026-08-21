@@ -20,14 +20,14 @@ const posts: FxTweet[] = [
           url: "https://video/high.mp4",
           variants: [
             {
-              url: "https://video/high.mp4",
-              content_type: "video/mp4",
               bitrate: 2000,
+              content_type: "video/mp4",
+              url: "https://video/high.mp4",
             },
             {
-              url: "https://video/low.mp4",
-              content_type: "video/mp4",
               bitrate: 500,
+              content_type: "video/mp4",
+              url: "https://video/low.mp4",
             },
           ],
           width: 1920,
@@ -67,7 +67,7 @@ describe("markdown output", () => {
     expect(full).toContain("Date: today");
   });
 
-  test("renders source URLs for every item and quote plus complete video metadata", () => {
+  test("renders source URLs for every item and quote", () => {
     const output = renderThreadMarkdown(posts, {
       canonicalUrl: "https://x.com/root/status/1",
       compact: true,
@@ -77,6 +77,15 @@ describe("markdown output", () => {
     expect(output).toContain("https://x.com/root/status/1");
     expect(output).toContain("https://x.com/root/status/2");
     expect(output).toContain("https://x.com/quote/status/9");
+  });
+
+  test("renders complete video metadata including variants", () => {
+    const output = renderThreadMarkdown(posts, {
+      canonicalUrl: "https://x.com/root/status/1",
+      compact: true,
+      format: "markdown",
+      userinfo: "off",
+    });
     expect(output).toContain("[video](https://video/high.mp4)");
     expect(output).toContain("duration: 1200ms · 1920×1080 · 2000bps");
     expect(output).toContain("https://video/low.mp4");
@@ -138,7 +147,7 @@ describe("markdown output", () => {
     );
 
     expect(output).toContain("Source: Unavailable (post identity missing)");
-    expect(output.match(/https:\/\/x\.com\/root\/status\/1/g)).toHaveLength(1);
+    expect(output.match(/https:\/\/x\.com\/root\/status\/1/gu)).toHaveLength(1);
   });
 
   test("userinfo levels inject author blocks once per author", () => {
@@ -151,7 +160,7 @@ describe("markdown output", () => {
     const author = renderThreadMarkdown(posts, { ...base, userinfo: "author" });
     const all = renderThreadMarkdown(posts, { ...base, userinfo: "all" });
     expect(off).not.toContain("### Author");
-    expect(author.match(/### Author/g)).toHaveLength(1);
-    expect(all.match(/### Author/g)).toHaveLength(1);
+    expect(author.match(/### Author/gu)).toHaveLength(1);
+    expect(all.match(/### Author/gu)).toHaveLength(1);
   });
 });
