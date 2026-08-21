@@ -1,4 +1,5 @@
-import { Effect, Layer } from "effect";
+import { Effect } from "effect";
+import type { Layer } from "effect";
 import { TestClock } from "effect/testing";
 import { describe, expect, test } from "vitest";
 
@@ -272,13 +273,15 @@ describe("cache configuration", () => {
     expect(buildCacheKey({ a: 1, b: 2 })).toBe("a=1&b=2");
   });
 
-  test("parses TTL once with the historical 3600-second fallback", () => {
-    expect(parseTtlSeconds("7200")).toBe(7200);
-    expect(parseTtlSeconds()).toBe(3600);
-    expect(parseTtlSeconds("-5")).toBe(3600);
-    expect(parseTtlSeconds("abc")).toBe(3600);
-    expect(parseTtlSeconds("0")).toBe(3600);
-    expect(parseTtlSeconds("2.9")).toBe(2);
+  test.each([
+    ["7200", 7200],
+    [undefined, 3600],
+    ["-5", 3600],
+    ["abc", 3600],
+    ["0", 3600],
+    ["2.9", 2],
+  ] as const)("parses TTL %s as %s seconds", (input, expected) => {
+    expect(parseTtlSeconds(input)).toBe(expected);
   });
 
   test("the in-memory Layer uses the default TTL", async () => {
@@ -298,9 +301,11 @@ describe("cache configuration", () => {
 
     const result = await runWithCache(program, layerMemory());
 
-    expect(result.first.status).toBe("miss");
-    expect(result.atBoundary.status).toBe("hit");
-    expect(result.expired.status).toBe("miss");
+    expect([
+      result.first.status,
+      result.atBoundary.status,
+      result.expired.status,
+    ]).toStrictEqual(["miss", "hit", "miss"]);
     expect(calls).toBe(2);
   });
 });

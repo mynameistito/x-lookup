@@ -1,4 +1,4 @@
-import { Clock, Context, Data, Effect, Layer, Option, Schema } from "effect";
+import { Clock, Context, Effect, Layer, Option, Result, Schema } from "effect";
 
 import type { Env } from "../env.js";
 import {
@@ -7,6 +7,7 @@ import {
   makeCacheApiStore,
 } from "./cache-api-store.js";
 import type { MinimalCache } from "./cache-api-store.js";
+import type { CacheEntry, CacheStore } from "./cache-store.js";
 
 export type CacheStatus = "hit" | "miss" | "bypass";
 
@@ -27,61 +28,35 @@ export const DEFAULT_TTL_SECONDS: CacheTtlSeconds = Option.getOrThrow(
   decodeTtl(3600)
 );
 
-export interface CacheEntry<T> {
-  readonly expiresAt: number;
-  readonly value: T;
-}
-
-export class CacheStoreError extends Data.TaggedError("CacheStoreError")<{
-  readonly cause: unknown;
-  readonly operation: "get" | "set";
-}> {}
-
-/** Technology-independent store contract owned by the cache authority seam. */
-export interface CacheStore {
-  readonly get: <T>(
-    key: string
-  ) => Effect.Effect<CacheEntry<T> | undefined, CacheStoreError>;
-  readonly set: <T>(
-    key: string,
-    value: T,
-    ttlSeconds: number
-  ) => Effect.Effect<void, CacheStoreError>;
-}
-
 const MAX_MEMORY_ENTRIES = 500;
 
-interface MemoryEnvelope<T> {
-  readonly entry: CacheEntry<T>;
-}
-
-const sharedMemoryMap = new Map<string, MemoryEnvelope<unknown>>();
+const sharedMemoryMap = new Map<string, CacheEntry<unknown>>();
 
 /** L1 store shared per isolate unless an explicit map is supplied. */
 export class MemoryStore implements CacheStore {
-  private readonly map: Map<string, MemoryEnvelope<unknown>>;
+  private readonly map: Map<string, CacheEntry<unknown>>;
 
-  constructor(map?: Map<string, MemoryEnvelope<unknown>>) {
+  constructor(map?: Map<string, CacheEntry<unknown>>) {
     this.map = map ?? sharedMemoryMap;
   }
 
   get<T>(key: string): Effect.Effect<CacheEntry<T> | undefined> {
-    const map = this.map;
+    const { map } = this;
     return Effect.gen(function* memoryGet() {
       // SAFETY: values are only inserted by set() using the same cache key.
-      const envelope = map.get(key) as MemoryEnvelope<T> | undefined;
-      if (!envelope) {
-        return undefined;
+      const entry = map.get(key) as CacheEntry<T> | undefined;
+      if (!entry) {
+        return;
       }
       const now = yield* Clock.currentTimeMillis;
-      if (now > envelope.entry.expiresAt) {
+      if (now > entry.expiresAt) {
         map.delete(key);
-        return undefined;
+        return;
       }
       // Refresh recency for the LRU cap.
       map.delete(key);
-      map.set(key, envelope);
-      return envelope.entry;
+      map.set(key, entry);
+      return entry;
     });
   }
 
@@ -90,18 +65,15 @@ export class MemoryStore implements CacheStore {
     value: T,
     ttlSeconds: number
   ): Effect.Effect<void> {
-    const map = this.map;
+    const { map } = this;
     return Effect.gen(function* memorySet() {
       const now = yield* Clock.currentTimeMillis;
-      map.set(key, {
-        entry: { expiresAt: now + ttlSeconds * 1000, value },
-      });
-      while (map.size > MAX_MEMORY_ENTRIES) {
-        const oldest = map.keys().next().value;
-        if (oldest === undefined) {
-          break;
+      map.set(key, { expiresAt: now + ttlSeconds * 1000, value });
+      if (map.size > MAX_MEMORY_ENTRIES) {
+        const { value: oldest } = map.keys().next();
+        if (oldest !== undefined) {
+          map.delete(oldest);
         }
-        map.delete(oldest);
       }
     });
   }
@@ -138,24 +110,22 @@ export class Cache extends Context.Service<Cache, CacheService>()(
   "x-lookup/lib/Cache"
 ) {}
 
+const writeBestEffort = <T>(
+  stores: readonly CacheStore[],
+  key: string,
+  value: T,
+  ttlSeconds: number
+): Effect.Effect<void> =>
+  Effect.gen(function* writeConfiguredStores() {
+    for (const store of stores) {
+      yield* Effect.ignore(store.set(key, value, ttlSeconds));
+    }
+  });
+
 const makeCache = (
   stores: readonly CacheStore[],
   ttlSeconds: CacheTtlSeconds
 ): Cache["Service"] => {
-  const writeBestEffort = <T>(
-    targets: readonly CacheStore[],
-    key: string,
-    value: T,
-    ttl: number
-  ): Effect.Effect<void> =>
-    Effect.gen(function* writeConfiguredStores() {
-      for (const store of targets) {
-        yield* store.set(key, value, ttl).pipe(
-          Effect.catch(() => Effect.void)
-        );
-      }
-    });
-
   const getOrLoad: CacheService["getOrLoad"] = <A, E, R>(
     key: string,
     bypass: boolean,
@@ -170,16 +140,10 @@ const makeCache = (
         | { readonly entry: CacheEntry<A>; readonly index: number }
         | undefined;
 
-      for (let index = 0; index < stores.length; index += 1) {
-        const store = stores[index];
-        if (!store) {
-          continue;
-        }
-        const hit = yield* store.get<A>(key).pipe(
-          Effect.catch(() => Effect.succeed(undefined))
-        );
-        if (hit !== undefined) {
-          found = { entry: hit, index };
+      for (const [index, store] of stores.entries()) {
+        const attempt = yield* Effect.result(store.get<A>(key));
+        if (Result.isSuccess(attempt) && attempt.success !== undefined) {
+          found = { entry: attempt.success, index };
           break;
         }
       }
@@ -215,8 +179,7 @@ const layerForStores = (
 /** Complete isolated in-memory implementation suitable for deterministic tests. */
 export const layerMemory = (
   ttlSeconds: CacheTtlSeconds = DEFAULT_TTL_SECONDS
-): Layer.Layer<Cache> =>
-  layerForStores([new MemoryStore(new Map())], ttlSeconds);
+): Layer.Layer<Cache> => layerForStores([new MemoryStore(new Map())], ttlSeconds);
 
 /** Isolate-shared memory implementation used by the temporary Promise bridges. */
 export const layerIsolateMemory = (
@@ -271,7 +234,7 @@ export const layerWorker = (env: Env): Layer.Layer<Cache> => {
 export const buildCacheKey = (parts: Record<string, string | number>): string =>
   Object.entries(parts)
     .toSorted(([a], [b]) => a.localeCompare(b))
-    .map(([k, v]) => `${k}=${v}`)
+    .map(([key, value]) => `${key}=${value}`)
     .join("&");
 
 export const cacheControlHeader = (): string =>

@@ -254,8 +254,8 @@ export const convertTweetEffect = (
     });
 
     const cache = yield* Cache;
-    return yield* cache
-      .getOrLoad(
+    const cached = yield* Effect.result(
+      cache.getOrLoad(
         cacheKey,
         request.nocache,
         Effect.tryPromise({
@@ -263,16 +263,17 @@ export const convertTweetEffect = (
           try: () => convertTweetUncached(request),
         })
       )
-      .pipe(
-        Effect.map(({ status, value }) =>
-          Result.succeed({ ...value, cache: status })
-        ),
-        Effect.catch((error) =>
-          error instanceof ConvertError
-            ? Effect.succeed(Result.fail(error))
-            : Effect.die(error)
-        )
-      );
+    );
+    if (Result.isFailure(cached)) {
+      if (cached.failure instanceof ConvertError) {
+        return Result.fail(cached.failure);
+      }
+      return yield* Effect.die(cached.failure);
+    }
+    return Result.succeed({
+      ...cached.success.value,
+      cache: cached.success.status,
+    });
   });
 
 const defaultCacheLayer = layerIsolateMemory();

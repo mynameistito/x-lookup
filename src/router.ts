@@ -4,7 +4,8 @@ import { ROOT_MARKDOWN } from "./docs.js";
 import type { Env } from "./env.js";
 import { browseEffect, browseResponse } from "./lib/browse.js";
 import type { BrowseFailure } from "./lib/browse.js";
-import { Cache, layerWorker } from "./lib/cache.js";
+import { layerWorker } from "./lib/cache.js";
+import type { Cache } from "./lib/cache.js";
 import {
   acceptPrefersHtml,
   convertTweetEffect,
