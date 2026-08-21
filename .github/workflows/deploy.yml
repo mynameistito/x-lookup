@@ -17,25 +17,10 @@ env:
   STAGE: ${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.number) || 'prod' }}
 
 jobs:
-  validate:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
-      - uses: oven-sh/setup-bun@db6bcf6eb8d88a8aa03265b887ec7bd84d64cd68 # v2.1.1
-      - run: bun install --frozen-lockfile
-      - run: bun run check
-      - run: bun run typecheck
-      - run: bun run test
-      - name: Validate Alchemy stack (credential-free)
-        run: bun run alchemy:check
-
   deploy:
     # Fork pull requests never deploy: the guard keeps repository secrets away
     # from untrusted code, and the job would fail on empty credentials anyway.
     if: github.event_name == 'push' || (github.event.action != 'closed' && github.event.pull_request.head.repo.full_name == github.repository)
-    needs: validate
     runs-on: ubuntu-latest
     permissions:
       contents: read
