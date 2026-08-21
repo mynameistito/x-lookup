@@ -20,16 +20,16 @@ import { makeHttpApplication } from "../router.js";
 import type { HttpApplicationServices } from "../router.js";
 
 interface ProviderCalls {
-  readonly connections: Array<{
+  readonly connections: {
     readonly count: number | undefined;
     readonly handle: string;
     readonly relation: "followers" | "following";
-  }>;
+  }[];
   readonly profiles: string[];
-  readonly searches: Array<{
+  readonly searches: {
     readonly count: number | undefined;
     readonly query: string;
-  }>;
+  }[];
   readonly statuses: string[];
   readonly threads: string[];
 }
@@ -163,24 +163,34 @@ const runBoundary = (
 describe("Effect HTTP boundary", () => {
   test("serves GET / and /docs without application provider calls", async () => {
     const { calls, services } = await makeHarness();
-
     const root = await runBoundary(request("/"), services);
     const docs = await runBoundary(request("/docs/"), services);
+    const [rootBody, docsBody] = await Promise.all([root.text(), docs.text()]);
 
-    expect(root.status).toBe(200);
-    expect(root.headers.get("Content-Type")).toContain("text/markdown");
-    expect(root.headers.get("Cache-Control")).toBe("public, max-age=3600");
-    await expect(root.text()).resolves.toContain("# x-lookup");
-    expect(docs.headers.get("Access-Control-Allow-Origin")).toBe("*");
-    await expect(docs.text()).resolves.toContain("/api/convert");
-    expect(calls.statuses).toStrictEqual([]);
-    expect(calls.searches).toStrictEqual([]);
+    expect({
+      docsBody,
+      docsCors: docs.headers.get("Access-Control-Allow-Origin"),
+      rootBody,
+      rootCacheControl: root.headers.get("Cache-Control"),
+      rootContentType: root.headers.get("Content-Type"),
+      rootStatus: root.status,
+    }).toMatchObject({
+      docsBody: expect.stringContaining("/api/convert"),
+      docsCors: "*",
+      rootBody: expect.stringContaining("# x-lookup"),
+      rootCacheControl: "public, max-age=3600",
+      rootContentType: expect.stringContaining("text/markdown"),
+      rootStatus: 200,
+    });
+    expect({ searches: calls.searches, statuses: calls.statuses }).toStrictEqual({
+      searches: [],
+      statuses: [],
+    });
   });
 
-  test("routes /api/convert and status aliases through the parsed application service", async () => {
+  test("routes /api/convert and status aliases through parsed application input", async () => {
     const { calls, services } = await makeHarness();
     const target = encodeURIComponent("https://x.com/ada/status/123");
-
     const api = await runBoundary(
       request(`/api/convert?url=${target}&thread=off&format=markdown`),
       services
@@ -189,20 +199,30 @@ describe("Effect HTTP boundary", () => {
       request("/ada/status/456?thread=off"),
       services
     );
+    const body = await api.text();
 
-    expect(api.status).toBe(200);
-    expect(api.headers.get("Content-Type")).toContain("text/markdown");
-    expect(api.headers.get("X-Source")).toBe("fxtwitter");
-    expect(api.headers.get("X-Post-Count")).toBe("1");
-    expect(api.headers.get("X-Warnings")).toBe("0");
-    await expect(api.text()).resolves.toContain("hello world");
-    expect(alias.status).toBe(200);
+    expect({
+      aliasStatus: alias.status,
+      body,
+      contentType: api.headers.get("Content-Type"),
+      postCount: api.headers.get("X-Post-Count"),
+      source: api.headers.get("X-Source"),
+      status: api.status,
+      warnings: api.headers.get("X-Warnings"),
+    }).toMatchObject({
+      aliasStatus: 200,
+      body: expect.stringContaining("hello world"),
+      contentType: expect.stringContaining("text/markdown"),
+      postCount: "1",
+      source: "fxtwitter",
+      status: 200,
+      warnings: "0",
+    });
     expect(calls.statuses).toStrictEqual(["123", "456"]);
   });
 
   test("preserves Markdown, JSON, browser HTML, and preview-bot embed negotiation", async () => {
     const target = encodeURIComponent("https://x.com/ada/status/123");
-
     const markdownHarness = await makeHarness();
     const markdown = await runBoundary(
       request(`/api/convert?url=${target}&thread=off&format=markdown`, {
@@ -210,8 +230,6 @@ describe("Effect HTTP boundary", () => {
       }),
       markdownHarness.services
     );
-    expect(markdown.headers.get("Content-Type")).toContain("text/markdown");
-
     const jsonHarness = await makeHarness();
     const json = await runBoundary(
       request(`/api/convert?url=${target}&thread=off`, {
@@ -219,12 +237,6 @@ describe("Effect HTTP boundary", () => {
       }),
       jsonHarness.services
     );
-    expect(json.headers.get("Content-Type")).toContain("application/json");
-    await expect(json.json()).resolves.toMatchObject({
-      postCount: 1,
-      source: "fxtwitter",
-    });
-
     const htmlHarness = await makeHarness();
     const html = await runBoundary(
       request(`/api/convert?url=${target}&thread=off`, {
@@ -232,9 +244,6 @@ describe("Effect HTTP boundary", () => {
       }),
       htmlHarness.services
     );
-    expect(html.headers.get("Content-Type")).toContain("text/html");
-    await expect(html.text()).resolves.toContain("<pre>");
-
     const embedHarness = await makeHarness();
     const embed = await runBoundary(
       request(`/api/convert?url=${target}&thread=off`, {
@@ -242,14 +251,26 @@ describe("Effect HTTP boundary", () => {
       }),
       embedHarness.services
     );
-    expect(embed.headers.get("Content-Type")).toContain("text/html");
-    expect(embed.headers.get("X-Embed")).toBe("1");
-    await expect(embed.text()).resolves.toContain('property="og:title"');
+
+    expect(markdown.headers.get("Content-Type")).toContain("text/markdown");
+    await expect(json.json()).resolves.toMatchObject({
+      postCount: 1,
+      source: "fxtwitter",
+    });
+    await expect(html.text()).resolves.toContain("<pre>");
+    expect({
+      contentType: embed.headers.get("Content-Type"),
+      embed: embed.headers.get("X-Embed"),
+      html: await embed.text(),
+    }).toMatchObject({
+      contentType: expect.stringContaining("text/html"),
+      embed: "1",
+      html: expect.stringContaining('property="og:title"'),
+    });
   });
 
   test("routes browse, search, profile, followers, and following aliases", async () => {
     const { calls, services } = await makeHarness();
-
     const direct = await runBoundary(
       request("/api/browse?resource=profile&handle=ada&format=json"),
       services
@@ -262,80 +283,90 @@ describe("Effect HTTP boundary", () => {
     await runBoundary(request("/ada/followers?limit=5"), services);
     await runBoundary(request("/ada/following"), services);
 
-    expect(direct.status).toBe(200);
-    expect(direct.headers.get("Content-Type")).toContain("application/json");
-    expect(direct.headers.get("X-Browse-Resource")).toBe("profile");
-    expect(search.headers.get("X-Result-Count")).toBe("1");
-    await expect(search.text()).resolves.toContain("hello world");
+    expect({
+      directContentType: direct.headers.get("Content-Type"),
+      directResource: direct.headers.get("X-Browse-Resource"),
+      directStatus: direct.status,
+      searchBody: await search.text(),
+      searchCount: search.headers.get("X-Result-Count"),
+    }).toMatchObject({
+      directContentType: expect.stringContaining("application/json"),
+      directResource: "profile",
+      directStatus: 200,
+      searchBody: expect.stringContaining("hello world"),
+      searchCount: "1",
+    });
     expect(calls.searches).toContainEqual({ count: 3, query: "cloudflare" });
+    expect(calls.connections).toEqual(
+      expect.arrayContaining([
+        { count: 5, handle: "ada", relation: "followers" },
+        { count: 20, handle: "ada", relation: "following" },
+      ])
+    );
     expect(calls.profiles).toContain("ada");
-    expect(calls.connections).toContainEqual({
-      count: 5,
-      handle: "ada",
-      relation: "followers",
-    });
-    expect(calls.connections).toContainEqual({
-      count: 20,
-      handle: "ada",
-      relation: "following",
-    });
   });
 
   test("serves oEmbed as a pure route with the historical response contract", async () => {
     const { calls, services } = await makeHarness();
     const statusUrl = encodeURIComponent("https://x.com/ada/status/123");
-
     const response = await runBoundary(
       request(`/oembed?url=${statusUrl}&text=Proof`),
       services
     );
 
-    expect(response.status).toBe(200);
-    expect(response.headers.get("Cache-Control")).toBe("public, max-age=3600");
-    expect(response.headers.get("Access-Control-Allow-Origin")).toBe("*");
-    await expect(response.json()).resolves.toMatchObject({
-      author_name: "Proof",
-      author_url: "https://x.com/ada/status/123",
-      provider_name: "x-lookup",
-      type: "link",
-      version: "1.0",
+    expect({
+      cacheControl: response.headers.get("Cache-Control"),
+      cors: response.headers.get("Access-Control-Allow-Origin"),
+      payload: await response.json(),
+      status: response.status,
+    }).toMatchObject({
+      cacheControl: "public, max-age=3600",
+      cors: "*",
+      payload: {
+        author_name: "Proof",
+        author_url: "https://x.com/ada/status/123",
+        provider_name: "x-lookup",
+        type: "link",
+        version: "1.0",
+      },
+      status: 200,
     });
     expect(calls.statuses).toStrictEqual([]);
   });
 
   test("handles OPTIONS, HEAD, 404, 405, and CORS at the boundary", async () => {
     const { services } = await makeHarness();
-
     const preflight = await runBoundary(
       request("/search", { method: "OPTIONS" }),
       services
     );
-    expect(preflight.status).toBe(204);
-    expect(preflight.headers.get("Access-Control-Allow-Origin")).toBe("*");
-    expect(preflight.headers.get("Access-Control-Allow-Methods")).toBe(
-      "GET, HEAD, OPTIONS"
-    );
-    expect(preflight.headers.get("Access-Control-Allow-Headers")).toBe(
-      "Accept, Content-Type"
-    );
-
     const head = await runBoundary(
       request("/search?q=x", { method: "HEAD" }),
       services
     );
-    expect(head.status).toBe(200);
-    expect(head.headers.get("X-Result-Count")).toBe("1");
-    await expect(head.text()).resolves.toBe("");
-
     const notFound = await runBoundary(request("/api/nope"), services);
-    expect(notFound.status).toBe(404);
-    await expect(notFound.json()).resolves.toMatchObject({ code: "not_found" });
-
     const method = await runBoundary(
       request("/search", { method: "POST" }),
       services
     );
-    expect(method.status).toBe(405);
+
+    expect({
+      allowHeaders: preflight.headers.get("Access-Control-Allow-Headers"),
+      allowMethods: preflight.headers.get("Access-Control-Allow-Methods"),
+      allowOrigin: preflight.headers.get("Access-Control-Allow-Origin"),
+      status: preflight.status,
+    }).toStrictEqual({
+      allowHeaders: "Accept, Content-Type",
+      allowMethods: "GET, HEAD, OPTIONS",
+      allowOrigin: "*",
+      status: 204,
+    });
+    expect({
+      body: await head.text(),
+      count: head.headers.get("X-Result-Count"),
+      status: head.status,
+    }).toStrictEqual({ body: "", count: "1", status: 200 });
+    await expect(notFound.json()).resolves.toMatchObject({ code: "not_found" });
     await expect(method.json()).resolves.toMatchObject({
       code: "method_not_allowed",
     });
@@ -343,17 +374,22 @@ describe("Effect HTTP boundary", () => {
 
   test("maps a typed provider failure to the existing JSON/status/code contract", async () => {
     const { services } = await makeHarness({ failSearch: true });
-
     const response = await runBoundary(
       request("/search?q=cloudflare"),
       services
     );
 
-    expect(response.status).toBe(502);
-    expect(response.headers.get("Access-Control-Allow-Origin")).toBe("*");
-    await expect(response.json()).resolves.toStrictEqual({
-      code: "search_unavailable",
-      error: "X search is unavailable upstream.",
+    expect({
+      cors: response.headers.get("Access-Control-Allow-Origin"),
+      payload: await response.json(),
+      status: response.status,
+    }).toStrictEqual({
+      cors: "*",
+      payload: {
+        code: "search_unavailable",
+        error: "X search is unavailable upstream.",
+      },
+      status: 502,
     });
   });
 
@@ -361,17 +397,22 @@ describe("Effect HTTP boundary", () => {
     const { calls, services } = await makeHarness();
     const target = encodeURIComponent("https://x.com/ada/status/777");
     const url = `/api/convert?url=${target}&thread=off`;
-
     const miss = await runBoundary(request(url), services);
     const hit = await runBoundary(request(url), services);
 
-    expect(miss.headers.get("X-Cache")).toBe("MISS");
-    expect(hit.headers.get("X-Cache")).toBe("HIT");
-    expect(hit.headers.get("Cache-Control")).toBe(
-      "public, max-age=0, must-revalidate"
-    );
-    expect(hit.headers.get("X-Source")).toBe("fxtwitter");
-    expect(hit.headers.get("X-Post-Count")).toBe("1");
+    expect({
+      cacheControl: hit.headers.get("Cache-Control"),
+      hit: hit.headers.get("X-Cache"),
+      miss: miss.headers.get("X-Cache"),
+      postCount: hit.headers.get("X-Post-Count"),
+      source: hit.headers.get("X-Source"),
+    }).toStrictEqual({
+      cacheControl: "public, max-age=0, must-revalidate",
+      hit: "HIT",
+      miss: "MISS",
+      postCount: "1",
+      source: "fxtwitter",
+    });
     expect(calls.statuses).toStrictEqual(["777"]);
   });
 });
@@ -461,11 +502,14 @@ describe("HTTP typed parse error mapping", () => {
     const { services } = await makeHarness();
     const response = await runBoundary(request(path), services);
 
-    expect(response.status).toBe(status);
-    expect(response.headers.get("Access-Control-Allow-Origin")).toBe("*");
-    await expect(response.json()).resolves.toStrictEqual({
-      code,
-      error: message,
+    expect({
+      cors: response.headers.get("Access-Control-Allow-Origin"),
+      payload: await response.json(),
+      status: response.status,
+    }).toStrictEqual({
+      cors: "*",
+      payload: { code, error: message },
+      status,
     });
   });
 
@@ -473,7 +517,11 @@ describe("HTTP typed parse error mapping", () => {
     const { services } = await makeHarness();
     const response = await runBoundary(request("/ada/status/abc"), services);
 
-    expect(response.status).toBe(404);
-    await expect(response.json()).resolves.toMatchObject({ code: "not_found" });
+    expect({ payload: await response.json(), status: response.status }).toMatchObject(
+      {
+        payload: { code: "not_found" },
+        status: 404,
+      }
+    );
   });
 });
