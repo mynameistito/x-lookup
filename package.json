@@ -8,6 +8,7 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
+    "alchemy:check": "vitest --run src/__tests__/alchemy-stack.test.ts",
     "test": "vitest --run",
     "typecheck": "tsc --noEmit",
     "check": "ultracite check",
