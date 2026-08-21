@@ -51,11 +51,15 @@ export interface WorkerIdentity {
  * Decide the Worker's resource identity for one Alchemy stage.
  *
  * `prod` pins the physical script name and custom domain so Alchemy adopts
- * the existing Wrangler-era deployment in place; every other stage (local
- * dev, PR previews) derives an isolated identity.
+ * the existing Wrangler-era deployment in place. Every other stage (local
+ * dev, PR previews) gets the deterministic, stage-scoped name
+ * `x-lookup-<stage>`, keeping previews isolated from production without
+ * random suffixes.
  */
 export const resolveWorkerIdentity = (stage: string): WorkerIdentity =>
-  stage === PROD_STAGE ? { domain: CUSTOM_DOMAIN, name: WORKER_NAME } : {};
+  stage === PROD_STAGE
+    ? { domain: CUSTOM_DOMAIN, name: WORKER_NAME }
+    : { name: `${WORKER_NAME}-${stage}` };
 
 /**
  * Production composition root for application capabilities.

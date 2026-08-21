@@ -74,8 +74,14 @@ describe(resolveWorkerIdentity, () => {
   });
 
   test("derives an isolated identity for local dev and PR preview stages", () => {
-    expect(resolveWorkerIdentity("dev_mynameistito")).toStrictEqual({});
-    expect(resolveWorkerIdentity("pr-7")).toStrictEqual({});
-    expect(resolveWorkerIdentity("test")).toStrictEqual({});
+    expect(resolveWorkerIdentity("pr-7")).toStrictEqual({
+      name: "x-lookup-pr-7",
+    });
+    expect(resolveWorkerIdentity("dev_mynameistito")).toStrictEqual({
+      name: "x-lookup-dev_mynameistito",
+    });
+    expect(resolveWorkerIdentity("test")).toStrictEqual({
+      name: "x-lookup-test",
+    });
   });
 });
