@@ -19,17 +19,11 @@ import type {
   InvalidBrowseResource,
   MissingSearchQuery,
 } from "./browse-query.js";
-import {
-  Cache,
-  buildCacheKey,
-  cacheControlHeader,
-  layerIsolateMemory,
-} from "./cache.js";
+import { Cache, buildCacheKey, cacheControlHeader } from "./cache.js";
 import type { CacheStatus } from "./cache.js";
 import type { FxAuthor, FxListResponse, FxTweet } from "./fxtwitter.js";
 import type { HeaderMap, HttpPayload } from "./http.js";
 import type { FxTwitterFailure } from "./provider-errors.js";
-import { layerFxTwitter } from "./provider-service-adapter.js";
 import { FxTwitter } from "./provider-service.js";
 import { parseBrowseFlag } from "./query-flag.js";
 import { parse as parseXHandle } from "./x-handle.js";
@@ -379,7 +373,7 @@ const makeBrowse = Effect.gen(function* makeBrowseService() {
   const browse = Effect.fn("Browse.browse")(function* browseEffect(
     request: BrowseRequest
   ) {
-    const selection = request.selection;
+    const { selection } = request;
     const key = buildCacheKey({
       cursor: request.cursor ?? "",
       feed: selection._tag === "search" ? selection.feed : "",
@@ -423,16 +417,6 @@ export const browseEffect = (
     }
     return yield* browseRequestEffect(parsed.success);
   });
-
-const legacyBrowseLayer = layerBrowseWithoutDependencies.pipe(
-  Layer.provide([layerIsolateMemory(), layerFxTwitter])
-);
-
-/** Promise compatibility bridge for callers not yet migrated to Effect. */
-export const browse = (input: BrowseInput) =>
-  Effect.runPromise(
-    Effect.result(Effect.provide(browseEffect(input), legacyBrowseLayer))
-  );
 
 export const browseResponse = (
   result: BrowseResult,
