@@ -229,11 +229,7 @@ const convertTweetUncached = async (
  */
 export const convertTweetEffect = (
   input: ConvertInput
-): Effect.Effect<
-  Result.Result<ConvertSuccess, ConvertFailure>,
-  never,
-  Cache
-> =>
+): Effect.Effect<Result.Result<ConvertSuccess, ConvertFailure>, never, Cache> =>
   Effect.gen(function* convertTweetCached() {
     const parsed = parseConvertRequest(input);
     if (Result.isFailure(parsed)) {

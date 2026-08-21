@@ -1,4 +1,11 @@
-import { Clock, Crypto, Effect, Layer, PlatformError, Schema } from "effect";
+import {
+  Clock,
+  Crypto as EffectCrypto,
+  Effect,
+  Layer,
+  PlatformError,
+  Schema,
+} from "effect";
 
 import type {
   CacheEntry,
@@ -12,6 +19,16 @@ const CACHE_PREFIX = "https://x-lookup.cache/__cache";
 export interface MinimalCache {
   readonly match: (key: string) => Promise<Response | undefined>;
   readonly put: (key: string, response: Response) => Promise<void>;
+}
+
+interface WorkerdCrypto {
+  readonly getRandomValues: (array: Uint8Array) => Uint8Array;
+  readonly subtle: {
+    readonly digest: (
+      algorithm: EffectCrypto.DigestAlgorithm,
+      data: Uint8Array
+    ) => Promise<ArrayBuffer>;
+  };
 }
 
 const CacheEnvelopeSchema = Schema.Struct({
@@ -29,12 +46,10 @@ const storeError = (
 ): CacheStoreError => new CacheStoreError({ cause, operation });
 
 const digestHex = (bytes: Uint8Array): string =>
-  [...bytes]
-    .map((byte) => byte.toString(16).padStart(2, "0"))
-    .join("");
+  [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 
 const cacheUrl = (
-  crypto: Crypto.Crypto,
+  crypto: EffectCrypto.Crypto,
   prefix: string,
   key: string,
   operation: CacheStoreOperation
@@ -46,7 +61,7 @@ const cacheUrl = (
 
 const readCacheEntry = <T>(
   cache: MinimalCache,
-  crypto: Crypto.Crypto,
+  crypto: EffectCrypto.Crypto,
   prefix: string,
   key: string
 ): Effect.Effect<CacheEntry<T> | undefined, CacheStoreError> =>
@@ -82,7 +97,7 @@ const readCacheEntry = <T>(
 
 const writeCacheEntry = <T>(
   cache: MinimalCache,
-  crypto: Crypto.Crypto,
+  crypto: EffectCrypto.Crypto,
   prefix: string,
   key: string,
   value: T,
@@ -121,18 +136,21 @@ const writeCacheEntry = <T>(
 export const makeCacheApiStore = (
   cache: MinimalCache,
   prefix = CACHE_PREFIX
-): Effect.Effect<CacheStore, never, Crypto.Crypto> =>
-  Effect.map(
-    Crypto.Crypto,
-    (crypto): CacheStore => ({
+): Effect.Effect<CacheStore, never, EffectCrypto.Crypto> =>
+  EffectCrypto.Crypto.pipe(
+    Effect.map((crypto): CacheStore => ({
       get: <T>(key: string) => readCacheEntry<T>(cache, crypto, prefix, key),
       set: <T>(key: string, value: T, ttlSeconds: number) =>
         writeCacheEntry(cache, crypto, prefix, key, value, ttlSeconds),
-    })
+    }))
   );
 
-const makeWebCryptoService = (): Crypto.Crypto => {
-  const webCrypto = globalThis.crypto;
+const makeWebCryptoService = (): EffectCrypto.Crypto => {
+  // SAFETY: workerd provides the Web Crypto runtime even though the project
+  // intentionally omits DOM globals from tsconfig and types it at this adapter.
+  const { crypto: webCrypto } = globalThis as typeof globalThis & {
+    readonly crypto: WorkerdCrypto;
+  };
 
   const randomBytes = (size: number): Uint8Array => {
     const bytes = new Uint8Array(size);
@@ -142,7 +160,7 @@ const makeWebCryptoService = (): Crypto.Crypto => {
     return bytes;
   };
 
-  const digest: Crypto.Crypto["digest"] = (algorithm, data) =>
+  const digest: EffectCrypto.Crypto["digest"] = (algorithm, data) =>
     Effect.map(
       Effect.tryPromise({
         catch: (cause) =>
@@ -158,12 +176,12 @@ const makeWebCryptoService = (): Crypto.Crypto => {
       (buffer) => new Uint8Array(buffer)
     );
 
-  return Crypto.make({ digest, randomBytes });
+  return EffectCrypto.make({ digest, randomBytes });
 };
 
 /** Effect Crypto backed by the Web Crypto API available in workerd. */
-export const layerWebCrypto: Layer.Layer<Crypto.Crypto> = Layer.effect(
-  Crypto.Crypto,
+export const layerWebCrypto: Layer.Layer<EffectCrypto.Crypto> = Layer.effect(
+  EffectCrypto.Crypto,
   Effect.sync(makeWebCryptoService)
 );
 

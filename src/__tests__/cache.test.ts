@@ -3,6 +3,7 @@ import type { Layer } from "effect";
 import { TestClock } from "effect/testing";
 import { describe, expect, test } from "vitest";
 
+import type { MinimalCache } from "../lib/cache-api-store.js";
 import {
   Cache,
   buildCacheKey,
@@ -11,7 +12,6 @@ import {
   parseTtlSeconds,
 } from "../lib/cache.js";
 import type { CacheLookup } from "../lib/cache.js";
-import type { MinimalCache } from "../lib/cache-api-store.js";
 
 class FakeEdgeCache implements MinimalCache {
   readonly entries = new Map<string, string>();
@@ -167,7 +167,7 @@ describe("Cache service", () => {
       const first = yield* lookup("k", false, load);
       yield* TestClock.adjust("60 seconds");
       const atBoundary = yield* lookup("k", false, load);
-      yield* TestClock.adjust("1 millisecond");
+      yield* TestClock.adjust(1);
       const expired = yield* lookup("k", false, load);
       return { atBoundary, expired, first };
     });
@@ -193,7 +193,7 @@ describe("Cache service", () => {
           const fromL2 = yield* lookup("k", false, Effect.succeed("fresh"));
           edge.failReads = true;
           yield* TestClock.adjust("30 seconds");
-          yield* TestClock.adjust("1 millisecond");
+          yield* TestClock.adjust(1);
           const afterRemainingTtl = yield* lookup(
             "k",
             false,
@@ -294,7 +294,7 @@ describe("cache configuration", () => {
       const first = yield* lookup("default", false, load);
       yield* TestClock.adjust("3600 seconds");
       const atBoundary = yield* lookup("default", false, load);
-      yield* TestClock.adjust("1 millisecond");
+      yield* TestClock.adjust(1);
       const expired = yield* lookup("default", false, load);
       return { atBoundary, expired, first };
     });

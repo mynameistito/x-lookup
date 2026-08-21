@@ -60,11 +60,7 @@ export class MemoryStore implements CacheStore {
     });
   }
 
-  set<T>(
-    key: string,
-    value: T,
-    ttlSeconds: number
-  ): Effect.Effect<void> {
+  set<T>(key: string, value: T, ttlSeconds: number): Effect.Effect<void> {
     const { map } = this;
     return Effect.gen(function* memorySet() {
       const now = yield* Clock.currentTimeMillis;
@@ -179,7 +175,8 @@ const layerForStores = (
 /** Complete isolated in-memory implementation suitable for deterministic tests. */
 export const layerMemory = (
   ttlSeconds: CacheTtlSeconds = DEFAULT_TTL_SECONDS
-): Layer.Layer<Cache> => layerForStores([new MemoryStore(new Map())], ttlSeconds);
+): Layer.Layer<Cache> =>
+  layerForStores([new MemoryStore(new Map())], ttlSeconds);
 
 /** Isolate-shared memory implementation used by the temporary Promise bridges. */
 export const layerIsolateMemory = (
