@@ -84,12 +84,16 @@ FxTwitter refuses some datacenter egress IPs. When that happens, search returns 
 
 ```bash
 bun install
-bun run dev        # wrangler dev on http://localhost:8787
+bun run dev        # alchemy dev — local workerd, isolated dev_<user> stage
 bun run test       # vitest
 bun run typecheck  # tsc --noEmit
-bun run deploy     # wrangler deploy (attaches x-lookup.mynameistito.com)
+bun run plan       # preview the production diff (alchemy plan --stage prod)
+bun run deploy     # alchemy deploy --stage prod (attaches x-lookup.mynameistito.com)
+bun run destroy    # tear down the prod stack (interactive confirm)
 ```
 
-Configuration lives in `wrangler.jsonc`. The only var is `CACHE_TTL_SECONDS` (default 3600). There are no secrets. Caching is two-tier: in-isolate memory L1 plus Cloudflare Cache API L2.
+Infrastructure lives entirely in `alchemy.run.ts` and `src/worker.ts` — there is no `wrangler.jsonc`. Local commands authenticate through the `mynameistito` Alchemy profile; CI uses `CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_ACCOUNT_ID` repository secrets. In `prod`, the Worker keeps its physical name `x-lookup` and custom domain `x-lookup.mynameistito.com`; every other stage (local dev, PR previews) derives an isolated identity. The only var is `CACHE_TTL_SECONDS` (default 3600). There are no secrets. Caching is two-tier: in-isolate memory L1 plus Cloudflare Cache API L2.
+
+CI runs credential-free lint/typecheck/tests plus a stateless stack validation (`.github/workflows/ci.yml`). `.github/workflows/deploy.yml` re-validates and deploys `prod` on pushes to `main`, gives same-repo pull requests an isolated `pr-<number>` preview stack (torn down when the PR closes), and never exposes credentials to fork pull requests.
 
 The bundled agent skill in `skills/browse-x/` wraps this API for CLI use; override its target with `X_API_BASE` when testing another deployment.
