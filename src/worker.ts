@@ -3,6 +3,7 @@ import * as Cloudflare from "alchemy/Cloudflare";
 import { Effect, Layer } from "effect";
 
 import type { Env } from "./env.js";
+import { parseEnv } from "./env.js";
 import { Browse, layerBrowseWithoutDependencies } from "./lib/browse.js";
 import { layerWorker } from "./lib/cache.js";
 import {
@@ -37,15 +38,6 @@ export const applicationLayer = (env: Env): Layer.Layer<Browse | Conversion> => 
   return Layer.mergeAll(browseLayer, conversionLayer);
 };
 
-const runtimeEnv = (
-  workerEnv: Cloudflare.WorkerEnvironment["Service"]
-): Env => {
-  const rawTtl = workerEnv.CACHE_TTL_SECONDS;
-  return {
-    CACHE_TTL_SECONDS: typeof rawTtl === "string" ? rawTtl : undefined,
-  };
-};
-
 const makeApplicationServices = (env: Env) =>
   Effect.all({ browse: Browse, conversion: Conversion }).pipe(
     Effect.provide(applicationLayer(env))
@@ -72,7 +64,7 @@ export const XLookupWorker = Cloudflare.Worker(
   },
   Effect.gen(function* makeXLookupWorker() {
     const workerEnv = yield* Cloudflare.WorkerEnvironment;
-    const services = yield* makeApplicationServices(runtimeEnv(workerEnv));
+    const services = yield* makeApplicationServices(parseEnv(workerEnv));
 
     return {
       fetch: makeHttpApplication(services),
