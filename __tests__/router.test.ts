@@ -238,6 +238,45 @@ describe("Effect HTTP boundary", () => {
     });
   });
 
+  test("publishes the Web Bot Auth public key directory", async () => {
+    const { services } = await makeHarness();
+    const response = await runBoundary(
+      request("/.well-known/http-message-signatures-directory"),
+      services
+    );
+    const head = await runBoundary(
+      request("/.well-known/http-message-signatures-directory", {
+        method: "HEAD",
+      }),
+      services
+    );
+    const body = await response.json();
+
+    expect(body).toMatchObject({
+      keys: [
+        {
+          crv: "Ed25519",
+          kid: expect.any(String),
+          kty: "OKP",
+          x: expect.any(String),
+        },
+      ],
+    });
+    expect({
+      cacheControl: response.headers.get("Cache-Control"),
+      contentType: response.headers.get("Content-Type"),
+      headBody: await head.text(),
+      headStatus: head.status,
+      status: response.status,
+    }).toStrictEqual({
+      cacheControl: "public, max-age=86400, immutable",
+      contentType: "application/http-message-signatures-directory+json",
+      headBody: "",
+      headStatus: 200,
+      status: 200,
+    });
+  });
+
   test("serves Open Graph metadata for the browser root page", async () => {
     const { services } = await makeHarness();
     const response = await runBoundary(
