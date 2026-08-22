@@ -18,8 +18,8 @@ env:
 
 jobs:
   deploy:
-    # Fork pull requests never deploy. Production also requires main to be a
-    # protected ref, while both paths pause at a protected environment.
+    # Fork pull requests never deploy. Production requires a protected main
+    # ref; same-repository preview deployments pause at the preview environment.
     if: >-
       (github.event_name == 'push' && github.ref_protected == true) || (github.event_name == 'pull_request' && github.event.action != 'closed' && github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-latest
