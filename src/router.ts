@@ -30,6 +30,7 @@ import {
   wantsMarkdown,
 } from "@/lib/http.ts";
 import { renderOpenGraphImage } from "@/lib/opengraph.ts";
+import { ROBOTS_TXT } from "@/robots.ts";
 
 const HANDLE = "([A-Za-z0-9_]{1,15})";
 const STATUS_ROUTE = new RegExp(`^/${HANDLE}/status/(\\d+)$`, "u");
@@ -84,6 +85,15 @@ const docsPayload = (html: boolean, canonicalUrl: string): HttpPayload => ({
       ? "text/html; charset=utf-8"
       : "text/markdown; charset=utf-8",
     Vary: "Accept",
+  },
+  status: 200,
+});
+
+const robotsPayload = (): HttpPayload => ({
+  body: ROBOTS_TXT,
+  headers: {
+    "Cache-Control": "public, max-age=3600",
+    "Content-Type": "text/plain; charset=utf-8",
   },
   status: 200,
 });
@@ -310,6 +320,11 @@ const routeRequest = (
 
   const url = new URL(request.originalUrl);
   const path = url.pathname.replace(/\/+$/u, "") || "/";
+  if (path === "/robots.txt") {
+    return Effect.succeed(
+      serverResponse(robotsPayload(), request.method === "HEAD")
+    );
+  }
   if (path === "/og.png") {
     const headers = {
       "Cache-Control": "public, max-age=86400, immutable",
