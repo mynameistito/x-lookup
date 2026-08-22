@@ -249,7 +249,10 @@ const browseTool = (
 export const createMcpServer = (
   services: McpApplicationServices
 ): McpServer => {
-  const server = new McpServer({ name: "x-lookup", version: "1.0.0" });
+  const server = new McpServer({
+    name: "x-lookup",
+    version: "1.0.0",
+  });
 
   server.registerTool(
     "convert_status",
