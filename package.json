@@ -6,10 +6,10 @@
   "license": "MIT",
   "type": "module",
   "scripts": {
-    "dev": "alchemy dev --profile mynameistito",
-    "deploy": "alchemy deploy --stage prod --yes --adopt --profile mynameistito",
-    "plan": "alchemy plan --stage prod --profile mynameistito",
-    "destroy": "alchemy destroy --stage prod --profile mynameistito",
+    "dev": "alchemy dev",
+    "deploy": "alchemy deploy --stage prod --yes --adopt",
+    "plan": "alchemy plan --stage prod",
+    "destroy": "alchemy destroy --stage prod",
     "alchemy:check": "vitest --run __tests__/alchemy-stack.test.ts",
     "deploy:report": "bun scripts/github/deployment-report.ts",
     "deploy:output": "bun scripts/deployment/alchemy-output.ts",
@@ -35,5 +35,6 @@
     "typescript": "npm:@typescript/typescript6@^6.0.2",
     "ultracite": "7.10.6",
     "vitest": "^4.1.11"
-  }
+  },
+  "packageManager": "bun@1.4.0"
 }

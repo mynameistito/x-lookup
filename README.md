@@ -82,17 +82,27 @@ FxTwitter refuses some datacenter egress IPs. When that happens, search returns 
 
 ## Development
 
-```bash
-bun install
-bun run dev        # alchemy dev — local workerd, isolated dev_<user> stage
+The repository uses Bun `1.4.0`. On Windows, install Bun from the [official PowerShell instructions](https://bun.sh/docs/installation), then run:
+
+```powershell
+bun install --frozen-lockfile
+bun run dev        # local workerd, isolated dev_<user> stage
 bun run test       # vitest
 bun run typecheck  # tsc --noEmit
-bun run plan       # preview the production diff (alchemy plan --stage prod)
-bun run deploy     # alchemy deploy --stage prod (attaches x-lookup.mynameistito.com)
-bun run destroy    # tear down the prod stack (interactive confirm)
+bun run plan       # preview the production diff
+bun run deploy     # deploy the prod stage (attaches x-lookup.mynameistito.com)
+bun run destroy    # tear down the prod stage (interactive confirm)
 ```
 
-Infrastructure lives entirely in `alchemy.run.ts` and `src/worker.ts` — there is no `wrangler.jsonc`. Local commands authenticate through the `mynameistito` Alchemy profile; CI uses `CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_ACCOUNT_ID` repository secrets. In `prod`, the Worker keeps its physical name `x-lookup` and custom domain `x-lookup.mynameistito.com`; every other stage (local dev, PR previews) derives an isolated identity. The only var is `CACHE_TTL_SECONDS` (default 3600). There are no secrets. Caching is two-tier: in-isolate memory L1 plus Cloudflare Cache API L2.
+Alchemy uses the `default` profile unless `ALCHEMY_PROFILE` or an explicit `--profile` argument selects another profile. To use a named local profile for the package scripts in PowerShell, set it for the current shell before running a command:
+
+```powershell
+$env:ALCHEMY_PROFILE = "your-profile"
+bun run plan
+bun run dev
+```
+
+In Bash, use `export ALCHEMY_PROFILE=your-profile`. Profiles are stored locally in `~/.alchemy/profiles.json`; configure one with `bunx alchemy login --profile your-profile`. GitHub Actions do not use local profiles: deploy jobs authenticate with the `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` repository secrets. Infrastructure lives entirely in `alchemy.run.ts` and `src/worker.ts` — there is no `wrangler.jsonc`. In `prod`, the Worker keeps its physical name `x-lookup` and custom domain `x-lookup.mynameistito.com`; every other stage (local dev, PR previews) derives an isolated identity. The only var is `CACHE_TTL_SECONDS` (default 3600). There are no secrets. Caching is two-tier: in-isolate memory L1 plus Cloudflare Cache API L2.
 
 CI runs credential-free lint/typecheck/tests plus a stateless stack validation (`.github/workflows/ci.yml`). `.github/workflows/deploy.yml` deploys only after that workflow succeeds for the exact commit: `prod` for `main` and an isolated `pr-<number>` preview for same-repository pull requests. Preview stacks are torn down when the PR closes, and fork pull requests never receive Cloudflare credentials or preview deployments.
 
