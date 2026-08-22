@@ -203,13 +203,33 @@ describe("Effect HTTP boundary", () => {
 
     expect(response.headers.get("Content-Type")).toContain("text/html");
     expect(body).toContain("<title>x-lookup</title>");
-    expect(body).toContain('property="og:title" content="x-lookup"');
     expect(body).toContain(
       'property="og:description" content="Read-only, no-auth browser for public X/Twitter content'
     );
     expect(body).toContain(
       'property="og:url" content="https://x-lookup.mynameistito.com/"'
     );
+    expect(body).toContain(
+      'property="og:image" content="https://x-lookup.mynameistito.com/og.png"'
+    );
+  });
+
+  test("renders the Open Graph share image as a cached PNG", async () => {
+    const { services } = await makeHarness();
+    const response = await runBoundary(request("/og.png"), services);
+    const bytes = new Uint8Array(await response.arrayBuffer());
+
+    expect({
+      cacheControl: response.headers.get("Cache-Control"),
+      contentType: response.headers.get("Content-Type"),
+      signature: bytes.slice(0, 8),
+      status: response.status,
+    }).toStrictEqual({
+      cacheControl: "public, max-age=86400, immutable",
+      contentType: "image/png",
+      signature: new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]),
+      status: 200,
+    });
   });
 
   test("serves the root page as HTML to preview bots", async () => {

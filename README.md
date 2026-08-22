@@ -35,6 +35,7 @@ Browsers that request HTML get a readable page containing the Markdown. Discord,
 | `GET /:handle/followers` | Follower users | `cursor`, `page`, `limit`, `full`, `format`, `nocache` |
 | `GET /:handle/following` | Following users | `cursor`, `page`, `limit`, `full`, `format`, `nocache` |
 | `GET /oembed?url=…` | oEmbed JSON | `url`; optional `text`, `author`, `status`, `provider` overrides |
+| `GET /og.png` | 1200×630 Open Graph / Twitter share image | — |
 | `GET /` (also `/docs`) | Full usage documentation (Markdown) | — |
 
 All API responses send CORS `*`, support `OPTIONS` (204) and `HEAD`; other methods get 405. Errors are always `{ "error": string, "code": string }` with a truthful status: 400 bad input, 404 genuinely missing content, 502 upstream refusal or failure.

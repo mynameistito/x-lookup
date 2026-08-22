@@ -29,6 +29,7 @@ import {
   wantsJson,
   wantsMarkdown,
 } from "@/lib/http.ts";
+import { renderOpenGraphImage } from "@/lib/opengraph.ts";
 
 const HANDLE = "([A-Za-z0-9_]{1,15})";
 const STATUS_ROUTE = new RegExp(`^/${HANDLE}/status/(\\d+)$`, "u");
@@ -309,6 +310,19 @@ const routeRequest = (
 
   const url = new URL(request.originalUrl);
   const path = url.pathname.replace(/\/+$/u, "") || "/";
+  if (path === "/og.png") {
+    const headers = {
+      "Cache-Control": "public, max-age=86400, immutable",
+      "Content-Type": "image/png",
+    };
+    return Effect.promise(() => renderOpenGraphImage()).pipe(
+      Effect.map((image) =>
+        request.method === "HEAD"
+          ? HttpServerResponse.empty({ headers, status: 200 })
+          : HttpServerResponse.uint8Array(image, { headers, status: 200 })
+      )
+    );
+  }
   const route =
     pathRoute(path, url.searchParams, request, services) ??
     rewrittenRoute(path, url.searchParams, request, services);
