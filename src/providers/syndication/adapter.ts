@@ -1,20 +1,20 @@
 import { Effect, Schema } from "effect";
 import { HttpClient } from "effect/unstable/http";
 
-import type {
-  FxArticle,
-  FxArticleBlock,
-  FxMedia,
-  FxMediaItem,
-  FxTweet,
-} from "@/lib/fxtwitter-types.ts";
 import {
   SyndicationEmptyError,
   SyndicationNetworkError,
   SyndicationNonJsonError,
   SyndicationSchemaError,
   SyndicationUpstreamError,
-} from "@/lib/provider-errors.ts";
+} from "@/providers/errors.ts";
+import type {
+  FxArticle,
+  FxArticleBlock,
+  FxMedia,
+  FxMediaItem,
+  FxTweet,
+} from "@/providers/fxtwitter/types.ts";
 
 const SYNDICATION_BASE = "https://cdn.syndication.twimg.com/tweet-result";
 const UA = "Mozilla/5.0 (compatible; x-lookup/1.0)";

@@ -1,4 +1,4 @@
-import xLookupSkill from "../skills/x-lookup/SKILL.md?raw";
+import xLookupSkill from "../../skills/x-lookup/SKILL.md?raw";
 
 export const AGENT_SKILLS_SCHEMA =
   "https://schemas.agentskills.io/discovery/0.2.0/schema.json";

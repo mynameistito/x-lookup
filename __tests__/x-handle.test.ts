@@ -1,8 +1,8 @@
 import { Result } from "effect";
 import { describe, expect, test } from "vitest";
 
-import type { InvalidXHandle } from "@/lib/x-handle.ts";
-import { parse } from "@/lib/x-handle.ts";
+import type { InvalidXHandle } from "@/domain/x-handle.ts";
+import { parse } from "@/domain/x-handle.ts";
 
 const succeedHandle = (raw: string): string => {
   const result = parse(raw);

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 
-import { getParentStatusId } from "@/lib/fxtwitter-types.ts";
-import type { FxTweet } from "@/lib/fxtwitter-types.ts";
+import { getParentStatusId } from "@/providers/fxtwitter/types.ts";
+import type { FxTweet } from "@/providers/fxtwitter/types.ts";
 
 const makeTweet = (id: string, overrides: Partial<FxTweet> = {}): FxTweet => ({
   id,

@@ -8,7 +8,7 @@ import type {
   FxPollTransport,
   FxReplyingToTransport,
   FxRepostedByTransport,
-} from "@/lib/fxtwitter-transport.ts";
+} from "@/providers/fxtwitter/transport.ts";
 import type {
   FxArticle,
   FxAuthor,
@@ -17,7 +17,7 @@ import type {
   FxPoll,
   FxReplyingTo,
   FxTweet,
-} from "@/lib/fxtwitter-types.ts";
+} from "@/providers/fxtwitter/types.ts";
 
 type FxReplyingToObjectTransport = Exclude<
   FxReplyingToTransport,

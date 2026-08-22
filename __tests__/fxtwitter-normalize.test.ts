@@ -4,7 +4,7 @@ import {
   normalizeMediaItem,
   normalizeRepostedBy,
   normalizeTweet,
-} from "@/lib/fxtwitter-normalize.ts";
+} from "@/providers/fxtwitter/normalize.ts";
 
 describe("FxTwitter normalization", () => {
   test("derives media duration and variants from transport formats", () => {

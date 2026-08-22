@@ -3,7 +3,7 @@ import type {
   FxMediaItem,
   FxPoll,
   FxTweet,
-} from "@/lib/fxtwitter-types.ts";
+} from "@/providers/fxtwitter/types.ts";
 
 export const SITE_NAME = "x-lookup";
 export const THEME_COLOR = "#146c43";

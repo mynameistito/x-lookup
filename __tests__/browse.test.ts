@@ -1,24 +1,24 @@
 import { Effect, Layer, Result } from "effect";
 import { describe, expect, test } from "vitest";
 
-import { renderBrowseMarkdown } from "@/lib/browse-renderer.ts";
 import {
   browseEffect,
   parseBrowseRequest,
   isOriginalPost,
   layerBrowseWithoutDependencies,
-} from "@/lib/browse.ts";
-import type { BrowseResult } from "@/lib/browse.ts";
-import { layerMemory } from "@/lib/cache.ts";
+} from "@/application/browse.ts";
+import type { BrowseResult } from "@/application/browse.ts";
+import { layerMemory } from "@/infrastructure/cache/service.ts";
+import { renderBrowseMarkdown } from "@/presentation/browse-markdown.ts";
+import { browseResponse } from "@/presentation/http.ts";
+import { FxTwitter } from "@/providers/contracts.ts";
+import type { FxTwitterService } from "@/providers/contracts.ts";
+import { FxTwitterSearchUnavailableError } from "@/providers/errors.ts";
 import type {
   FxAuthor,
   FxListResponse,
   FxTweet,
-} from "@/lib/fxtwitter-types.ts";
-import { browseResponse } from "@/lib/http-presenter.ts";
-import { FxTwitterSearchUnavailableError } from "@/lib/provider-errors.ts";
-import { FxTwitter } from "@/lib/provider-service.ts";
-import type { FxTwitterService } from "@/lib/provider-service.ts";
+} from "@/providers/fxtwitter/types.ts";
 
 const post: FxTweet = {
   author: { screen_name: "ada" },

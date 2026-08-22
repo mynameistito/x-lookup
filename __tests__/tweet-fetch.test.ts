@@ -2,28 +2,28 @@ import { Effect, Layer, Option, Result } from "effect";
 import { HttpClient, HttpClientResponse } from "effect/unstable/http";
 import { describe, expect, test } from "vitest";
 
+import {
+  fetchPostsEffect,
+  layerPostLookupWithoutDependencies,
+} from "@/application/post-lookup.ts";
+import { parse as parsePostId } from "@/domain/post-id.ts";
+import { layerFxTwitterWithoutDependencies } from "@/providers/composition.ts";
+import { FxTwitter, Syndication } from "@/providers/contracts.ts";
 import type {
-  FxAuthor,
-  FxListResponse,
-  FxTweet,
-} from "@/lib/fxtwitter-types.ts";
-import { parse as parsePostId } from "@/lib/post-id.ts";
+  FxTwitterService,
+  SyndicationService,
+} from "@/providers/contracts.ts";
 import {
   FxTwitterNetworkError,
   FxTwitterNotFoundError,
   FxTwitterPrivateTweetError,
   SyndicationNetworkError,
-} from "@/lib/provider-errors.ts";
-import { layerFxTwitterWithoutDependencies } from "@/lib/provider-service-adapter.ts";
-import { FxTwitter, Syndication } from "@/lib/provider-service.ts";
+} from "@/providers/errors.ts";
 import type {
-  FxTwitterService,
-  SyndicationService,
-} from "@/lib/provider-service.ts";
-import {
-  fetchPostsEffect,
-  layerPostLookupWithoutDependencies,
-} from "@/lib/tweet-fetch.ts";
+  FxAuthor,
+  FxListResponse,
+  FxTweet,
+} from "@/providers/fxtwitter/types.ts";
 
 const postId = (value: string) => Option.getOrThrow(parsePostId(value));
 

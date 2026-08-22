@@ -1,6 +1,7 @@
 import { Effect, Layer } from "effect";
 import { HttpClient } from "effect/unstable/http";
 
+import { FxTwitter, Syndication } from "@/providers/contracts.ts";
 import {
   fetchFxConnectionsEffect,
   fetchFxConversationRepliesEffect,
@@ -9,12 +10,11 @@ import {
   fetchFxProfileStatusesEffect,
   fetchFxStatusEffect,
   searchFxStatusesEffect,
-} from "@/lib/fxtwitter-adapter.ts";
-import type { FxReplyRanking } from "@/lib/fxtwitter-types.ts";
-import type { ProviderEffect } from "@/lib/provider-http.ts";
-import { layerLiveHttpClient } from "@/lib/provider-http.ts";
-import { FxTwitter, Syndication } from "@/lib/provider-service.ts";
-import { fetchSyndicationStatusEffect } from "@/lib/syndication-adapter.ts";
+} from "@/providers/fxtwitter/adapter.ts";
+import type { FxReplyRanking } from "@/providers/fxtwitter/types.ts";
+import type { ProviderEffect } from "@/providers/http-client.ts";
+import { layerLiveHttpClient } from "@/providers/http-client.ts";
+import { fetchSyndicationStatusEffect } from "@/providers/syndication/adapter.ts";
 
 const provideClient = <A, E>(
   program: ProviderEffect<A, E>,

@@ -1,11 +1,15 @@
-import { renderBrowseMarkdown } from "@/lib/browse-renderer.ts";
-import type { BrowseRequest, BrowseResult } from "@/lib/browse.ts";
-import { cacheControlHeader } from "@/lib/cache.ts";
-import type { ConvertSuccess } from "@/lib/converter.ts";
-import { buildEmbedHtml, oembedPayload, pickFocalTweet } from "@/lib/embed.ts";
-import type { EmbedOptions, OEmbedQuery } from "@/lib/embed.ts";
-import type { HeaderMap, HttpPayload } from "@/lib/http.ts";
-import { renderThreadMarkdown } from "@/lib/markdown.ts";
+import type { BrowseRequest, BrowseResult } from "@/application/browse.ts";
+import type { ConvertSuccess } from "@/application/conversion.ts";
+import type { HeaderMap, HttpPayload } from "@/http/request.ts";
+import { cacheControlHeader } from "@/infrastructure/cache/service.ts";
+import { renderBrowseMarkdown } from "@/presentation/browse-markdown.ts";
+import {
+  buildEmbedHtml,
+  oembedPayload,
+  pickFocalTweet,
+} from "@/presentation/embed.ts";
+import type { EmbedOptions, OEmbedQuery } from "@/presentation/embed.ts";
+import { renderThreadMarkdown } from "@/presentation/markdown.ts";
 
 const JSON_CONTENT_TYPE = "application/json; charset=utf-8";
 

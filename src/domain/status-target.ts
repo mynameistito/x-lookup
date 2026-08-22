@@ -1,7 +1,7 @@
 import { Data, Option, Result } from "effect";
 
-import { digitsOf, parse as parsePostId } from "@/lib/post-id.ts";
-import type { PostId } from "@/lib/post-id.ts";
+import { digitsOf, parse as parsePostId } from "@/domain/post-id.ts";
+import type { PostId } from "@/domain/post-id.ts";
 
 /** A resolved status request target. */
 export interface StatusTarget {

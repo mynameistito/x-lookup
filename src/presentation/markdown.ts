@@ -1,12 +1,12 @@
+import type { UserinfoLevel } from "@/domain/conversion-query.ts";
+import type { OutputFormat } from "@/domain/output-format.ts";
 import type {
   FxArticle,
   FxAuthor,
   FxMedia,
   FxMediaItem,
   FxTweet,
-} from "@/lib/fxtwitter-types.ts";
-import type { OutputFormat } from "@/lib/output-format.ts";
-import type { UserinfoLevel } from "@/lib/query-modes.ts";
+} from "@/providers/fxtwitter/types.ts";
 
 export interface RenderOptions {
   format: OutputFormat;

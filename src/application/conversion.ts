@@ -1,16 +1,15 @@
 import { Context, Effect, Layer, Result } from "effect";
 
-import { Cache, buildCacheKey } from "@/lib/cache.ts";
-import type { CacheStatus } from "@/lib/cache.ts";
-import type { FxTweet } from "@/lib/fxtwitter-types.ts";
-import { parse as parseOutputFormat } from "@/lib/output-format.ts";
-import type { InvalidOutputFormat, OutputFormat } from "@/lib/output-format.ts";
-import { parseConvertFlag } from "@/lib/query-flag.ts";
+import { PostLookup } from "@/application/post-lookup.ts";
+import type {
+  FetchSource,
+  PostLookupFailure,
+} from "@/application/post-lookup.ts";
 import {
   parseContext,
   parseReplies,
   parseUserinfo,
-} from "@/lib/query-modes.ts";
+} from "@/domain/conversion-query.ts";
 import type {
   ContextMode,
   InvalidContext,
@@ -18,13 +17,23 @@ import type {
   InvalidUserinfo,
   RepliesMode,
   UserinfoLevel,
-} from "@/lib/query-modes.ts";
-import { resolve } from "@/lib/status-target.ts";
-import type { ResolveError, StatusTarget } from "@/lib/status-target.ts";
-import { parse as parseThreadSelection } from "@/lib/thread-selection.ts";
-import type { InvalidThread, ThreadSelection } from "@/lib/thread-selection.ts";
-import { PostLookup } from "@/lib/tweet-fetch.ts";
-import type { FetchSource, PostLookupFailure } from "@/lib/tweet-fetch.ts";
+} from "@/domain/conversion-query.ts";
+import { parse as parseOutputFormat } from "@/domain/output-format.ts";
+import type {
+  InvalidOutputFormat,
+  OutputFormat,
+} from "@/domain/output-format.ts";
+import { parseConvertFlag } from "@/domain/query-flag.ts";
+import { resolve } from "@/domain/status-target.ts";
+import type { ResolveError, StatusTarget } from "@/domain/status-target.ts";
+import { parse as parseThreadSelection } from "@/domain/thread-selection.ts";
+import type {
+  InvalidThread,
+  ThreadSelection,
+} from "@/domain/thread-selection.ts";
+import { Cache, buildCacheKey } from "@/infrastructure/cache/service.ts";
+import type { CacheStatus } from "@/infrastructure/cache/service.ts";
+import type { FxTweet } from "@/providers/fxtwitter/types.ts";
 
 /** Raw, untrusted convert query values exactly as they arrive from HTTP. */
 export interface ConvertInput {

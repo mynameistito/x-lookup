@@ -3,15 +3,15 @@ import type { Layer } from "effect";
 import { TestClock } from "effect/testing";
 import { describe, expect, test } from "vitest";
 
-import type { MinimalCache } from "@/lib/cache-api-store.ts";
+import type { MinimalCache } from "@/infrastructure/cache/cloudflare-store.ts";
 import {
   Cache,
   buildCacheKey,
   layerCacheApi,
   layerMemory,
   parseTtlSeconds,
-} from "@/lib/cache.ts";
-import type { CacheLookup } from "@/lib/cache.ts";
+} from "@/infrastructure/cache/service.ts";
+import type { CacheLookup } from "@/infrastructure/cache/service.ts";
 
 class FakeEdgeCache implements MinimalCache {
   readonly entries = new Map<string, string>();

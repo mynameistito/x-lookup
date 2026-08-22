@@ -2,15 +2,15 @@ import type { Effect } from "effect";
 import { Context } from "effect";
 
 import type {
+  FxTwitterFailure,
+  SyndicationFailure,
+} from "@/providers/errors.ts";
+import type {
   FxAuthor,
   FxListResponse,
   FxReplyRanking,
   FxTweet,
-} from "@/lib/fxtwitter-types.ts";
-import type {
-  FxTwitterFailure,
-  SyndicationFailure,
-} from "@/lib/provider-errors.ts";
+} from "@/providers/fxtwitter/types.ts";
 
 export interface FxTwitterService {
   readonly fetchConnections: (

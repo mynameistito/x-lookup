@@ -12,7 +12,12 @@ export default defineConfig({
       // Domain modules co-locate their tagged error families with their
       // parsers (project coding standards), so one error class per file
       // would fragment cohesive modules.
-      files: ["src/lib/**/*.{ts,tsx}"],
+      files: [
+        "src/domain/**/*.{ts,tsx}",
+        "src/infrastructure/cache/service.ts",
+        "src/providers/contracts.ts",
+        "src/providers/errors.ts",
+      ],
       rules: {
         "max-classes-per-file": "off",
       },

@@ -1,19 +1,6 @@
 import { Effect } from "effect";
 import { HttpClient } from "effect/unstable/http";
 
-import { normalizeAuthor, normalizeTweet } from "@/lib/fxtwitter-normalize.ts";
-import {
-  decodeAuthorTransport,
-  decodeEnvelope,
-  decodeTweetTransport,
-} from "@/lib/fxtwitter-transport.ts";
-import { getParentStatusId } from "@/lib/fxtwitter-types.ts";
-import type {
-  FxAuthor,
-  FxListResponse,
-  FxReplyRanking,
-  FxTweet,
-} from "@/lib/fxtwitter-types.ts";
 import {
   FxTwitterNetworkError,
   FxTwitterNonJsonError,
@@ -22,9 +9,25 @@ import {
   FxTwitterSchemaError,
   FxTwitterSearchUnavailableError,
   FxTwitterUpstreamError,
-} from "@/lib/provider-errors.ts";
-import type { FxTwitterFailure } from "@/lib/provider-errors.ts";
-import type { ProviderEffect } from "@/lib/provider-http.ts";
+} from "@/providers/errors.ts";
+import type { FxTwitterFailure } from "@/providers/errors.ts";
+import {
+  normalizeAuthor,
+  normalizeTweet,
+} from "@/providers/fxtwitter/normalize.ts";
+import {
+  decodeAuthorTransport,
+  decodeEnvelope,
+  decodeTweetTransport,
+} from "@/providers/fxtwitter/transport.ts";
+import { getParentStatusId } from "@/providers/fxtwitter/types.ts";
+import type {
+  FxAuthor,
+  FxListResponse,
+  FxReplyRanking,
+  FxTweet,
+} from "@/providers/fxtwitter/types.ts";
+import type { ProviderEffect } from "@/providers/http-client.ts";
 
 const FX_BASE = "https://api.fxtwitter.com";
 const UA = "x-lookup/1.0";

@@ -1,6 +1,6 @@
-import { DEFAULT_LIMIT } from "@/lib/browse-query.ts";
-import type { BrowseRequest, BrowseResult } from "@/lib/browse.ts";
-import type { FxAuthor, FxTweet } from "@/lib/fxtwitter-types.ts";
+import type { BrowseRequest, BrowseResult } from "@/application/browse.ts";
+import { DEFAULT_LIMIT } from "@/domain/browse-query.ts";
+import type { FxAuthor, FxTweet } from "@/providers/fxtwitter/types.ts";
 
 const postLine = (post: FxTweet, full: boolean): string => {
   const handle = post.author?.screen_name ?? "unknown";

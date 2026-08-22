@@ -4,7 +4,7 @@ import {
   AGENT_SKILLS_SCHEMA,
   agentSkillsIndex,
   xLookupSkillMarkdown,
-} from "@/agent-skills.ts";
+} from "@/metadata/agent-skills.ts";
 
 describe("Agent Skills discovery", () => {
   test("builds RFC 0.2.0 metadata from the checked-in skill", async () => {

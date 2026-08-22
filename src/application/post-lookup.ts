@@ -1,13 +1,13 @@
 import { Context, Effect, Layer, Result } from "effect";
 
-import type { FxReplyRanking, FxTweet } from "@/lib/fxtwitter-types.ts";
-import type { PostId } from "@/lib/post-id.ts";
+import type { ContextMode, RepliesMode } from "@/domain/conversion-query.ts";
+import type { PostId } from "@/domain/post-id.ts";
+import { FxTwitter, Syndication } from "@/providers/contracts.ts";
 import type {
   FxTwitterFailure,
   SyndicationFailure,
-} from "@/lib/provider-errors.ts";
-import { FxTwitter, Syndication } from "@/lib/provider-service.ts";
-import type { ContextMode, RepliesMode } from "@/lib/query-modes.ts";
+} from "@/providers/errors.ts";
+import type { FxReplyRanking, FxTweet } from "@/providers/fxtwitter/types.ts";
 
 export type FetchSource = "fxtwitter" | "syndication";
 

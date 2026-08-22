@@ -1,13 +1,13 @@
 import { Clock, Context, Effect, Layer, Option, Result, Schema } from "effect";
 
-import type { Env } from "@/env.ts";
 import {
   defaultCacheApi,
   layerWebCrypto,
   makeCacheApiStore,
-} from "@/lib/cache-api-store.ts";
-import type { MinimalCache } from "@/lib/cache-api-store.ts";
-import type { CacheEntry, CacheStore } from "@/lib/cache-store.ts";
+} from "@/infrastructure/cache/cloudflare-store.ts";
+import type { MinimalCache } from "@/infrastructure/cache/cloudflare-store.ts";
+import type { CacheEntry, CacheStore } from "@/infrastructure/cache/store.ts";
+import type { Env } from "@/runtime/env.ts";
 
 export type CacheStatus = "hit" | "miss" | "bypass";
 
