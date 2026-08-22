@@ -121,7 +121,7 @@ export const makeXLookupWorker = (stage: string) =>
   Cloudflare.Worker(
     "x-lookup",
     {
-      compatibility: { date: "2026-08-01" },
+      compatibility: { date: "2026-07-11" },
       domain: resolveWorkerIdentity(stage).domain,
       env: WORKER_ENV,
       main: "./src/worker.ts",
