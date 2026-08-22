@@ -20,6 +20,18 @@ const listToolsRequest = {
   params: {},
 };
 
+const toolCallRequest = (
+  id: number,
+  name: string,
+  args: Record<string, string>
+): string =>
+  JSON.stringify({
+    id,
+    jsonrpc: "2.0",
+    method: "tools/call",
+    params: { arguments: args, name },
+  });
+
 const mcpRequest = (body: string): Request =>
   new Request("https://x-lookup.mynameistito.com/mcp", {
     body,
@@ -58,5 +70,54 @@ describe("MCP boundary", () => {
     expect(listedBody).toMatch(
       /"(?:context|feed|format|full|limit|nocache|resource|thread|userinfo)"/u
     );
+  });
+
+  test("calls health and oEmbed tools through the Worker boundary", async () => {
+    const env = { CACHE_TTL_SECONDS: "3600" };
+    const health = await WorkerEntrypoint.fetch(
+      mcpRequest(toolCallRequest(3, "get_health", {})),
+      env,
+      // SAFETY: The MCP handler does not use execution-context methods in this protocol test.
+      {} as ExecutionContext
+    );
+    const oembed = await WorkerEntrypoint.fetch(
+      mcpRequest(
+        toolCallRequest(4, "get_oembed", {
+          text: "Example",
+          url: "https://x.com/ada/status/123",
+        })
+      ),
+      env,
+      // SAFETY: The MCP handler does not use execution-context methods in this protocol test.
+      {} as ExecutionContext
+    );
+
+    expect(health.status).toBe(200);
+    await expect(health.text()).resolves.toContain('{\\"status\\":\\"ok\\"}');
+    expect(oembed.status).toBe(200);
+    await expect(oembed.text()).resolves.toContain(
+      '\\"provider_name\\":\\"x-lookup\\"'
+    );
+  });
+
+  test("rejects missing operation-specific parameters", async () => {
+    const env = { CACHE_TTL_SECONDS: "3600" };
+    const search = await WorkerEntrypoint.fetch(
+      mcpRequest(toolCallRequest(5, "search_posts", {})),
+      env,
+      // SAFETY: The MCP handler does not use execution-context methods in this protocol test.
+      {} as ExecutionContext
+    );
+    const profile = await WorkerEntrypoint.fetch(
+      mcpRequest(toolCallRequest(6, "get_profile", {})),
+      env,
+      // SAFETY: The MCP handler does not use execution-context methods in this protocol test.
+      {} as ExecutionContext
+    );
+
+    expect(search.status).toBe(200);
+    await expect(search.text()).resolves.toContain("Invalid input");
+    expect(profile.status).toBe(200);
+    await expect(profile.text()).resolves.toContain("Invalid input");
   });
 });
