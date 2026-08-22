@@ -1,31 +1,106 @@
-const logPath = Bun.argv.at(2);
-if (!logPath) {
-  throw new Error("The Alchemy log path is required");
+const PRODUCTION_STAGE = "prod";
+const PRODUCTION_URL = "https://x-lookup.mynameistito.com";
+const WORKER_NAME = "x-lookup";
+
+export interface DeploymentOutputs {
+  readonly url: string;
+  readonly logs_url: string;
 }
 
-const log = await Bun.file(logPath).text();
-const stage = Bun.env.STAGE;
-const accountId = Bun.env.CLOUDFLARE_ACCOUNT_ID;
-if (!stage || !accountId) {
-  throw new Error("STAGE and CLOUDFLARE_ACCOUNT_ID are required");
+/** Environment values required by the Alchemy output entrypoint. */
+export interface DeploymentEnvironment {
+  readonly accountId: string;
+  readonly outputPath: string;
+  readonly stage: string;
 }
 
-const url =
-  stage === "prod"
-    ? "https://x-lookup.mynameistito.com"
-    : log.match(/https:\/\/[\w.-]+workers\.dev/gu)?.at(-1);
-if (!url) {
-  throw new Error(
-    "Could not determine the deployed Worker URL from Alchemy output"
-  );
-}
+/** Parse the required deployment environment without reading process state. */
+export const readDeploymentEnvironment = (
+  environment: Record<string, string | undefined>
+): DeploymentEnvironment => {
+  const stage = environment.STAGE;
+  if (!stage) {
+    throw new Error("STAGE is required");
+  }
+  const accountId = environment.CLOUDFLARE_ACCOUNT_ID;
+  if (!accountId) {
+    throw new Error("CLOUDFLARE_ACCOUNT_ID is required");
+  }
+  const outputPath = environment.GITHUB_OUTPUT;
+  if (!outputPath) {
+    throw new Error("GITHUB_OUTPUT is required");
+  }
+  return { accountId, outputPath, stage };
+};
 
-const workerName = stage === "prod" ? "x-lookup" : `x-lookup-${stage}`;
-const logsUrl = `https://dash.cloudflare.com/?to=/${accountId}/workers/services/view/${workerName}/production/logs`;
-const outputPath = Bun.env.GITHUB_OUTPUT;
-if (!outputPath) {
-  throw new Error("GITHUB_OUTPUT is required");
-}
+const missingUrlMessage =
+  "Could not determine the deployed Worker URL from Alchemy output";
 
-const output = await Bun.file(outputPath).text();
-await Bun.write(outputPath, `${output}url=${url}\nlogs_url=${logsUrl}\n`);
+/** Select the URL belonging to the Worker deployed for the requested stage. */
+export const parseAlchemyOutput = (log: string, stage: string): string => {
+  if (stage === PRODUCTION_STAGE) {
+    return PRODUCTION_URL;
+  }
+
+  const workerName = `${WORKER_NAME}-${stage}`;
+  const candidates = log.match(/https:\/\/[^\s"'<>]+/gu) ?? [];
+  const url = candidates
+    .map((candidate) => candidate.replaceAll(/[),.;]+$/gu, ""))
+    .map((candidate) => {
+      try {
+        return new URL(candidate);
+      } catch {
+        return null;
+      }
+    })
+    .find(
+      (candidate) =>
+        candidate?.protocol === "https:" &&
+        candidate.hostname.endsWith(".workers.dev") &&
+        candidate.hostname.startsWith(`${workerName}.`)
+    );
+
+  if (!url) {
+    throw new Error(missingUrlMessage);
+  }
+
+  return url.origin;
+};
+
+/** Construct the stable values consumed by the deployment-report script. */
+export const buildDeploymentOutputs = (
+  stage: string,
+  accountId: string,
+  url: string
+): DeploymentOutputs => {
+  const workerName =
+    stage === PRODUCTION_STAGE ? WORKER_NAME : `${WORKER_NAME}-${stage}`;
+  return {
+    logs_url: `https://dash.cloudflare.com/?to=/${accountId}/workers/services/view/${workerName}/production/logs`,
+    url,
+  };
+};
+
+/** Serialize outputs using GitHub Actions' existing output names. */
+export const formatGitHubOutputs = ({
+  url,
+  logs_url,
+}: DeploymentOutputs): string => `url=${url}\nlogs_url=${logs_url}\n`;
+
+const main = async (): Promise<void> => {
+  const logPath = Bun.argv.at(2);
+  if (!logPath) {
+    throw new Error("The Alchemy log path is required");
+  }
+
+  const { accountId, outputPath, stage } = readDeploymentEnvironment(Bun.env);
+
+  const url = parseAlchemyOutput(await Bun.file(logPath).text(), stage);
+  const outputs = buildDeploymentOutputs(stage, accountId, url);
+  const output = await Bun.file(outputPath).text();
+  await Bun.write(outputPath, `${output}${formatGitHubOutputs(outputs)}`);
+};
+
+if (import.meta.main) {
+  await main();
+}
