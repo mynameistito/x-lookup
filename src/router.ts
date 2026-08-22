@@ -1,7 +1,7 @@
 import { Effect, Result } from "effect";
 import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 
-import { ROOT_MARKDOWN } from "@/docs.ts";
+import { ROOT_MARKDOWN, rootHtml } from "@/docs.ts";
 import { browseResponse, parseBrowseRequest } from "@/lib/browse.ts";
 import type {
   BrowseFailure,
@@ -71,12 +71,15 @@ const withApiCors = (payload: HttpPayload): HttpPayload => ({
   },
 });
 
-const docsPayload = (): HttpPayload => ({
-  body: ROOT_MARKDOWN,
+const docsPayload = (html: boolean, canonicalUrl: string): HttpPayload => ({
+  body: html ? rootHtml(canonicalUrl) : ROOT_MARKDOWN,
   headers: {
     "Access-Control-Allow-Origin": "*",
     "Cache-Control": "public, max-age=3600",
-    "Content-Type": "text/markdown; charset=utf-8",
+    "Content-Type": html
+      ? "text/html; charset=utf-8"
+      : "text/markdown; charset=utf-8",
+    Vary: "Accept",
   },
   status: 200,
 });
@@ -208,7 +211,13 @@ const pathRoute = (
   services: HttpApplicationServices
 ): RoutedPayload | undefined => {
   if (path === "/" || path === "/docs") {
-    return Effect.succeed(docsPayload());
+    return Effect.succeed(
+      docsPayload(
+        acceptPrefersHtml(request.headers.accept ?? "") ||
+          isEmbedUserAgent(request.headers["user-agent"] ?? ""),
+        originOf(request) + (path === "/" ? "/" : "/docs")
+      )
+    );
   }
   if (path === "/api/browse") {
     return handleBrowse(browseInput(query), request, services);

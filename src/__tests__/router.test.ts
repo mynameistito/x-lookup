@@ -193,6 +193,38 @@ describe("Effect HTTP boundary", () => {
     });
   });
 
+  test("serves Open Graph metadata for the browser root page", async () => {
+    const { services } = await makeHarness();
+    const response = await runBoundary(
+      request("/", { headers: { Accept: "text/html" } }),
+      services
+    );
+    const body = await response.text();
+
+    expect(response.headers.get("Content-Type")).toContain("text/html");
+    expect(body).toContain("<title>x-lookup</title>");
+    expect(body).toContain('property="og:title" content="x-lookup"');
+    expect(body).toContain(
+      'property="og:description" content="Read-only, no-auth browser for public X/Twitter content'
+    );
+    expect(body).toContain(
+      'property="og:url" content="https://x-lookup.mynameistito.com/"'
+    );
+  });
+
+  test("serves the root page as HTML to preview bots", async () => {
+    const { services } = await makeHarness();
+    const response = await runBoundary(
+      request("/", { headers: { "User-Agent": "Discordbot/2.0" } }),
+      services
+    );
+
+    expect(response.headers.get("Content-Type")).toContain("text/html");
+    await expect(response.text()).resolves.toContain(
+      '<meta property="og:title" content="x-lookup">'
+    );
+  });
+
   test("routes /api/convert and status aliases through parsed application input", async () => {
     const { calls, services } = await makeHarness();
     const target = encodeURIComponent("https://x.com/ada/status/123");
