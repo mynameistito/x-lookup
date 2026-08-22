@@ -61,7 +61,7 @@ const context = (): GitHubContext => ({
   repository: env("GITHUB_REPOSITORY"),
   runId: env("GITHUB_RUN_ID"),
   serverUrl: env("GITHUB_SERVER_URL"),
-  sha: env("GITHUB_SHA"),
+  sha: optionalEnv("DEPLOYMENT_SHA") ?? env("GITHUB_SHA"),
   stage: env("STAGE"),
   token: env("GITHUB_TOKEN"),
 });
