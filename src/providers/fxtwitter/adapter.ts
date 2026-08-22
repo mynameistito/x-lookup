@@ -312,8 +312,12 @@ export const fetchFxConversationRepliesEffect = Effect.fn(
   const decoded = yield* Effect.all(
     (replies ?? []).map((item) => decodeTweet({ value: item }, operation))
   );
-  return decoded
-    .filter((tweet) => getParentStatusId(tweet) === id)
+  const repliesWithParent = decoded.filter((tweet) => getParentStatusId(tweet));
+  const directReplies =
+    repliesWithParent.length === 0
+      ? decoded
+      : decoded.filter((tweet) => getParentStatusId(tweet) === id);
+  return directReplies
     .toSorted((a, b) => {
       const byRanking =
         rankingMode === "likes"

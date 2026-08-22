@@ -3,6 +3,9 @@ import { Schema } from "effect";
 const optionalString = Schema.optional(Schema.String);
 const optionalNumber = Schema.optional(Schema.Number);
 const optionalBoolean = Schema.optional(Schema.Boolean);
+const optionalStatusId = Schema.optional(
+  Schema.Union([Schema.String, Schema.Number])
+);
 
 const FxWebsiteTransportSchema = Schema.Struct({
   display_url: optionalString,
@@ -162,7 +165,7 @@ export const FxTweetTransportSchema = Schema.Struct({
   community_note: Schema.optional(Schema.Unknown),
   created_at: optionalString,
   created_timestamp: optionalNumber,
-  id: optionalString,
+  id: optionalStatusId,
   lang: optionalString,
   likes: optionalNumber,
   media: Schema.optional(FxMediaTransportSchema),
