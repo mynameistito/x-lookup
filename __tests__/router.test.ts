@@ -341,8 +341,15 @@ describe("Effect HTTP boundary", () => {
       errorRequired: openApiDocument.components.schemas.Error.required,
       infoTitle: openApiDocument.info.title,
       infoVersion: openApiDocument.info.version,
+      oembedSchema:
+        openApiDocument.paths["/oembed"].get.responses["200"].content[
+          "application/json"
+        ].schema.$ref,
       openapi: openApiDocument.openapi,
       paths: Object.keys(openApiDocument.paths),
+      threadSchema: openApiDocument.paths["/api/convert"].get.parameters.find(
+        (parameter: { name: string }) => parameter.name === "thread"
+      ).schema,
     }).toStrictEqual({
       browseParameters: [
         "resource",
@@ -371,6 +378,7 @@ describe("Effect HTTP boundary", () => {
       errorRequired: ["error", "code"],
       infoTitle: "x-lookup API",
       infoVersion: "1.0.0",
+      oembedSchema: "#/components/schemas/OEmbedResponse",
       openapi: "3.1.0",
       paths: [
         "/api/browse",
@@ -383,6 +391,13 @@ describe("Effect HTTP boundary", () => {
         "/{handle}/following",
         "/{handle}/status/{id}",
       ],
+      threadSchema: {
+        default: "full",
+        oneOf: [
+          { enum: ["off", "full", "conversation"], type: "string" },
+          { maximum: 100, minimum: 2, type: "integer" },
+        ],
+      },
     });
     await expect(health.json()).resolves.toStrictEqual({ status: "ok" });
   });
