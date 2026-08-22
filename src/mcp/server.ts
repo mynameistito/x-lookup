@@ -22,46 +22,106 @@ export interface McpApplicationServices {
 }
 
 const optionalString = z.string().optional();
+const handle = z
+  .string()
+  .regex(/^[A-Za-z0-9_]{1,15}$/u)
+  .describe("X handle, without the @ prefix.");
+const cursor = z
+  .string()
+  .describe("Opaque continuation cursor returned by a previous response.")
+  .optional();
+const page = z
+  .number()
+  .int()
+  .min(1)
+  .max(10)
+  .default(1)
+  .describe("Page to fetch when no cursor is supplied.");
+const limit = z
+  .number()
+  .int()
+  .min(1)
+  .max(50)
+  .default(20)
+  .describe("Maximum number of results to return.");
+const full = z
+  .boolean()
+  .default(false)
+  .describe("Include richer post metrics and user details.");
+const nocache = z
+  .boolean()
+  .default(false)
+  .describe("Bypass the application cache.");
+const browseFormat = z
+  .enum(["markdown", "json"])
+  .default("markdown")
+  .describe("Response representation.");
+const feed = z
+  .enum(["latest", "media", "top"])
+  .default("latest")
+  .describe("Search result ordering.");
 
 const browseCommonInputSchema = {
-  cursor: optionalString,
-  format: z.enum(["markdown", "json"]).optional(),
-  full: z.boolean().optional(),
-  limit: z.number().int().min(1).max(50).optional(),
-  nocache: z.boolean().optional(),
-  page: z.number().int().min(1).max(10).optional(),
+  cursor,
+  format: browseFormat,
+  full,
+  limit,
+  nocache,
+  page,
 };
 
 const browseInputSchema = {
   ...browseCommonInputSchema,
-  feed: optionalString,
-  handle: optionalString,
+  feed,
+  handle: handle.optional(),
   q: optionalString,
   resource: z.enum(["profile", "search", "followers", "following"]).optional(),
 };
 
 const searchInputSchema = {
   ...browseCommonInputSchema,
-  feed: optionalString,
-  q: z.string().min(1),
+  feed,
+  q: z
+    .string()
+    .min(1)
+    .describe("Search query, including X operators such as from: or since:.")
+    .trim(),
 };
 
 const profileInputSchema = {
   ...browseCommonInputSchema,
-  handle: z.string().min(1),
+  handle,
 };
 
 const convertInputSchema = {
-  context: z.enum(["full", "thread"]).optional(),
-  format: z.enum(["markdown", "obsidian", "json"]).optional(),
-  full: z.boolean().optional(),
-  handle: optionalString,
-  id: optionalString,
-  nocache: z.boolean().optional(),
-  replies: z.enum(["top", "recent", "off"]).optional(),
-  thread: optionalString,
-  url: optionalString,
-  userinfo: z.enum(["off", "author", "all"]).optional(),
+  context: z
+    .enum(["full", "thread"])
+    .default("full")
+    .describe("Conversation context to include."),
+  format: z
+    .enum(["markdown", "obsidian", "json"])
+    .default("markdown")
+    .describe("Response representation."),
+  full,
+  handle: handle.optional(),
+  id: z.string().regex(/^\d+$/u).describe("Numeric X status ID.").optional(),
+  nocache,
+  replies: z
+    .enum(["top", "recent", "off"])
+    .default("top")
+    .describe("Replies to include around the focal post."),
+  thread: z
+    .union([
+      z.enum(["off", "full", "conversation"]),
+      z.string().regex(/^(?:[2-9]|[1-9]\d|100)$/u),
+    ])
+    .default("full")
+    .describe("Thread selection: off, full, conversation, or 2-100."),
+  url: z.string().url().describe("Public X or Twitter status URL.").optional(),
+  userinfo: z
+    .enum(["off", "author", "all"])
+    .default("off")
+    .describe("Author information to include."),
 };
 
 const oembedInputSchema = {
@@ -69,7 +129,7 @@ const oembedInputSchema = {
   provider: optionalString,
   status: optionalString,
   text: optionalString,
-  url: optionalString,
+  url: z.string().url().describe("Status URL to embed.").optional(),
 };
 
 type BrowseToolInput = z.infer<z.ZodObject<typeof browseInputSchema>>;
