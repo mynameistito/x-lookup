@@ -1,6 +1,9 @@
 import { match as matchOption } from "effect/Option";
 import {
   decodeUnknownOption,
+  check,
+  isGreaterThan,
+  isInt,
   Null,
   Number as NumberSchema,
   optional,
@@ -103,10 +106,11 @@ export const readContext = (environment: Environment): GitHubContext => ({
   token: requiredEnv(environment, "GITHUB_TOKEN"),
 });
 
-const deploymentSchema = Struct({ id: NumberSchema });
+const githubIdSchema = NumberSchema.pipe(check(isInt(), isGreaterThan(0)));
+const deploymentSchema = Struct({ id: githubIdSchema });
 const commentSchema = Struct({
   body: optional(Union([Null, StringSchema])),
-  id: NumberSchema,
+  id: githubIdSchema,
 });
 const decodeDeployment = decodeUnknownOption(deploymentSchema);
 const decodeComment = decodeUnknownOption(commentSchema);

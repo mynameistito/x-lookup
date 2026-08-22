@@ -121,7 +121,7 @@ describe("deployment reporting", () => {
   test("updates a marker comment found after the first 100 comments", async () => {
     const comments = Array.from({ length: 100 }, (_, id) => ({
       body: "other",
-      id,
+      id: id + 1,
     }));
     const calls: { url: string; init?: RequestInit }[] = [];
     await commentDeployment(
@@ -227,9 +227,13 @@ describe("deployment reporting", () => {
     expect(() => readContext({})).toThrow(
       "Missing required environment variable: GITHUB_REPOSITORY"
     );
-    await expect(
-      createDeployment(context(), deps([response({ id: "not-a-number" })]))
-    ).rejects.toThrow("invalid deployment");
+    await Promise.all(
+      ["not-a-number", 0, 1.5].map((id) =>
+        expect(
+          createDeployment(context(), deps([response({ id })]))
+        ).rejects.toThrow("invalid deployment")
+      )
+    );
     await expect(
       createDeployment(context(), deps([rawResponse("nope")]))
     ).rejects.toThrow("invalid JSON response");
