@@ -18,10 +18,13 @@ env:
 
 jobs:
   deploy:
-    # Fork pull requests never deploy: the guard keeps repository secrets away
-    # from untrusted code, and the job would fail on empty credentials anyway.
-    if: github.event_name == 'push' || (github.event.action != 'closed' && github.event.pull_request.head.repo.full_name == github.repository)
+    # Fork pull requests never deploy. Production also requires main to be a
+    # protected ref, while both paths pause at a protected environment.
+    if: >-
+      (github.event_name == 'push' && github.ref_protected == true) || (github.event_name == 'pull_request' && github.event.action != 'closed' && github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-latest
+    environment:
+      name: ${{ github.event_name == 'pull_request' && 'preview' || 'production' }}
     permissions:
       contents: read
       deployments: write
