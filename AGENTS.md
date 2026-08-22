@@ -30,8 +30,8 @@ Use Bun only. The pinned package manager is Bun `1.4.0`; commands and scripts in
 
 - This is one API-only Cloudflare Worker. There is no frontend build or static asset pipeline.
 - `alchemy.run.ts` and the resource declaration in `src/worker.ts` are the infrastructure source of truth. There is no `wrangler.jsonc` or Wrangler dependency.
-- `src/worker.ts` is the composition root. It builds the Effect Layer graph once and closes over it per fetch event. `src/router.ts` is the HTTP boundary.
-- `src/lib/` is runtime-agnostic domain and provider logic. Keep `node:*` imports out of it.
+- `src/worker.ts` is the composition root. It builds the Effect Layer graph once and closes over it per fetch event. `src/http/router.ts` is the HTTP boundary.
+- Runtime-agnostic code is organized by responsibility: application services in `src/application/`, parsers and value objects in `src/domain/`, upstream ports/adapters in `src/providers/`, cache implementations in `src/infrastructure/`, response rendering in `src/presentation/`, and HTTP boundary code in `src/http/`. Keep `node:*` imports out of these modules.
 - Tests belong in root `__tests__/` and use the `.test.ts` suffix. Test provider I/O through the `HttpClient.HttpClient` seam, not global `fetch` stubs.
 - Use named exports everywhere except the default export required by `alchemy.run.ts`.
 
@@ -41,8 +41,8 @@ Use Bun only. The pinned package manager is Bun `1.4.0`; commands and scripts in
 - Every HTTP failure is JSON shaped as `{ "error": string, "code": string }` with a truthful status: 400 for bad input, 404 only for a genuinely missing resource, and 502 for upstream refusal or failure.
 - If FxTwitter refuses a search with upstream `NOT_FOUND`, return 502 with code `search_unavailable`; never turn it into a fake post-not-found 404.
 - Free upstreams are FxTwitter (`https://api.fxtwitter.com`) and Twitter syndication (`https://cdn.syndication.twimg.com`). Do not add paid providers or provider secrets.
-- `Cache` in `src/lib/cache.ts` composes ordered stores: isolate-shared `MemoryStore` L1 and Cloudflare Cache API L2. `CACHE_TTL_SECONDS` defaults to 3600; `nocache=true` bypasses caching.
-- `requestOrigin` in `src/lib/http.ts` enforces the host allowlist: production domain `x-lookup.mynameistito.com` and local development hosts.
+- `Cache` in `src/infrastructure/cache/service.ts` composes ordered stores: isolate-shared `MemoryStore` L1 and Cloudflare Cache API L2. `CACHE_TTL_SECONDS` defaults to 3600; `nocache=true` bypasses caching.
+- `requestOrigin` in `src/http/request.ts` enforces the host allowlist: production domain `x-lookup.mynameistito.com` and local development hosts.
 - Only `prod` uses the physical Worker name `x-lookup` and the production custom domain. Other stages must remain isolated, including local and PR preview stages.
 
 ## Effect Rules

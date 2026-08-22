@@ -2,20 +2,20 @@ import { Effect, Layer, Option, Schema } from "effect";
 import { HttpEffect } from "effect/unstable/http";
 
 import type { XLookupEnv } from "@/alchemy.run.ts";
-import { envSchema } from "@/env.ts";
-import type { Env } from "@/env.ts";
-import { Browse, layerBrowseWithoutDependencies } from "@/lib/browse.ts";
-import { layerWorker } from "@/lib/cache.ts";
+import {
+  Browse,
+  layerBrowseWithoutDependencies,
+} from "@/application/browse.ts";
 import {
   Conversion,
   layerConversionWithoutDependencies,
-} from "@/lib/converter.ts";
-import {
-  layerFxTwitter,
-  layerSyndication,
-} from "@/lib/provider-service-adapter.ts";
-import { layerPostLookupWithoutDependencies } from "@/lib/tweet-fetch.ts";
-import { makeHttpApplication } from "@/router.ts";
+} from "@/application/conversion.ts";
+import { layerPostLookupWithoutDependencies } from "@/application/post-lookup.ts";
+import { makeHttpApplication } from "@/http/router.ts";
+import { layerWorker } from "@/infrastructure/cache/service.ts";
+import { layerFxTwitter, layerSyndication } from "@/providers/composition.ts";
+import { envSchema } from "@/runtime/env.ts";
+import type { Env } from "@/runtime/env.ts";
 
 /**
  * Production composition root for application capabilities.

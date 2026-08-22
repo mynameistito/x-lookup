@@ -8,9 +8,9 @@ import {
   fetchFxFullThreadEffect,
   fetchFxStatusEffect,
   fetchFxThreadEffect,
-} from "@/lib/fxtwitter-adapter.ts";
-import type { ProviderEffect } from "@/lib/provider-http.ts";
-import { fetchSyndicationStatusEffect } from "@/lib/syndication-adapter.ts";
+} from "@/providers/fxtwitter/adapter.ts";
+import type { ProviderEffect } from "@/providers/http-client.ts";
+import { fetchSyndicationStatusEffect } from "@/providers/syndication/adapter.ts";
 
 const makeClient = (
   respond: (request: HttpClientRequest.HttpClientRequest) => Response

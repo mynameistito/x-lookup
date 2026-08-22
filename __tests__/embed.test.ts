@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import type { ConvertSuccess } from "@/lib/converter.ts";
+import type { ConvertSuccess } from "@/application/conversion.ts";
 import {
   buildEmbedHtml,
   embedDescription,
@@ -10,9 +10,9 @@ import {
   pickFocalTweet,
   socialProof,
   supportsNativeMultiImage,
-} from "@/lib/embed.ts";
-import type { FxTweet } from "@/lib/fxtwitter-types.ts";
-import { embedResponse, oembedResponse } from "@/lib/http-presenter.ts";
+} from "@/presentation/embed.ts";
+import { embedResponse, oembedResponse } from "@/presentation/http.ts";
+import type { FxTweet } from "@/providers/fxtwitter/types.ts";
 
 const photoTweet: FxTweet = {
   author: {
