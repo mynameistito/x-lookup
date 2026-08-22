@@ -52,11 +52,11 @@ const imageTree = container({
           whiteSpace: "pre",
         }),
         text(
-          "Read X/Twitter content as compact Markdown or JSON.\nNo login. No API key. Just the signal.",
+          "Read-only, no-auth browser for public X/Twitter content, purpose-built for AI\nagents. Statuses and threads, profiles, search, followers/following — served as\ncompact Markdown by default, structured JSON on request.",
           {
             color: "#8d96a5",
             fontFamily: "monospace",
-            fontSize: 25,
+            fontSize: 20,
             lineHeight: 1.35,
             whiteSpace: "pre",
           }
