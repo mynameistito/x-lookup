@@ -1,5 +1,4 @@
 import type { Effect } from "effect";
-import { Context } from "effect";
 
 import type {
   FxTwitterFailure,
@@ -46,11 +45,6 @@ export interface FxTwitterService {
   ) => Effect.Effect<FxListResponse<FxTweet>, FxTwitterFailure>;
 }
 
-/** Application-owned port for the free FxTwitter provider capability. */
-export class FxTwitter extends Context.Service<FxTwitter, FxTwitterService>()(
-  "x-lookup/application/FxTwitter"
-) {}
-
 export interface SyndicationService {
   readonly fetchStatus: (
     handle: string,
@@ -58,8 +52,5 @@ export interface SyndicationService {
   ) => Effect.Effect<FxTweet, SyndicationFailure>;
 }
 
-/** Application-owned port for the Twitter syndication fallback capability. */
-export class Syndication extends Context.Service<
-  Syndication,
-  SyndicationService
->()("x-lookup/application/Syndication") {}
+export { FxTwitter } from "@/providers/fxtwitter/service.ts";
+export { Syndication } from "@/providers/syndication/service.ts";

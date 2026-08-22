@@ -1,5 +1,10 @@
-import { Data, Option, Result } from "effect";
+import { Option, Result } from "effect";
 
+import { StatusTargetInvalid as TargetInvalidError } from "@/domain/errors/status-target-invalid.ts";
+import { StatusTargetMissing as TargetMissingError } from "@/domain/errors/status-target-missing.ts";
+import { StatusUrlHostUnsupported as HostUnsupportedError } from "@/domain/errors/status-url-host-unsupported.ts";
+import { StatusUrlInvalid as UrlInvalidError } from "@/domain/errors/status-url-invalid.ts";
+import { StatusUrlPathInvalid as PathInvalidError } from "@/domain/errors/status-url-path-invalid.ts";
 import { digitsOf, parse as parsePostId } from "@/domain/post-id.ts";
 import type { PostId } from "@/domain/post-id.ts";
 
@@ -20,76 +25,23 @@ export interface StatusTarget {
   readonly id: PostId;
 }
 
-/** The URL text could not be parsed as a URL at all. */
-export class StatusUrlInvalid extends Data.TaggedError("StatusUrlInvalid")<{
-  readonly code: "invalid_url";
-  readonly input: string;
-  readonly status: 400;
-}> {
-  override readonly message =
-    "Invalid URL. Provide a public X/Twitter status URL.";
-}
-
-/** The URL parses but its host is not an accepted X/Twitter (or self) host. */
-export class StatusUrlHostUnsupported extends Data.TaggedError(
-  "StatusUrlHostUnsupported"
-)<{
-  readonly code: "unsupported_host";
-  readonly input: string;
-  readonly status: 400;
-}> {
-  override readonly message =
-    "Only x.com or twitter.com status URLs are supported.";
-}
-
-/** The URL host is accepted but the path is not a status permalink. */
-export class StatusUrlPathInvalid extends Data.TaggedError(
-  "StatusUrlPathInvalid"
-)<{
-  readonly code: "invalid_path";
-  readonly input: string;
-  readonly status: 400;
-}> {
-  override readonly message =
-    "URL must be a status permalink like https://x.com/handle/status/1234567890.";
-}
-
-/**
- * Both `handle` and `id` were supplied but at least one normalizes to
- * nothing (no digits for the id, or an empty handle after de-`@`-ing).
- */
-export class StatusTargetInvalid extends Data.TaggedError(
-  "StatusTargetInvalid"
-)<{
-  readonly code: "invalid_params";
-  readonly handle: string;
-  readonly id: string;
-  readonly status: 400;
-}> {
-  override readonly message = "Missing or invalid handle/status id.";
-}
-
-/** Neither a `url` nor a `handle`+`id` pair was supplied. */
-export class StatusTargetMissing extends Data.TaggedError(
-  "StatusTargetMissing"
-)<{
-  readonly code: "missing_url";
-  readonly status: 400;
-}> {
-  override readonly message = "Missing required `url` query parameter.";
-}
+export { StatusTargetInvalid } from "@/domain/errors/status-target-invalid.ts";
+export { StatusTargetMissing } from "@/domain/errors/status-target-missing.ts";
+export { StatusUrlHostUnsupported } from "@/domain/errors/status-url-host-unsupported.ts";
+export { StatusUrlInvalid } from "@/domain/errors/status-url-invalid.ts";
+export { StatusUrlPathInvalid } from "@/domain/errors/status-url-path-invalid.ts";
 
 /** Every way {@link parseStatusUrl} can refuse its input. */
 export type StatusUrlError =
-  | StatusUrlHostUnsupported
-  | StatusUrlInvalid
-  | StatusUrlPathInvalid;
+  | HostUnsupportedError
+  | UrlInvalidError
+  | PathInvalidError;
 
 /** Every way {@link resolve} can refuse its input. */
 export type ResolveError =
   | StatusUrlError
-  | StatusTargetInvalid
-  | StatusTargetMissing;
+  | TargetInvalidError
+  | TargetMissingError;
 
 const ALLOWED_HOSTS = new Set([
   "x.com",
@@ -125,14 +77,14 @@ export const parseStatusUrl = (
     parsed = new URL(raw.trim());
   } catch {
     return Result.fail(
-      new StatusUrlInvalid({ code: "invalid_url", input: raw, status: 400 })
+      new UrlInvalidError({ code: "invalid_url", input: raw, status: 400 })
     );
   }
 
   const host = parsed.hostname.replace(/^www\./u, "");
   if (!hostAllowed(host)) {
     return Result.fail(
-      new StatusUrlHostUnsupported({
+      new HostUnsupportedError({
         code: "unsupported_host",
         input: raw,
         status: 400,
@@ -145,7 +97,7 @@ export const parseStatusUrl = (
   const id = Option.getOrUndefined(parsePostId(match?.groups?.id ?? ""));
   if (!handle || id === undefined) {
     return Result.fail(
-      new StatusUrlPathInvalid({
+      new PathInvalidError({
         code: "invalid_path",
         input: raw,
         status: 400,
@@ -189,7 +141,7 @@ export const resolve = (
     const id = Option.getOrUndefined(digitsOf(input.id));
     if (!handle || id === undefined) {
       return Result.fail(
-        new StatusTargetInvalid({
+        new TargetInvalidError({
           code: "invalid_params",
           handle: input.handle,
           id: input.id,
@@ -205,6 +157,6 @@ export const resolve = (
   }
 
   return Result.fail(
-    new StatusTargetMissing({ code: "missing_url", status: 400 })
+    new TargetMissingError({ code: "missing_url", status: 400 })
   );
 };

@@ -1,4 +1,8 @@
-import { Data, Option, Result, Schema } from "effect";
+import { Option, Result, Schema } from "effect";
+
+import { InvalidBrowseFormat as BrowseFormatError } from "@/domain/errors/invalid-browse-format.ts";
+import { InvalidBrowseResource as BrowseResourceError } from "@/domain/errors/invalid-browse-resource.ts";
+import { MissingSearchQuery as MissingQueryError } from "@/domain/errors/missing-search-query.ts";
 
 /** Raw count-style query values (`page`, `limit`). */
 export type CountValue = string | number | null | undefined;
@@ -62,35 +66,9 @@ const decodeLimit = Schema.decodeUnknownOption(limitSchema);
 const defaultPage: BrowsePage = Option.getOrThrow(decodePage(1));
 const defaultLimit: BrowseLimit = Option.getOrThrow(decodeLimit(DEFAULT_LIMIT));
 
-/** The `resource` parameter is missing or not a browse resource. */
-export class InvalidBrowseResource extends Data.TaggedError(
-  "InvalidBrowseResource"
-)<{
-  readonly code: "invalid_resource";
-  readonly input: string;
-  readonly status: 400;
-}> {
-  override readonly message = "Unsupported browse resource.";
-}
-
-/** The browse `format` parameter is not `markdown` or `json`. */
-export class InvalidBrowseFormat extends Data.TaggedError(
-  "InvalidBrowseFormat"
-)<{
-  readonly code: "invalid_format";
-  readonly input: string;
-  readonly status: 400;
-}> {
-  override readonly message = "Browse `format` must be `markdown` or `json`.";
-}
-
-/** A search request without a usable `q` value. */
-export class MissingSearchQuery extends Data.TaggedError("MissingSearchQuery")<{
-  readonly code: "missing_query";
-  readonly status: 400;
-}> {
-  override readonly message = "Search query q is required.";
-}
+export { InvalidBrowseFormat } from "@/domain/errors/invalid-browse-format.ts";
+export { InvalidBrowseResource } from "@/domain/errors/invalid-browse-resource.ts";
+export { MissingSearchQuery } from "@/domain/errors/missing-search-query.ts";
 
 /**
  * Parse the browse `resource` parameter.
@@ -104,12 +82,12 @@ export class MissingSearchQuery extends Data.TaggedError("MissingSearchQuery")<{
  */
 export const parseResource = (
   raw?: string | null
-): Result.Result<BrowseResource, InvalidBrowseResource> => {
+): Result.Result<BrowseResource, BrowseResourceError> => {
   const decoded = raw ? decodeResource(raw) : Option.none();
   return Option.match(decoded, {
     onNone: () =>
       Result.fail(
-        new InvalidBrowseResource({
+        new BrowseResourceError({
           code: "invalid_resource",
           input: raw ?? "",
           status: 400,
@@ -139,14 +117,14 @@ export const parseFeed = (raw?: string | null): BrowseFeed =>
  */
 export const parseFormat = (
   raw?: string | null
-): Result.Result<BrowseFormat, InvalidBrowseFormat> => {
+): Result.Result<BrowseFormat, BrowseFormatError> => {
   if (!raw) {
     return Result.succeed("markdown");
   }
   return Option.match(decodeFormat(raw), {
     onNone: () =>
       Result.fail(
-        new InvalidBrowseFormat({
+        new BrowseFormatError({
           code: "invalid_format",
           input: raw,
           status: 400,
@@ -205,11 +183,11 @@ export const parseLimit = (raw: CountValue): BrowseLimit => {
  */
 export const parseSearchQuery = (
   raw?: string | null
-): Result.Result<string, MissingSearchQuery> => {
+): Result.Result<string, MissingQueryError> => {
   const query = raw?.trim();
   if (!query) {
     return Result.fail(
-      new MissingSearchQuery({ code: "missing_query", status: 400 })
+      new MissingQueryError({ code: "missing_query", status: 400 })
     );
   }
   return Result.succeed(query);

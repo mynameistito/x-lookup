@@ -1,4 +1,8 @@
-import { Data, Option, Result, Schema } from "effect";
+import { Option, Result, Schema } from "effect";
+
+import { InvalidContext as ContextError } from "@/domain/errors/invalid-context.ts";
+import { InvalidReplies as RepliesError } from "@/domain/errors/invalid-replies.ts";
+import { InvalidUserinfo as UserinfoError } from "@/domain/errors/invalid-userinfo.ts";
 
 /** How much conversation context surrounds the focal post. */
 export type ContextMode = typeof contextSchema.Type;
@@ -19,32 +23,9 @@ const decodeContext = Schema.decodeUnknownOption(contextSchema);
 const decodeReplies = Schema.decodeUnknownOption(repliesSchema);
 const decodeUserinfo = Schema.decodeUnknownOption(userinfoSchema);
 
-/** The `context` parameter is not `full` or `thread`. */
-export class InvalidContext extends Data.TaggedError("InvalidContext")<{
-  readonly code: "invalid_context";
-  readonly input: string;
-  readonly status: 400;
-}> {
-  override readonly message = "`context` must be `full` or `thread`.";
-}
-
-/** The `replies` parameter is not `top`, `recent`, or `off`. */
-export class InvalidReplies extends Data.TaggedError("InvalidReplies")<{
-  readonly code: "invalid_replies";
-  readonly input: string;
-  readonly status: 400;
-}> {
-  override readonly message = "`replies` must be `top`, `recent`, or `off`.";
-}
-
-/** The `userinfo` parameter is not `off`, `author`, or `all`. */
-export class InvalidUserinfo extends Data.TaggedError("InvalidUserinfo")<{
-  readonly code: "invalid_userinfo";
-  readonly input: string;
-  readonly status: 400;
-}> {
-  override readonly message = "`userinfo` must be `off`, `author`, or `all`.";
-}
+export { InvalidContext } from "@/domain/errors/invalid-context.ts";
+export { InvalidReplies } from "@/domain/errors/invalid-replies.ts";
+export { InvalidUserinfo } from "@/domain/errors/invalid-userinfo.ts";
 
 /**
  * Parse the convert `context` parameter; absent or empty selects `full`.
@@ -54,14 +35,14 @@ export class InvalidUserinfo extends Data.TaggedError("InvalidUserinfo")<{
  */
 export const parseContext = (
   raw?: string | null
-): Result.Result<ContextMode, InvalidContext> => {
+): Result.Result<ContextMode, ContextError> => {
   if (!raw || raw === "full") {
     return Result.succeed("full");
   }
   return Option.match(decodeContext(raw), {
     onNone: () =>
       Result.fail(
-        new InvalidContext({ code: "invalid_context", input: raw, status: 400 })
+        new ContextError({ code: "invalid_context", input: raw, status: 400 })
       ),
     onSome: (value) => Result.succeed(value),
   });
@@ -75,14 +56,14 @@ export const parseContext = (
  */
 export const parseReplies = (
   raw?: string | null
-): Result.Result<RepliesMode, InvalidReplies> => {
+): Result.Result<RepliesMode, RepliesError> => {
   if (!raw || raw === "top") {
     return Result.succeed("top");
   }
   return Option.match(decodeReplies(raw), {
     onNone: () =>
       Result.fail(
-        new InvalidReplies({ code: "invalid_replies", input: raw, status: 400 })
+        new RepliesError({ code: "invalid_replies", input: raw, status: 400 })
       ),
     onSome: (value) => Result.succeed(value),
   });
@@ -96,14 +77,14 @@ export const parseReplies = (
  */
 export const parseUserinfo = (
   raw?: string | null
-): Result.Result<UserinfoLevel, InvalidUserinfo> => {
+): Result.Result<UserinfoLevel, UserinfoError> => {
   if (!raw || raw === "off") {
     return Result.succeed("off");
   }
   return Option.match(decodeUserinfo(raw), {
     onNone: () =>
       Result.fail(
-        new InvalidUserinfo({
+        new UserinfoError({
           code: "invalid_userinfo",
           input: raw,
           status: 400,
