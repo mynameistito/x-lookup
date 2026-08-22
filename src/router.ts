@@ -1,6 +1,13 @@
 import { Effect, Result } from "effect";
 import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 
+import {
+  API_CATALOG_CONTENT_TYPE,
+  API_CATALOG_LINK,
+  apiCatalogJson,
+  healthJson,
+  openApiJson,
+} from "@/api-catalog.ts";
 import { ROOT_MARKDOWN, rootHtml } from "@/docs.ts";
 import { parseBrowseRequest } from "@/lib/browse.ts";
 import type {
@@ -46,6 +53,8 @@ const API_CORS_HEADERS = {
 } as const;
 
 const SERVICE_DOC_LINK = '</docs>; rel="service-doc"';
+const CACHE_CONTROL = "public, max-age=3600";
+const JSON_CONTENT_TYPE = "application/json; charset=utf-8";
 
 interface ApiErrorBody {
   readonly code: string;
@@ -67,7 +76,7 @@ const jsonErrorPayload = (status: number, body: ApiErrorBody): HttpPayload => ({
   body: JSON.stringify(body),
   headers: {
     "Access-Control-Allow-Origin": "*",
-    "Content-Type": "application/json; charset=utf-8",
+    "Content-Type": JSON_CONTENT_TYPE,
   },
   status,
 });
@@ -84,7 +93,7 @@ const docsPayload = (html: boolean, canonicalUrl: string): HttpPayload => ({
   body: html ? rootHtml(canonicalUrl) : ROOT_MARKDOWN,
   headers: {
     "Access-Control-Allow-Origin": "*",
-    "Cache-Control": "public, max-age=3600",
+    "Cache-Control": CACHE_CONTROL,
     "Content-Type": html
       ? "text/html; charset=utf-8"
       : "text/markdown; charset=utf-8",
@@ -97,7 +106,7 @@ const docsPayload = (html: boolean, canonicalUrl: string): HttpPayload => ({
 const textPayload = (body: string, contentType: string): HttpPayload => ({
   body,
   headers: {
-    "Cache-Control": "public, max-age=3600",
+    "Cache-Control": CACHE_CONTROL,
     "Content-Type": contentType,
   },
   status: 200,
@@ -117,6 +126,25 @@ const webBotAuthPayload = (): HttpPayload => ({
   },
   status: 200,
 });
+
+const apiCatalogPayload = (origin: string): HttpPayload => ({
+  body: apiCatalogJson(origin),
+  headers: {
+    "Cache-Control": CACHE_CONTROL,
+    "Content-Type": API_CATALOG_CONTENT_TYPE,
+    Link: API_CATALOG_LINK,
+  },
+  status: 200,
+});
+
+const openApiPayload = (origin: string): HttpPayload =>
+  textPayload(
+    openApiJson(origin),
+    "application/vnd.oai.openapi+json;version=3.1"
+  );
+
+const healthPayload = (): HttpPayload =>
+  textPayload(healthJson(), JSON_CONTENT_TYPE);
 
 /** Translate every expected domain/application/provider failure in one place. */
 const failurePayload = (failure: BoundaryFailure): HttpPayload =>
@@ -354,6 +382,21 @@ const routeRequest = (
   if (path === "/.well-known/http-message-signatures-directory") {
     return Effect.succeed(
       serverResponse(webBotAuthPayload(), request.method === "HEAD")
+    );
+  }
+  if (path === "/.well-known/api-catalog") {
+    return Effect.succeed(
+      serverResponse(apiCatalogPayload(origin), request.method === "HEAD")
+    );
+  }
+  if (path === "/openapi.json") {
+    return Effect.succeed(
+      serverResponse(openApiPayload(origin), request.method === "HEAD")
+    );
+  }
+  if (path === "/health") {
+    return Effect.succeed(
+      serverResponse(healthPayload(), request.method === "HEAD")
     );
   }
   if (path === "/og.png") {
