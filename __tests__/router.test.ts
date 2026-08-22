@@ -277,6 +277,63 @@ describe("Effect HTTP boundary", () => {
     });
   });
 
+  test("publishes an RFC 9727 API catalog and linked metadata", async () => {
+    const { services } = await makeHarness();
+    const response = await runBoundary(
+      request("/.well-known/api-catalog", {
+        headers: { Accept: "application/linkset+json" },
+      }),
+      services
+    );
+    const head = await runBoundary(
+      request("/.well-known/api-catalog", { method: "HEAD" }),
+      services
+    );
+    const catalog = await response.json();
+    const [entry] = catalog.linkset;
+
+    expect(entry).toStrictEqual({
+      anchor: "https://x-lookup.mynameistito.com/api/convert",
+      "service-desc": [
+        {
+          href: "https://x-lookup.mynameistito.com/openapi.json",
+          type: "application/vnd.oai.openapi+json;version=3.1",
+        },
+      ],
+      "service-doc": [
+        { href: "https://x-lookup.mynameistito.com/docs", type: "text/html" },
+      ],
+      status: [
+        {
+          href: "https://x-lookup.mynameistito.com/health",
+          type: "application/json",
+        },
+      ],
+    });
+    expect({
+      contentType: response.headers.get("Content-Type"),
+      headBody: await head.text(),
+      headLink: head.headers.get("Link"),
+      headStatus: head.status,
+      status: response.status,
+    }).toStrictEqual({
+      contentType:
+        'application/linkset+json; profile="https://www.rfc-editor.org/info/rfc9727"',
+      headBody: "",
+      headLink: '</.well-known/api-catalog>; rel="api-catalog"',
+      headStatus: 200,
+      status: 200,
+    });
+
+    const openApi = await runBoundary(request("/openapi.json"), services);
+    const health = await runBoundary(request("/health"), services);
+    await expect(openApi.json()).resolves.toMatchObject({
+      info: { title: "x-lookup API" },
+      openapi: "3.1.0",
+    });
+    await expect(health.json()).resolves.toStrictEqual({ status: "ok" });
+  });
+
   test("serves Open Graph metadata for the browser root page", async () => {
     const { services } = await makeHarness();
     const response = await runBoundary(
