@@ -18,10 +18,10 @@ env:
 
 jobs:
   deploy:
-    # Fork pull requests never deploy. Production requires a protected main
-    # ref; same-repository preview deployments pause at the preview environment.
+    # Fork pull requests never deploy. Same-repository preview deployments
+    # pause at the preview environment; pushes to main deploy production.
     if: >-
-      (github.event_name == 'push' && github.ref_protected == true) || (github.event_name == 'pull_request' && github.event.action != 'closed' && github.event.pull_request.head.repo.full_name == github.repository)
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'pull_request' && github.event.action != 'closed' && github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-latest
     environment:
       name: ${{ github.event_name == 'pull_request' && 'preview' || 'production' }}
