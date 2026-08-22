@@ -1,10 +1,8 @@
 import { Context, Effect, Layer, Result } from "effect";
 
-import { Cache, buildCacheKey, cacheControlHeader } from "@/lib/cache.ts";
+import { Cache, buildCacheKey } from "@/lib/cache.ts";
 import type { CacheStatus } from "@/lib/cache.ts";
 import type { FxTweet } from "@/lib/fxtwitter-types.ts";
-import type { HeaderMap, HttpPayload } from "@/lib/http.ts";
-import { renderThreadMarkdown } from "@/lib/markdown.ts";
 import { parse as parseOutputFormat } from "@/lib/output-format.ts";
 import type { InvalidOutputFormat, OutputFormat } from "@/lib/output-format.ts";
 import { parseConvertFlag } from "@/lib/query-flag.ts";
@@ -69,7 +67,6 @@ export type ConvertParseError =
 export type ConvertFailure = ConvertParseError | PostLookupFailure;
 
 export interface ConvertSuccess {
-  body: string;
   warnings: string[];
   canonicalUrl: string;
   format: OutputFormat;
@@ -78,6 +75,7 @@ export interface ConvertSuccess {
   cache: CacheStatus;
   posts: FxTweet[];
   compact: boolean;
+  userinfo: UserinfoLevel;
 }
 
 export interface ConversionService {
@@ -210,21 +208,14 @@ const makeConversion = Effect.gen(function* makeConversionService() {
         );
       }
 
-      const body = renderThreadMarkdown(posts, {
-        canonicalUrl,
-        compact: compact && format !== "obsidian",
-        format: format === "json" ? "markdown" : format,
-        userinfo,
-      });
-
       return {
-        body,
         canonicalUrl,
         compact: compact && format !== "obsidian",
         format,
         postCount: posts.length,
         posts,
         source: fetched.source,
+        userinfo,
         warnings,
       } satisfies ConvertPayload;
     }
@@ -278,92 +269,3 @@ export const convertTweetEffect = (
     }
     return yield* convertRequestEffect(parsed.success);
   });
-
-export const acceptPrefersHtml = (accept: string): boolean => {
-  if (accept.includes("application/json") || accept.includes("text/markdown")) {
-    return false;
-  }
-  return accept.includes("text/html");
-};
-
-const escapeHtml = (value: string): string =>
-  value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;");
-
-export const htmlMarkdownPage = (
-  markdown: string,
-  canonicalUrl: string
-): string =>
-  `<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>${escapeHtml(canonicalUrl)} · x-lookup</title>
-  <style>
-    body { margin: 0; background: #08090a; color: #d0d6e0; font-family: "IBM Plex Mono", ui-monospace, monospace; }
-    pre { margin: 0; padding: 1.5rem; white-space: pre-wrap; word-break: break-word; line-height: 1.65; font-size: 13px; }
-  </style>
-</head>
-<body><pre>${escapeHtml(markdown)}</pre></body>
-</html>`;
-
-export const markdownResponse = (
-  result: ConvertSuccess,
-  asJson = false,
-  asHtml = false
-): HttpPayload => {
-  const sharedHeaders: HeaderMap = {
-    Vary: "Accept, User-Agent",
-    "X-Cache": result.cache.toUpperCase(),
-    "X-Converter": "x-lookup",
-    "X-Post-Count": String(result.postCount),
-    "X-Source": result.source,
-    "X-Warnings": String(result.warnings.length),
-  };
-
-  if (result.cache !== "bypass") {
-    sharedHeaders["Cache-Control"] = cacheControlHeader();
-  }
-
-  if (asJson) {
-    return {
-      body: JSON.stringify({
-        cache: result.cache,
-        compact: result.compact,
-        format: result.format,
-        markdown: result.body,
-        postCount: result.postCount,
-        posts: result.posts,
-        source: result.source,
-        url: result.canonicalUrl,
-        warnings: result.warnings,
-      }),
-      headers: {
-        "Content-Type": "application/json; charset=utf-8",
-        ...sharedHeaders,
-      },
-      status: 200,
-    };
-  }
-
-  if (asHtml) {
-    return {
-      body: htmlMarkdownPage(result.body, result.canonicalUrl),
-      headers: { "Content-Type": "text/html; charset=utf-8", ...sharedHeaders },
-      status: 200,
-    };
-  }
-
-  return {
-    body: result.body,
-    headers: {
-      "Content-Type": "text/markdown; charset=utf-8",
-      ...sharedHeaders,
-    },
-    status: 200,
-  };
-};

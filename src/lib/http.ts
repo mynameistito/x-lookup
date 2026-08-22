@@ -84,3 +84,11 @@ export const wantsMarkdown = (
   }
   return accept.includes("text/markdown");
 };
+
+/** Select the browser HTML representation when no explicit format wins. */
+export const acceptPrefersHtml = (accept: string): boolean => {
+  if (accept.includes("application/json") || accept.includes("text/markdown")) {
+    return false;
+  }
+  return accept.includes("text/html");
+};
