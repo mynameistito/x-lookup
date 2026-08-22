@@ -2,6 +2,13 @@ import { Effect, Result } from "effect";
 import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 
 import {
+  agentSkillsHeaders,
+  agentSkillsIndexContentType,
+  agentSkillsIndexJson,
+  agentSkillsMarkdownContentType,
+  browseXSkillMarkdown,
+} from "@/agent-skills.ts";
+import {
   API_CATALOG_CONTENT_TYPE,
   API_CATALOG_LINK,
   apiCatalogJson,
@@ -124,6 +131,12 @@ const webBotAuthPayload = (): HttpPayload => ({
     "Cache-Control": "public, max-age=86400, immutable",
     "Content-Type": "application/http-message-signatures-directory+json",
   },
+  status: 200,
+});
+
+const agentSkillsSkillPayload = (): HttpPayload => ({
+  body: browseXSkillMarkdown(),
+  headers: agentSkillsHeaders(agentSkillsMarkdownContentType),
   status: 200,
 });
 
@@ -387,6 +400,23 @@ const routeRequest = (
   if (path === "/.well-known/api-catalog") {
     return Effect.succeed(
       serverResponse(apiCatalogPayload(origin), request.method === "HEAD")
+    );
+  }
+  if (path === "/.well-known/agent-skills/browse-x/SKILL.md") {
+    return Effect.succeed(
+      serverResponse(agentSkillsSkillPayload(), request.method === "HEAD")
+    );
+  }
+  if (path === "/.well-known/agent-skills/index.json") {
+    return Effect.promise(async () =>
+      serverResponse(
+        {
+          body: await agentSkillsIndexJson(),
+          headers: agentSkillsHeaders(agentSkillsIndexContentType),
+          status: 200,
+        },
+        request.method === "HEAD"
+      )
     );
   }
   if (path === "/openapi.json") {

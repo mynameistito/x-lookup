@@ -334,6 +334,42 @@ describe("Effect HTTP boundary", () => {
     await expect(health.json()).resolves.toStrictEqual({ status: "ok" });
   });
 
+  test("publishes the Agent Skills discovery index and source skill", async () => {
+    const { services } = await makeHarness();
+    const indexResponse = await runBoundary(
+      request("/.well-known/agent-skills/index.json"),
+      services
+    );
+    const skillResponse = await runBoundary(
+      request("/.well-known/agent-skills/browse-x/SKILL.md"),
+      services
+    );
+    const head = await runBoundary(
+      request("/.well-known/agent-skills/index.json", { method: "HEAD" }),
+      services
+    );
+    const index = await indexResponse.json();
+    const [skill] = index.skills;
+
+    expect({
+      digest: skill.digest,
+      headBody: await head.text(),
+      headStatus: head.status,
+      indexContentType: indexResponse.headers.get("Content-Type"),
+      skillBody: await skillResponse.text(),
+      skillContentType: skillResponse.headers.get("Content-Type"),
+      status: indexResponse.status,
+    }).toMatchObject({
+      digest: expect.stringMatching(/^sha256:[0-9a-f]{64}$/u),
+      headBody: "",
+      headStatus: 200,
+      indexContentType: "application/json; charset=utf-8",
+      skillBody: expect.stringContaining("name: browse-x"),
+      skillContentType: "text/markdown; charset=utf-8",
+      status: 200,
+    });
+  });
+
   test("serves Open Graph metadata for the browser root page", async () => {
     const { services } = await makeHarness();
     const response = await runBoundary(
