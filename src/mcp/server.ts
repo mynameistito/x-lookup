@@ -251,7 +251,6 @@ export const createMcpServer = (
 ): McpServer => {
   const server = new McpServer({
     name: "x-lookup",
-    title: "mynameistito MCP",
     version: "1.0.0",
   });
 
