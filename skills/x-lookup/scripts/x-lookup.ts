@@ -41,18 +41,18 @@ const exit = (code: number): never => {
 };
 
 const fail = (message: string, code = 2): never => {
-  console.error(`browse-x: ${message}`);
+  console.error(`x-lookup: ${message}`);
   return exit(code);
 };
 
 const usage = (code = 2): never => {
   console.error(`Usage:
-  bun browse-x.ts <x-status-or-profile-url> [options]
-  bun browse-x.ts status <x-status-url> [options]
-  bun browse-x.ts profile <handle> [options]
-  bun browse-x.ts search <query> [options]
-  bun browse-x.ts followers <handle> [options]
-  bun browse-x.ts following <handle> [options]
+  bun x-lookup.ts <x-status-or-profile-url> [options]
+  bun x-lookup.ts status <x-status-url> [options]
+  bun x-lookup.ts profile <handle> [options]
+  bun x-lookup.ts search <query> [options]
+  bun x-lookup.ts followers <handle> [options]
+  bun x-lookup.ts following <handle> [options]
 
 Output: --json, --full, --compact, --format markdown|obsidian, --headers
 Lists:  --page 1-10, --limit 1-50, --cursor <cursor>, --feed latest|top|media
@@ -336,13 +336,13 @@ const fetchResult = async (): Promise<{ body: string; response: Response }> => {
     });
     return { body: await response.text(), response };
   } catch {
-    console.error(`browse-x: request to ${apiBase} failed`);
+    console.error(`x-lookup: request to ${apiBase} failed`);
     return exit(1);
   }
 };
 const { body, response } = await fetchResult();
 if (!response.ok) {
-  console.error(`browse-x: HTTP ${response.status} from ${endpoint}`);
+  console.error(`x-lookup: HTTP ${response.status} from ${endpoint}`);
   console.error(body);
   exit(1);
 }

@@ -23,7 +23,7 @@
   "include": [
     "src",
     "scripts",
-    "skills/browse-x/scripts/browse-x.ts",
+    "skills/x-lookup/scripts/x-lookup.ts",
     "alchemy.run.ts"
   ],
   "exclude": ["**/*.test.ts"]
