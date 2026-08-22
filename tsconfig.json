@@ -3,7 +3,7 @@
     "target": "ES2023",
     "module": "ESNext",
     "lib": ["ES2023"],
-    "types": ["@cloudflare/workers-types"],
+    "types": ["@cloudflare/workers-types", "bun"],
     "skipLibCheck": true,
     "moduleResolution": "bundler",
     "paths": {
@@ -20,6 +20,6 @@
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src", "alchemy.run.ts"],
+  "include": ["src", "scripts", "alchemy.run.ts"],
   "exclude": ["**/*.test.ts"]
 }
