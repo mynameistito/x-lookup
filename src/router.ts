@@ -15,6 +15,7 @@ import {
   healthJson,
   openApiJson,
 } from "@/api-catalog.ts";
+import { ardCatalogJson, ARD_CONTENT_TYPE } from "@/ard.ts";
 import { ROOT_MARKDOWN, rootHtml } from "@/docs.ts";
 import { parseBrowseRequest } from "@/lib/browse.ts";
 import type {
@@ -146,6 +147,16 @@ const apiCatalogPayload = (origin: string): HttpPayload => ({
     "Cache-Control": CACHE_CONTROL,
     "Content-Type": API_CATALOG_CONTENT_TYPE,
     Link: API_CATALOG_LINK,
+  },
+  status: 200,
+});
+
+const ardPayload = (origin: string): HttpPayload => ({
+  body: ardCatalogJson(origin),
+  headers: {
+    "Access-Control-Allow-Origin": "*",
+    "Cache-Control": CACHE_CONTROL,
+    "Content-Type": ARD_CONTENT_TYPE,
   },
   status: 200,
 });
@@ -400,6 +411,11 @@ const routeRequest = (
   if (path === "/.well-known/api-catalog") {
     return Effect.succeed(
       serverResponse(apiCatalogPayload(origin), request.method === "HEAD")
+    );
+  }
+  if (path === "/.well-known/ai-catalog.json") {
+    return Effect.succeed(
+      serverResponse(ardPayload(origin), request.method === "HEAD")
     );
   }
   if (path === "/.well-known/agent-skills/x-lookup/SKILL.md") {
