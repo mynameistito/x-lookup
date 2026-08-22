@@ -44,6 +44,8 @@ const API_CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
 } as const;
 
+const SERVICE_DOC_LINK = '</docs>; rel="service-doc"';
+
 interface ApiErrorBody {
   readonly code: string;
   readonly error: string;
@@ -85,6 +87,7 @@ const docsPayload = (html: boolean, canonicalUrl: string): HttpPayload => ({
     "Content-Type": html
       ? "text/html; charset=utf-8"
       : "text/markdown; charset=utf-8",
+    Link: SERVICE_DOC_LINK,
     Vary: "Accept",
   },
   status: 200,
