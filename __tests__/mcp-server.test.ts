@@ -102,9 +102,12 @@ describe("MCP boundary", () => {
     const initializedBody = await initialized.text();
     const listedBody = await listed.text();
 
-    expect(initialized.status).toBe(200);
-    expect(listed.status).toBe(200);
+    expect({
+      initialized: initialized.status,
+      listed: listed.status,
+    }).toStrictEqual({ initialized: 200, listed: 200 });
     expect(initializedBody).toContain('"name":"x-lookup"');
+    expect(initializedBody).toContain('"title":"mynameistito MCP"');
     expect(listedBody).toMatch(
       /"name":"(?:browse_x|convert_status|get_health|get_oembed|get_profile|list_followers|list_following|search_posts)"/u
     );

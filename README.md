@@ -53,7 +53,7 @@ Example remote MCP configuration:
 ```json
 {
   "mcpServers": {
-    "x-lookup": {
+    "mynameistito_mcp": {
       "url": "https://x-lookup.mynameistito.com/mcp"
     }
   }
