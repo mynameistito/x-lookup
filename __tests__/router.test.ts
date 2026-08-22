@@ -219,7 +219,7 @@ describe("Effect HTTP boundary", () => {
       sitemapStatus: sitemap.status,
       status: response.status,
     }).toStrictEqual({
-      body: "User-agent: *\nAllow: /\nDisallow:\nSitemap: https://x-lookup.mynameistito.com/sitemap.xml\n",
+      body: "User-agent: *\nAllow: /\nDisallow:\nContent-Signal: ai-train=yes, search=yes, ai-input=yes\nSitemap: https://x-lookup.mynameistito.com/sitemap.xml\n",
       cacheControl: "public, max-age=3600",
       contentType: "text/plain; charset=utf-8",
       headBody: "",
