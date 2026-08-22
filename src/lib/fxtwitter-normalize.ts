@@ -19,6 +19,16 @@ import type {
   FxTweet,
 } from "@/lib/fxtwitter-types.ts";
 
+type FxReplyingToObjectTransport = Exclude<
+  FxReplyingToTransport,
+  readonly string[] | null
+>;
+
+const isReplyingToObject = (
+  value: FxReplyingToTransport
+): value is FxReplyingToObjectTransport =>
+  value !== null && !Array.isArray(value);
+
 const CONTAINER_CONTENT_TYPES = new Map([
   ["m3u8", "application/vnd.apple.mpegurl"],
   ["mp4", "video/mp4"],
@@ -194,7 +204,7 @@ export const normalizeReplyingTo = (
   if (replyingTo === undefined || replyingTo === null) {
     return replyingTo;
   }
-  if (Array.isArray(replyingTo)) {
+  if (!isReplyingToObject(replyingTo)) {
     const strings: string[] = [];
     for (const value of replyingTo) {
       strings.push(value);
