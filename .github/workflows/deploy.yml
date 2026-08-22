@@ -111,23 +111,44 @@ jobs:
               log_url: process.env.CLOUDFLARE_LOGS_URL || `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
             });
       - name: Comment deployment URL on pull request
-        if: github.event_name == 'pull_request' && github.event.action != 'closed' && steps.deploy.outcome == 'success'
+        if: always() && github.event_name == 'pull_request' && github.event.action != 'closed' && steps.create-deployment.outcome == 'success'
         uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
         env:
           DEPLOYMENT_URL: ${{ steps.deploy.outputs.url }}
           CLOUDFLARE_LOGS_URL: ${{ steps.deploy.outputs.logs_url }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          DEPLOY_OUTCOME: ${{ steps.deploy.outcome }}
           STAGE: ${{ env.STAGE }}
         with:
           script: |
             const marker = `<!-- x-lookup-deployment: ${process.env.STAGE} -->`;
+            const succeeded = process.env.DEPLOY_OUTCOME === "success";
+            const workerName = process.env.STAGE === "prod" ? "x-lookup" : `x-lookup-${process.env.STAGE}`;
+            const logsUrl = process.env.CLOUDFLARE_LOGS_URL || `https://dash.cloudflare.com/?to=/${process.env.CLOUDFLARE_ACCOUNT_ID}/workers/services/view/${workerName}/production/logs`;
+            const commitUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/commit/${context.sha}`;
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const updated = new Intl.DateTimeFormat("en-US", {
+              month: "short",
+              day: "2-digit",
+              year: "numeric",
+              hour: "2-digit",
+              minute: "2-digit",
+              hour12: true,
+              timeZone: "UTC",
+            }).format(new Date()).replace(/, /g, " ");
+            const status = succeeded ? "✅ Deployment successful!" : "❌ Deployment failed";
+            const name = succeeded ? `[${workerName}](${process.env.DEPLOYMENT_URL})` : workerName;
             const body = [
               marker,
-              "## x-lookup preview deployed",
+              '## Deploying with <a href="https://workers.dev"><img alt="Cloudflare Workers" src="https://workers.cloudflare.com/logo.svg" width="16"></a> Cloudflare Workers',
               "",
-              `**Worker:** [${process.env.DEPLOYMENT_URL}](${process.env.DEPLOYMENT_URL})`,
-              `**Commit:** [${context.sha.slice(0, 7)}](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/commit/${context.sha})`,
-              `**Cloudflare Worker logs:** [View logs](${process.env.CLOUDFLARE_LOGS_URL})`,
-              `**GitHub Actions run:** [View deployment diagnostics](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})`,
+              "The latest updates on your project.",
+              "",
+              "| Status | Name | Latest Commit | Updated (UTC) |",
+              "| - | - | - | - |",
+              `| ${status} <br>[View logs](${logsUrl}) | ${name} | [${context.sha.slice(0, 8)}](${commitUrl}) | ${updated} |`,
+              "",
+              `**GitHub Actions run:** [View deployment diagnostics](${runUrl})`,
             ].join("\n");
             const comments = await github.paginate(github.rest.issues.listComments, {
               owner: context.repo.owner,
