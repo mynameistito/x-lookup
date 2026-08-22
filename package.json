@@ -22,7 +22,7 @@
     "@effect/platform-bun": "4.0.0-rc.111",
     "@effect/platform-node": "4.0.0-rc.111",
     "@typescript/native": "npm:typescript@^7.0.2",
-    "alchemy": "2.0.0-beta.72",
+    "alchemy": "2.0.0-beta.74",
     "effect": "4.0.0-rc.111",
     "eslint-plugin-github": "6.1.2",
     "eslint-plugin-sonarjs": "^4.2.0",
@@ -31,6 +31,7 @@
     "oxlint": "^1.79.0",
     "typescript": "npm:@typescript/typescript6@^6.0.2",
     "ultracite": "7.10.6",
-    "vitest": "^4.1.11"
+    "vitest": "^4.1.11",
+    "workerd": "1.20260821.1"
   }
 }
