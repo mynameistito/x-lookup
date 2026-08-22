@@ -193,6 +193,31 @@ describe("Effect HTTP boundary", () => {
     });
   });
 
+  test("serves a plain-text robots policy at the site root", async () => {
+    const { services } = await makeHarness();
+    const response = await runBoundary(request("/robots.txt"), services);
+    const head = await runBoundary(
+      request("/robots.txt", { method: "HEAD" }),
+      services
+    );
+
+    expect({
+      body: await response.text(),
+      cacheControl: response.headers.get("Cache-Control"),
+      contentType: response.headers.get("Content-Type"),
+      headBody: await head.text(),
+      headStatus: head.status,
+      status: response.status,
+    }).toStrictEqual({
+      body: "User-agent: *\nAllow: /\nDisallow:\n",
+      cacheControl: "public, max-age=3600",
+      contentType: "text/plain; charset=utf-8",
+      headBody: "",
+      headStatus: 200,
+      status: 200,
+    });
+  });
+
   test("serves Open Graph metadata for the browser root page", async () => {
     const { services } = await makeHarness();
     const response = await runBoundary(
