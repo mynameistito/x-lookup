@@ -330,9 +330,59 @@ describe("Effect HTTP boundary", () => {
 
     const openApi = await runBoundary(request("/openapi.json"), services);
     const health = await runBoundary(request("/health"), services);
-    await expect(openApi.json()).resolves.toMatchObject({
-      info: { title: "x-lookup API" },
+    const openApiDocument = await openApi.json();
+    expect({
+      browseParameters: openApiDocument.paths["/api/browse"].get.parameters.map(
+        (parameter: { name: string }) => parameter.name
+      ),
+      convertParameters: openApiDocument.paths[
+        "/api/convert"
+      ].get.parameters.map((parameter: { name: string }) => parameter.name),
+      errorRequired: openApiDocument.components.schemas.Error.required,
+      infoTitle: openApiDocument.info.title,
+      infoVersion: openApiDocument.info.version,
+      openapi: openApiDocument.openapi,
+      paths: Object.keys(openApiDocument.paths),
+    }).toStrictEqual({
+      browseParameters: [
+        "resource",
+        "handle",
+        "q",
+        "feed",
+        "cursor",
+        "page",
+        "limit",
+        "full",
+        "format",
+        "nocache",
+      ],
+      convertParameters: [
+        "url",
+        "handle",
+        "id",
+        "format",
+        "thread",
+        "context",
+        "replies",
+        "userinfo",
+        "full",
+        "nocache",
+      ],
+      errorRequired: ["error", "code"],
+      infoTitle: "x-lookup API",
+      infoVersion: "1.0.0",
       openapi: "3.1.0",
+      paths: [
+        "/api/browse",
+        "/api/convert",
+        "/health",
+        "/oembed",
+        "/search",
+        "/{handle}",
+        "/{handle}/followers",
+        "/{handle}/following",
+        "/{handle}/status/{id}",
+      ],
     });
     await expect(health.json()).resolves.toStrictEqual({ status: "ok" });
   });
