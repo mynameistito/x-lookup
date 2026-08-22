@@ -10,7 +10,7 @@
     "deploy": "alchemy deploy --stage prod --yes --adopt --profile mynameistito",
     "plan": "alchemy plan --stage prod --profile mynameistito",
     "destroy": "alchemy destroy --stage prod --profile mynameistito",
-    "alchemy:check": "vitest --run src/__tests__/alchemy-stack.test.ts",
+    "alchemy:check": "vitest --run __tests__/alchemy-stack.test.ts",
     "deploy:report": "bun scripts/github/deployment-report.ts",
     "deploy:output": "bun scripts/deployment/alchemy-output.ts",
     "test": "vitest --run",

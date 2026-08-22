@@ -3,7 +3,7 @@
 ## Commands
 
 - Install: `bun install`
-- Test: `bun run test` (vitest, files in `src/__tests__/*.test.ts`)
+- Test: `bun run test` (vitest, files in `__tests__/*.test.ts`)
 - Typecheck: `bun run typecheck` (`tsc --noEmit`; includes `alchemy.run.ts`)
 - Lint/format: `bun run check` / `bun run fix` (Ultracite)
 - Local dev: `bun run dev` (`alchemy dev`, local workerd, stage `dev_<user>`, profile `mynameistito`)
@@ -28,7 +28,7 @@
 ## Conventions
 
 - Bun only. TypeScript strict; no default exports unless required by the Alchemy CLI or Workers runtime.
-- Tests colocated under `src/__tests__/` with `.test.ts` suffix; provider I/O is tested through the `HttpClient.HttpClient` seam, never by stubbing global `fetch`.
+- Tests live under root `__tests__/` with `.test.ts` suffix; provider I/O is tested through the `HttpClient.HttpClient` seam, never by stubbing global `fetch`.
 
 ## Deployment (Alchemy)
 
