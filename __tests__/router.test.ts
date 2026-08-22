@@ -193,11 +193,12 @@ describe("Effect HTTP boundary", () => {
     });
   });
 
-  test("serves a plain-text robots policy at the site root", async () => {
+  test("serves robots and sitemap metadata at the site root", async () => {
     const { services } = await makeHarness();
     const response = await runBoundary(request("/robots.txt"), services);
+    const sitemap = await runBoundary(request("/sitemap.xml"), services);
     const head = await runBoundary(
-      request("/robots.txt", { method: "HEAD" }),
+      request("/sitemap.xml", { method: "HEAD" }),
       services
     );
 
@@ -209,15 +210,26 @@ describe("Effect HTTP boundary", () => {
       headCacheControl: head.headers.get("Cache-Control"),
       headContentType: head.headers.get("Content-Type"),
       headStatus: head.status,
+      sitemapBody: await sitemap.text(),
+      sitemapContentType: sitemap.headers.get("Content-Type"),
+      sitemapStatus: sitemap.status,
       status: response.status,
     }).toStrictEqual({
-      body: "User-agent: *\nAllow: /\nDisallow:\n",
+      body: "User-agent: *\nAllow: /\nDisallow:\nSitemap: https://x-lookup.mynameistito.com/sitemap.xml\n",
       cacheControl: "public, max-age=3600",
       contentType: "text/plain; charset=utf-8",
       headBody: "",
       headCacheControl: "public, max-age=3600",
-      headContentType: "text/plain; charset=utf-8",
+      headContentType: "application/xml; charset=utf-8",
       headStatus: 200,
+      sitemapBody: `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+    <url><loc>https://x-lookup.mynameistito.com/</loc></url>
+    <url><loc>https://x-lookup.mynameistito.com/docs</loc></url>
+</urlset>
+`,
+      sitemapContentType: "application/xml; charset=utf-8",
+      sitemapStatus: 200,
       status: 200,
     });
   });
