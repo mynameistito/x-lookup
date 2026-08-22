@@ -96,6 +96,6 @@ Infrastructure lives entirely in `alchemy.run.ts` and `src/worker.ts` — there 
 
 CI runs credential-free lint/typecheck/tests plus a stateless stack validation (`.github/workflows/ci.yml`). `.github/workflows/deploy.yml` re-validates and deploys `prod` on pushes to `main`, gives same-repo pull requests an isolated `pr-<number>` preview stack (torn down when the PR closes), and never exposes credentials to fork pull requests.
 
-Production and preview deployments require GitHub Environment approval. In repository **Settings → Environments**, create `production` and `preview`, add trusted maintainers or admins as required reviewers, and disable self-review if available. Protect `main` with a branch ruleset or branch protection rule; production runs are rejected unless the ref is protected. Environment approvals pause the job before checkout or secrets are available.
+Preview deployments require GitHub Environment approval, while production deployments proceed automatically after an approved push to protected `main`. In repository **Settings → Environments**, create `production` with no required reviewers and `preview` with trusted maintainers or admins as required reviewers; disable preview self-review if available. Protect `main` with a branch ruleset or branch protection rule; production runs are rejected unless the ref is protected. Preview approvals pause the job before checkout or secrets are available.
 
 The bundled agent skill in `skills/browse-x/` wraps this API for CLI use; override its target with `X_API_BASE` when testing another deployment.
