@@ -6,6 +6,8 @@ on:
   workflow_run:
     workflows: [CI]
     types: [completed]
+  pull_request_target:
+    types: [opened, reopened, synchronize]
   pull_request:
     types: [closed]
 
@@ -16,10 +18,11 @@ concurrency:
 jobs:
   resolve:
     if: >-
-      github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && ((github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main') || github.event.workflow_run.event == 'pull_request')
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main') || (github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      actions: read
       pull-requests: read
     outputs:
       deploy: ${{ steps.resolve.outputs.deploy }}
@@ -33,11 +36,12 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          EVENT: ${{ github.event.workflow_run.event }}
-          DEPLOYMENT_SHA: ${{ github.event.workflow_run.head_sha }}
+          EVENT: ${{ github.event_name }}
+          DEPLOYMENT_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.event.pull_request.head.sha }}
+          PULL_REQUEST_NUMBER: ${{ github.event.pull_request.number }}
           REPOSITORY: ${{ github.repository }}
         run: |
-          if [ "$EVENT" = "push" ]; then
+          if [ "$EVENT" = "workflow_run" ]; then
             {
               echo "deploy=true"
               echo "deployment_sha=$DEPLOYMENT_SHA"
@@ -47,21 +51,32 @@ jobs:
             exit 0
           fi
 
-          pr_number=$(gh api \
-            "repos/$REPOSITORY/commits/$DEPLOYMENT_SHA/pulls" \
-            -H 'Accept: application/vnd.github+json' \
-            --jq "map(select(.head.repo.full_name == \"$REPOSITORY\" and .head.sha == \"$DEPLOYMENT_SHA\"))[0].number // empty")
-          if [ -z "$pr_number" ]; then
-            echo "No same-repository pull request owns $DEPLOYMENT_SHA; refusing preview deployment."
-            echo "deploy=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
+          for attempt in {1..60}; do
+            conclusion=$(gh api \
+              "repos/$REPOSITORY/actions/workflows/ci.yml/runs?event=pull_request&head_sha=$DEPLOYMENT_SHA&status=completed&per_page=100" \
+              -H 'Accept: application/vnd.github+json' \
+              --jq 'map(select(.head_sha == env.DEPLOYMENT_SHA))[0].conclusion // empty')
+            if [ "$conclusion" = "success" ]; then
+              break
+            fi
+            if [ -n "$conclusion" ]; then
+              echo "CI for $DEPLOYMENT_SHA completed with conclusion $conclusion; refusing preview deployment."
+              echo "deploy=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            if [ "$attempt" -eq 60 ]; then
+              echo "Timed out waiting for successful CI for $DEPLOYMENT_SHA; refusing preview deployment."
+              echo "deploy=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            sleep 10
+          done
 
           {
             echo "deploy=true"
             echo "deployment_sha=$DEPLOYMENT_SHA"
-            echo "pr_number=$pr_number"
-            echo "stage=pr-$pr_number"
+            echo "pr_number=$PULL_REQUEST_NUMBER"
+            echo "stage=pr-$PULL_REQUEST_NUMBER"
             echo "preview=true"
           } >> "$GITHUB_OUTPUT"
 
