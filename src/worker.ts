@@ -19,6 +19,9 @@ import { layerFxTwitter, layerSyndication } from "@/providers/composition.ts";
 import { envSchema } from "@/runtime/env.ts";
 import type { Env } from "@/runtime/env.ts";
 
+const MCP_HOSTNAME_PATTERN =
+  /^(?:localhost|127\.0\.0\.1|x-lookup\.mynameistito\.com|x-lookup-[a-z0-9][a-z0-9-]*\.[a-z0-9-]+\.workers\.dev)$/u;
+
 /**
  * Production composition root for application capabilities.
  *
@@ -55,11 +58,17 @@ const makeRequestHandler = async (workerEnv: XLookupEnv) => {
   const services = await Effect.runPromise(makeApplicationServices(env));
   return {
     http: HttpEffect.toWebHandler(makeHttpApplication(services)),
-    mcp: createMcpHandler(() => createMcpServer(services), {
-      allowedHostnames: ["localhost", "127.0.0.1", "x-lookup.mynameistito.com"],
-      responseMode: "json",
-      route: "/mcp",
-    }),
+    mcp: (request: Request, requestEnv: XLookupEnv, ctx: ExecutionContext) => {
+      const { hostname } = new URL(request.url);
+      if (!MCP_HOSTNAME_PATTERN.test(hostname)) {
+        return Promise.resolve(new Response("Forbidden", { status: 403 }));
+      }
+      return createMcpHandler(() => createMcpServer(services), {
+        allowedHostnames: [hostname],
+        responseMode: "json",
+        route: "/mcp",
+      })(request, requestEnv, ctx);
+    },
   };
 };
 

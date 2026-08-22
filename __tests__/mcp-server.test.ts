@@ -32,13 +32,16 @@ const toolCallRequest = (
     params: { arguments: args, name },
   });
 
-const mcpRequest = (body: string): Request =>
-  new Request("https://x-lookup.mynameistito.com/mcp", {
+const mcpRequest = (
+  body: string,
+  hostname = "x-lookup.mynameistito.com"
+): Request =>
+  new Request(`https://${hostname}/mcp`, {
     body,
     headers: {
       Accept: "application/json, text/event-stream",
       "Content-Type": "application/json",
-      Host: "x-lookup.mynameistito.com",
+      Host: hostname,
     },
     method: "POST",
   });
@@ -119,5 +122,27 @@ describe("MCP boundary", () => {
     await expect(search.text()).resolves.toContain("Invalid input");
     expect(profile.status).toBe(200);
     await expect(profile.text()).resolves.toContain("Invalid input");
+  });
+
+  test("allows isolated Workers preview hostnames but rejects unknown hosts", async () => {
+    const env = { CACHE_TTL_SECONDS: "3600" };
+    const preview = await WorkerEntrypoint.fetch(
+      mcpRequest(
+        JSON.stringify(initializeRequest),
+        "x-lookup-pr-7.preview.workers.dev"
+      ),
+      env,
+      // SAFETY: The MCP handler does not use execution-context methods in this protocol test.
+      {} as ExecutionContext
+    );
+    const unknown = await WorkerEntrypoint.fetch(
+      mcpRequest(JSON.stringify(initializeRequest), "not-x-lookup.example.com"),
+      env,
+      // SAFETY: The MCP handler does not use execution-context methods in this protocol test.
+      {} as ExecutionContext
+    );
+
+    expect(preview.status).toBe(200);
+    expect(unknown.status).toBe(403);
   });
 });
