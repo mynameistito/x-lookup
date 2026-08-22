@@ -15,9 +15,10 @@ import { describe, expect, expectTypeOf, test } from "vitest";
 import XLookupStack, {
   buildXLookupStack,
   makeXLookupWorker,
+  resolveWorkerIdentity,
 } from "@/alchemy.run.ts";
 import type { XLookupEnv } from "@/alchemy.run.ts";
-import WorkerEntrypoint, { resolveWorkerIdentity } from "@/worker.ts";
+import WorkerEntrypoint from "@/worker.ts";
 
 describe("alchemy stack", () => {
   test("exports a well-formed stack program", () => {
@@ -29,8 +30,18 @@ describe("alchemy stack", () => {
     expect(Effect.isEffect(makeXLookupWorker("pr-7"))).toBeTruthy();
   });
 
-  test("exports an Effect-native Worker entrypoint for the runtime bridge", () => {
-    expect(Effect.isEffect(WorkerEntrypoint)).toBeTruthy();
+  test("exports the runtime fetch handler", () => {
+    expect(WorkerEntrypoint.fetch).toBeTypeOf("function");
+  });
+
+  test("serves requests through the runtime fetch handler", async () => {
+    const response = await WorkerEntrypoint.fetch(
+      new Request("https://x-lookup.mynameistito.com/"),
+      { CACHE_TTL_SECONDS: "3600" }
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toContain("text/markdown");
   });
 
   test("executes the stack body against in-memory state without credentials", async () => {
