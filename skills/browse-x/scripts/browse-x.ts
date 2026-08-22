@@ -1,8 +1,21 @@
-/* eslint-disable curly, no-fallthrough, prefer-destructuring, prefer-named-capture-group, require-unicode-regexp, sort-keys */
-/* eslint-disable anti-slop/no-known-value-widening, anti-slop/require-safety-comment-for-type-assertion */
-
 type CommandName = "status" | "profile" | "search" | "followers" | "following";
 type Resource = "status" | "profile" | "search" | "list";
+interface ResourceAndEndpoint {
+  endpoint: string;
+  resource: Resource;
+  targetParam?: string;
+}
+
+const commandNames = new Set<string>([
+  "status",
+  "profile",
+  "search",
+  "followers",
+  "following",
+]);
+
+const isCommandName = (value: string): value is CommandName =>
+  commandNames.has(value);
 
 const apiBase =
   process.env.X_API_BASE ??
@@ -22,28 +35,33 @@ const valueOptions = new Set([
   "replies",
 ]);
 
+const exit = (code: number): never => {
+  process.exit(code);
+  throw new Error("process.exit returned");
+};
+
 const fail = (message: string, code = 2): never => {
   console.error(`browse-x: ${message}`);
-  process.exit(code);
+  return exit(code);
 };
 
 const usage = (code = 2): never => {
   console.error(`Usage:
-  node browse-x.ts <x-status-or-profile-url> [options]
-  node browse-x.ts status <x-status-url> [options]
-  node browse-x.ts profile <handle> [options]
-  node browse-x.ts search <query> [options]
-  node browse-x.ts followers <handle> [options]
-  node browse-x.ts following <handle> [options]
+  bun browse-x.ts <x-status-or-profile-url> [options]
+  bun browse-x.ts status <x-status-url> [options]
+  bun browse-x.ts profile <handle> [options]
+  bun browse-x.ts search <query> [options]
+  bun browse-x.ts followers <handle> [options]
+  bun browse-x.ts following <handle> [options]
 
 Output: --json, --full, --compact, --format markdown|obsidian, --headers
 Lists:  --page 1-10, --limit 1-50, --cursor <cursor>, --feed latest|top|media
 Status: --thread off|full|conversation|2-100, --userinfo off|author|all,
         --context full|thread, --replies top|recent|off
-Other:  --nocache, --help
+  Other:  --nocache, --help
 
 X_API_BASE overrides https://x-lookup.mynameistito.com.`);
-  process.exit(code);
+  return exit(code);
 };
 
 const setValue = (name: string, value: string, option: string): void => {
@@ -58,7 +76,7 @@ const setValue = (name: string, value: string, option: string): void => {
 
 const requireValue = (option: string, value: string | undefined): string => {
   if (!value) {
-    fail(`${option} requires a value`);
+    return fail(`${option} requires a value`);
   }
   return value;
 };
@@ -72,13 +90,9 @@ if (args[0] === "-h" || args[0] === "--help") {
 
 let commandName: CommandName | "" = "";
 let target: string;
-const first = args[0];
-if (
-  ["status", "profile", "search", "followers", "following"].includes(
-    first as CommandName
-  )
-) {
-  commandName = first as CommandName;
+const [first] = args;
+if (isCommandName(first)) {
+  commandName = first;
   target = requireValue(commandName, args[1]);
   args.splice(0, 2);
 } else if (first.startsWith("http://") || first.startsWith("https://")) {
@@ -123,7 +137,11 @@ for (let index = 0; index < args.length; index += 1) {
       if (!valueOptions.has(option.slice(2)) || !option.startsWith("--")) {
         fail(`unknown option '${option}'`);
       }
-      setValue(option.slice(2), requireValue(option, args[index + 1]), option);
+      const next = args[index + 1];
+      if (next === undefined || next.startsWith("--")) {
+        fail(`${option} requires a value`);
+      }
+      setValue(option.slice(2), requireValue(option, next), option);
       index += 1;
     }
   }
@@ -138,36 +156,41 @@ const matches = (name: string, pattern: RegExp, message: string): void => {
 };
 matches(
   "format",
-  /^(markdown|obsidian|json)$/,
+  /^(?:markdown|obsidian|json)$/u,
   "--format must be markdown, obsidian, or json"
 );
-matches("page", /^([1-9]|10)$/, "--page must be an integer from 1 to 10");
-matches("limit", /^[1-9][0-9]?$/, "--limit must be an integer from 1 to 50");
+matches("page", /^(?:[1-9]|10)$/u, "--page must be an integer from 1 to 10");
+matches("limit", /^[1-9][0-9]?$/u, "--limit must be an integer from 1 to 50");
 if (value("limit") !== undefined && Number(value("limit")) > 50) {
   fail("--limit must be an integer from 1 to 50");
 }
-matches("feed", /^(latest|top|media)$/, "--feed must be latest, top, or media");
+matches(
+  "feed",
+  /^(?:latest|top|media)$/u,
+  "--feed must be latest, top, or media"
+);
 matches(
   "thread",
-  /^(off|full|conversation|[0-9]+)$/,
+  /^(?:off|full|conversation|[0-9]+)$/u,
   "--thread must be off, full, conversation, or an integer from 2 to 100"
 );
+const threadValue = value("thread");
 if (
-  value("thread") &&
-  /^[0-9]+$/.test(value("thread") as string) &&
-  (Number(value("thread")) < 2 || Number(value("thread")) > 100)
+  threadValue !== undefined &&
+  /^[0-9]+$/u.test(threadValue) &&
+  (Number(threadValue) < 2 || Number(threadValue) > 100)
 ) {
   fail("--thread must be off, full, conversation, or an integer from 2 to 100");
 }
 matches(
   "userinfo",
-  /^(off|author|all)$/,
+  /^(?:off|author|all)$/u,
   "--userinfo must be off, author, or all"
 );
-matches("context", /^(full|thread)$/, "--context must be full or thread");
+matches("context", /^(?:full|thread)$/u, "--context must be full or thread");
 matches(
   "replies",
-  /^(top|recent|off)$/,
+  /^(?:top|recent|off)$/u,
   "--replies must be top, recent, or off"
 );
 if (
@@ -181,52 +204,78 @@ if (jsonRequested) {
   values.set("format", "json");
 }
 
-const resourceAndEndpoint = (): {
-  resource: Resource;
-  endpoint: string;
-  targetParam?: string;
-} => {
-  const handle = target.replace(/^@/, "");
+const publicXHosts = new Set([
+  "twitter.com",
+  "www.twitter.com",
+  "x.com",
+  "www.x.com",
+]);
+const parsePublicXUrl = (input: string): URL => {
+  let parsed: URL;
+  try {
+    parsed = new URL(input);
+  } catch {
+    return fail(
+      "only public x.com or twitter.com status/profile URLs are supported"
+    );
+  }
+  if (
+    !["http:", "https:"].includes(parsed.protocol) ||
+    !publicXHosts.has(parsed.hostname)
+  ) {
+    return fail(
+      "only public x.com or twitter.com status/profile URLs are supported"
+    );
+  }
+  return parsed;
+};
+
+const resourceAndEndpoint = (): ResourceAndEndpoint => {
+  const handle = encodeURIComponent(target.replace(/^@/u, ""));
   if (commandName === "status") {
+    parsePublicXUrl(target);
     return {
-      resource: "status",
       endpoint: `${apiBase}/api/convert`,
+      resource: "status",
       targetParam: `url=${target}`,
     };
   }
   if (commandName === "profile") {
-    return { resource: "profile", endpoint: `${apiBase}/${handle}` };
+    return { endpoint: `${apiBase}/${handle}`, resource: "profile" };
   }
   if (commandName === "search") {
     return {
-      resource: "search",
       endpoint: `${apiBase}/search`,
+      resource: "search",
       targetParam: `q=${target}`,
     };
   }
   if (commandName === "followers" || commandName === "following") {
     return {
-      resource: "list",
       endpoint: `${apiBase}/${handle}/${commandName}`,
+      resource: "list",
     };
   }
-  if (/\/status\/[0-9]+\/?$/.test(target)) {
+  const parsed = parsePublicXUrl(target);
+  const segments = parsed.pathname.split("/").filter(Boolean);
+  if (segments[1] === "status" && /^[0-9]+$/u.test(segments[2] ?? "")) {
     return {
-      resource: "status",
       endpoint: `${apiBase}/api/convert`,
+      resource: "status",
       targetParam: `url=${target}`,
     };
   }
-  if (/^https:\/\/(www\.)?(x|twitter)\.com\//.test(target)) {
-    const handleFromUrl = target
-      .replace(/^https?:\/\/[^/]+\//, "")
-      .split(/[/?#]/)[0];
+  if (parsed.pathname.length > 1) {
+    const [handleFromUrl] = segments;
     if (!handleFromUrl) {
       fail("profile URL must contain a handle");
     }
-    return { endpoint: `${apiBase}/${handleFromUrl}`, resource: "profile" };
+    return {
+      endpoint: `${apiBase}/${encodeURIComponent(handleFromUrl)}`,
+      resource: "profile",
+    };
   }
-  fail("only public x.com or twitter.com status/profile URLs are supported");
+  return fail("profile URL must contain a handle");
 };
 
 const { resource, endpoint, targetParam } = resourceAndEndpoint();
@@ -279,26 +328,30 @@ if (nocacheRequested) {
 
 const accept =
   value("format") === "json" ? "application/json" : "text/markdown";
-try {
-  const response = await fetch(`${endpoint}?${query}`, {
-    headers: { Accept: accept },
-  });
-  const body = await response.text();
-  if (!response.ok) {
-    console.error(`browse-x: HTTP ${response.status} from ${endpoint}`);
-    console.error(body);
-    process.exit(1);
+const fetchResult = async (): Promise<{ body: string; response: Response }> => {
+  try {
+    const response = await fetch(`${endpoint}?${query}`, {
+      headers: { Accept: accept },
+      signal: AbortSignal.timeout(30_000),
+    });
+    return { body: await response.text(), response };
+  } catch {
+    console.error(`browse-x: request to ${apiBase} failed`);
+    return exit(1);
   }
-  if (showHeaders) {
-    for (const [name, headerValue] of response.headers) {
-      console.log(`${name}: ${headerValue}`);
-    }
+};
+const { body, response } = await fetchResult();
+if (!response.ok) {
+  console.error(`browse-x: HTTP ${response.status} from ${endpoint}`);
+  console.error(body);
+  exit(1);
+}
+if (showHeaders) {
+  for (const [name, headerValue] of response.headers) {
+    console.log(`${name}: ${headerValue}`);
   }
-  process.stdout.write(body);
-  if (body.length > 0 && !body.endsWith("\n")) {
-    process.stdout.write("\n");
-  }
-} catch {
-  console.error(`browse-x: request to ${apiBase} failed`);
-  process.exit(1);
+}
+process.stdout.write(body);
+if (body.length > 0 && !body.endsWith("\n")) {
+  process.stdout.write("\n");
 }
