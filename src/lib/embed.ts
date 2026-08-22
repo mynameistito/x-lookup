@@ -52,6 +52,18 @@ const escapeAttr = (value: string): string =>
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;");
 
+const publishedTime = (tweet: FxTweet): string | undefined => {
+  const timestamp = tweet.created_timestamp;
+  if (timestamp === undefined) {
+    const date = new Date(tweet.created_at ?? "");
+    return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
+  }
+  const milliseconds =
+    timestamp < 1_000_000_000_000 ? timestamp * 1000 : timestamp;
+  const date = new Date(milliseconds);
+  return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
+};
+
 export const formatCount = (num: number): string => {
   if (num >= 1e6) {
     return `${(num / 1e6).toFixed(2)}M`;
@@ -351,6 +363,9 @@ export const buildEmbedHtml = (
   const title = `${name} (@${handle})`;
   const description = embedDescription(tweet);
   const proof = socialProof(tweet) ?? "Embed";
+  const authorUrl =
+    tweet.author?.url ?? `https://x.com/${encodeURIComponent(handle)}`;
+  const published = publishedTime(tweet);
   const userAgent = options.userAgent ?? "";
   const multiImage = supportsNativeMultiImage(userAgent);
   const media = mediaPlan(
@@ -372,7 +387,9 @@ export const buildEmbedHtml = (
     `<meta property="og:url" content="${escapeAttr(canonical)}">`,
     `<meta property="og:title" content="${escapeAttr(title)}">`,
     `<meta property="og:description" content="${escapeAttr(description)}">`,
+    '<meta property="og:type" content="article">',
     `<meta property="og:site_name" content="${SITE_NAME}">`,
+    `<meta property="article:author" content="${escapeAttr(authorUrl)}">`,
     `<meta name="theme-color" content="${THEME_COLOR}">`,
     `<meta property="twitter:card" content="${media.card}">`,
     `<meta property="twitter:title" content="${escapeAttr(title)}">`,
@@ -381,6 +398,13 @@ export const buildEmbedHtml = (
     ...media.tags,
     `<link rel="alternate" type="application/json+oembed" href="${escapeAttr(oembed.toString())}" title="${escapeAttr(name)}">`,
   ];
+  if (published) {
+    tags.splice(
+      5,
+      0,
+      `<meta property="article:published_time" content="${published}">`
+    );
+  }
 
   return `<!doctype html>
 <html lang="${escapeAttr(tweet.lang ?? "en")}">

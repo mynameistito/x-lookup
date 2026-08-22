@@ -21,6 +21,7 @@ const photoTweet: FxTweet = {
     name: "Nathan",
     screen_name: "nthglsn",
   },
+  created_at: "2026-03-04T00:00:00.000Z",
   id: "2087920734702022870",
   lang: "en",
   likes: 469,
@@ -138,12 +139,25 @@ describe("embed HTML", () => {
 
   test("Discord gets core card metadata for multi-photo posts", () => {
     const html = buildEmbedHtml(photoTweet, discordOptions);
-    expect(html).toContain('og:title" content="Nathan (@nthglsn)"');
-    expect(html).toContain(
-      'og:description" content="&gt; X offers to sell the @claw handle'
+    expect(
+      [
+        'og:title" content="Nathan (@nthglsn)"',
+        'og:description" content="&gt; X offers to sell the @claw handle',
+        'twitter:card" content="summary_large_image"',
+        'og:site_name" content="x-lookup"',
+        'og:type" content="article"',
+        'article:published_time" content="2026-03-04T00:00:00.000Z"',
+        'article:author" content="https://x.com/nthglsn"',
+      ].every((tag) => html.includes(tag))
+    ).toBeTruthy();
+  });
+
+  test("omits publication metadata when the provider has no valid timestamp", () => {
+    const html = buildEmbedHtml(
+      { ...quoted, created_at: "not-a-date" },
+      discordOptions
     );
-    expect(html).toContain('twitter:card" content="summary_large_image"');
-    expect(html).toContain('og:site_name" content="x-lookup"');
+    expect(html).not.toContain("article:published_time");
   });
 
   test("Discord gets repeated og:image tags and oEmbed discovery on the request origin", () => {
