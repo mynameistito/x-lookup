@@ -53,6 +53,7 @@ interface OpenApiSchema {
   readonly maximum?: number;
   readonly minimum?: number;
   readonly minLength?: number;
+  readonly oneOf?: readonly OpenApiSchema[];
   readonly pattern?: string;
   readonly type?: string;
 }
@@ -169,7 +170,13 @@ const convertParameters = [
   ),
   queryParameter(
     "thread",
-    { default: "full", type: "string" },
+    {
+      default: "full",
+      oneOf: [
+        { enum: ["off", "full", "conversation"], type: "string" },
+        { maximum: 100, minimum: 2, type: "integer" },
+      ],
+    },
     "Thread selection: `off`, `full`, `conversation`, or a numeric limit from 2 to 100."
   ),
   queryParameter(
@@ -227,7 +234,8 @@ const convertResponse = {
 
 const browseOperation = (
   parameters: readonly unknown[],
-  operationId = "browseX"
+  operationId = "browseX",
+  summary = "Browse public X data"
 ) => ({
   description: "Browse a public profile, search results, or connections.",
   operationId,
@@ -237,11 +245,15 @@ const browseOperation = (
     "400": errorResponse,
     "502": errorResponse,
   },
+  security: [],
+  summary,
+  tags: ["browse"],
 });
 
 const convertOperation = (
   parameters: readonly unknown[],
-  operationId = "convertStatus"
+  operationId = "convertStatus",
+  summary = "Convert an X status or thread"
 ) => ({
   description: "Convert a public X/Twitter status or thread.",
   operationId,
@@ -252,6 +264,9 @@ const convertOperation = (
     "404": errorResponse,
     "502": errorResponse,
   },
+  security: [],
+  summary,
+  tags: ["convert"],
 });
 
 export const openApiDocument = (origin: string) => ({
@@ -279,6 +294,7 @@ export const openApiDocument = (origin: string) => ({
           feed: { enum: ["latest", "media", "top"], type: "string" },
           handle: { type: "string" },
           limit: { type: "integer" },
+          markdown: { type: "string" },
           nextCursor: { type: "string" },
           page: { type: "integer" },
           posts: { items: postRef, type: "array" },
@@ -290,6 +306,7 @@ export const openApiDocument = (origin: string) => ({
           },
           users: { items: authorRef, type: "array" },
         },
+        required: ["cache", "limit", "markdown", "page", "resource"],
         type: "object",
       },
       ConvertResponse: {
@@ -330,6 +347,27 @@ export const openApiDocument = (origin: string) => ({
       HealthResponse: {
         properties: { status: { const: "ok", type: "string" } },
         required: ["status"],
+        type: "object",
+      },
+      OEmbedResponse: {
+        properties: {
+          author_name: { type: "string" },
+          author_url: { format: "uri", type: "string" },
+          provider_name: { type: "string" },
+          provider_url: { format: "uri", type: "string" },
+          title: { type: "string" },
+          type: { enum: ["link", "rich"], type: "string" },
+          version: { const: "1.0", type: "string" },
+        },
+        required: [
+          "author_name",
+          "author_url",
+          "provider_name",
+          "provider_url",
+          "title",
+          "type",
+          "version",
+        ],
         type: "object",
       },
       Post: {
@@ -381,6 +419,9 @@ export const openApiDocument = (origin: string) => ({
             description: "The service is healthy.",
           },
         },
+        security: [],
+        summary: "Check service health",
+        tags: ["metadata"],
       },
     },
     "/oembed": {
@@ -416,10 +457,17 @@ export const openApiDocument = (origin: string) => ({
         ],
         responses: {
           "200": {
-            content: { "application/json": { schema: { type: "object" } } },
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/OEmbedResponse" },
+              },
+            },
             description: "oEmbed response.",
           },
         },
+        security: [],
+        summary: "Get an oEmbed response",
+        tags: ["metadata"],
       },
     },
     "/search": {
@@ -475,6 +523,14 @@ export const openApiDocument = (origin: string) => ({
     },
   },
   servers: [{ url: origin }],
+  tags: [
+    { description: "Convert public statuses and threads.", name: "convert" },
+    {
+      description: "Browse public profiles and social graphs.",
+      name: "browse",
+    },
+    { description: "Service metadata and health endpoints.", name: "metadata" },
+  ],
 });
 
 export const openApiJson = (origin: string): string =>
