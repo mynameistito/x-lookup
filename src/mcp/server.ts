@@ -75,7 +75,9 @@ const browseInputSchema = {
   feed,
   handle: handle.optional(),
   q: optionalString,
-  resource: z.enum(["profile", "search", "followers", "following"]).optional(),
+  resource: z
+    .enum(["profile", "search", "followers", "following"])
+    .describe("Browse resource to query."),
 };
 
 const searchInputSchema = {
