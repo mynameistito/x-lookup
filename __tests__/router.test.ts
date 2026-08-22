@@ -206,6 +206,8 @@ describe("Effect HTTP boundary", () => {
       cacheControl: response.headers.get("Cache-Control"),
       contentType: response.headers.get("Content-Type"),
       headBody: await head.text(),
+      headCacheControl: head.headers.get("Cache-Control"),
+      headContentType: head.headers.get("Content-Type"),
       headStatus: head.status,
       status: response.status,
     }).toStrictEqual({
@@ -213,6 +215,8 @@ describe("Effect HTTP boundary", () => {
       cacheControl: "public, max-age=3600",
       contentType: "text/plain; charset=utf-8",
       headBody: "",
+      headCacheControl: "public, max-age=3600",
+      headContentType: "text/plain; charset=utf-8",
       headStatus: 200,
       status: 200,
     });
