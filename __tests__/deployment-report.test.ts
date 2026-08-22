@@ -48,6 +48,21 @@ const deps = (
 });
 
 describe("deployment reporting", () => {
+  test("prefers the deployment SHA when resolving a preview context", () => {
+    expect(
+      readContext({
+        CLOUDFLARE_ACCOUNT_ID: "account",
+        DEPLOYMENT_SHA: "preview-sha",
+        GITHUB_REPOSITORY: "owner/repository",
+        GITHUB_RUN_ID: "42",
+        GITHUB_SERVER_URL: "https://github.com",
+        GITHUB_SHA: "workflow-sha",
+        GITHUB_TOKEN: "token",
+        STAGE: "pr-7",
+      }).sha
+    ).toBe("preview-sha");
+  });
+
   test("creates a deployment, marks it in progress, and writes its output id", async () => {
     const calls: { url: string; init?: RequestInit }[] = [];
     const output: string[] = [];
