@@ -140,7 +140,7 @@ jobs:
             const name = succeeded ? `[${workerName}](${process.env.DEPLOYMENT_URL})` : workerName;
             const body = [
               marker,
-              '## Deploying with <a href="https://workers.dev"><img alt="Cloudflare Workers" src="https://workers.cloudflare.com/logo.svg" width="16"></a> Cloudflare Workers',
+              '## Deploying with &nbsp;<a href="https://alchemy.run/"><svg xmlns="http://www.w3.org/2000/svg" width="42" height="42" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9.5"></circle><path d="M12 21.25 L3.9893 7.375 L20.0107 7.375 Z"></path><circle cx="12" cy="12" r="1.1" fill="var(--alc-yantra-dot, #9a4f27)" stroke="none"></circle></svg></a> &nbsp;Alchemy',
               "",
               "The latest updates on your project.",
               "",
