@@ -44,82 +44,413 @@ export const apiCatalog = (origin: string): ApiCatalog => ({
 export const apiCatalogJson = (origin: string): string =>
   JSON.stringify(apiCatalog(origin));
 
+interface OpenApiSchema {
+  readonly $ref?: string;
+  readonly default?: boolean | number | string;
+  readonly enum?: readonly string[];
+  readonly format?: string;
+  readonly items?: OpenApiSchema;
+  readonly maximum?: number;
+  readonly minimum?: number;
+  readonly minLength?: number;
+  readonly pattern?: string;
+  readonly type?: string;
+}
+
+const queryParameter = (
+  name: string,
+  schema: OpenApiSchema,
+  description: string,
+  required = false
+) => ({ description, in: "query", name, required, schema });
+
+const pathParameter = (name: string, description: string) => ({
+  description,
+  in: "path",
+  name,
+  required: true,
+  schema: { pattern: "^[A-Za-z0-9_]{1,15}$", type: "string" },
+});
+
+const handlePathParameter = pathParameter("handle", "X profile handle.");
+
+const errorResponse = {
+  content: {
+    "application/json": { schema: { $ref: "#/components/schemas/Error" } },
+  },
+  description: "The request could not be completed.",
+};
+
+const authorRef = { $ref: "#/components/schemas/Author" };
+const postRef = { $ref: "#/components/schemas/Post" };
+const browseAliasExcluded = new Set(["resource", "handle", "q", "feed"]);
+
+const browseParameters = [
+  queryParameter(
+    "resource",
+    {
+      enum: ["profile", "search", "followers", "following"],
+      type: "string",
+    },
+    "Resource to browse. `handle` is required for profile, followers, and following; `q` is required for search.",
+    true
+  ),
+  queryParameter(
+    "handle",
+    { pattern: "^[A-Za-z0-9_]{1,15}$", type: "string" },
+    "X handle, with an optional leading `@`. Required unless resource is `search`."
+  ),
+  queryParameter(
+    "q",
+    { minLength: 1, type: "string" },
+    "Search query. Required when resource is `search`; leading and trailing whitespace is trimmed."
+  ),
+  queryParameter(
+    "feed",
+    { default: "latest", enum: ["latest", "media", "top"], type: "string" },
+    "Search result ordering. Unsupported values fall back to `latest`."
+  ),
+  queryParameter(
+    "cursor",
+    { type: "string" },
+    "Opaque continuation cursor returned as `nextCursor`."
+  ),
+  queryParameter(
+    "page",
+    { default: 1, maximum: 10, minimum: 1, type: "integer" },
+    "Page to fetch when no cursor is supplied. Values are normalized and clamped to 1-10."
+  ),
+  queryParameter(
+    "limit",
+    { default: 20, maximum: 50, minimum: 1, type: "integer" },
+    "Maximum results per response. Values are normalized and clamped to 1-50."
+  ),
+  queryParameter(
+    "full",
+    { default: "false", enum: ["1", "true"], type: "string" },
+    "Set to `1` or `true` to include richer post metrics and user details."
+  ),
+  queryParameter(
+    "format",
+    { default: "markdown", enum: ["markdown", "json"], type: "string" },
+    "Response format. `Accept: application/json` also selects JSON."
+  ),
+  queryParameter(
+    "nocache",
+    { default: "false", enum: ["1", "true"], type: "string" },
+    "Set to `1` or `true` to bypass the cache."
+  ),
+];
+
+const convertParameters = [
+  queryParameter(
+    "url",
+    { format: "uri", type: "string" },
+    "X status URL. Use this or the `handle` + `id` pair, but not neither."
+  ),
+  queryParameter(
+    "handle",
+    { type: "string" },
+    "Status author handle, used with `id` when `url` is absent."
+  ),
+  queryParameter(
+    "id",
+    { pattern: "^\\d+$", type: "string" },
+    "Numeric status ID, used with `handle` when `url` is absent."
+  ),
+  queryParameter(
+    "format",
+    {
+      default: "markdown",
+      enum: ["markdown", "obsidian", "json"],
+      type: "string",
+    },
+    "Response format. JSON includes structured posts and rendered Markdown."
+  ),
+  queryParameter(
+    "thread",
+    { default: "full", type: "string" },
+    "Thread selection: `off`, `full`, `conversation`, or a numeric limit from 2 to 100."
+  ),
+  queryParameter(
+    "context",
+    { default: "full", enum: ["full", "thread"], type: "string" },
+    "Conversation context to include."
+  ),
+  queryParameter(
+    "replies",
+    { default: "top", enum: ["top", "recent", "off"], type: "string" },
+    "Replies to include around the focal post."
+  ),
+  queryParameter(
+    "userinfo",
+    { default: "off", enum: ["off", "author", "all"], type: "string" },
+    "Author information included in rendered output."
+  ),
+  queryParameter(
+    "full",
+    { default: "false", enum: ["1", "true", "yes"], type: "string" },
+    "Set to `1`, `true`, or `yes` to expand rendered metadata."
+  ),
+  queryParameter(
+    "nocache",
+    { default: "false", enum: ["1", "true", "yes"], type: "string" },
+    "Set to `1`, `true`, or `yes` to bypass the cache."
+  ),
+];
+
+const browseAliasParameters = () =>
+  browseParameters.filter(
+    (parameter) => !browseAliasExcluded.has(parameter.name)
+  );
+
+const browseResponse = {
+  content: {
+    "application/json": {
+      schema: { $ref: "#/components/schemas/BrowseResponse" },
+    },
+    "text/markdown": { schema: { type: "string" } },
+  },
+  description: "Browse results in the requested representation.",
+};
+
+const convertResponse = {
+  content: {
+    "application/json": {
+      schema: { $ref: "#/components/schemas/ConvertResponse" },
+    },
+    "text/html": { schema: { type: "string" } },
+    "text/markdown": { schema: { type: "string" } },
+  },
+  description: "Converted status or thread in the requested representation.",
+};
+
+const browseOperation = (
+  parameters: readonly unknown[],
+  operationId = "browseX"
+) => ({
+  description: "Browse a public profile, search results, or connections.",
+  operationId,
+  parameters,
+  responses: {
+    "200": browseResponse,
+    "400": errorResponse,
+    "502": errorResponse,
+  },
+});
+
+const convertOperation = (
+  parameters: readonly unknown[],
+  operationId = "convertStatus"
+) => ({
+  description: "Convert a public X/Twitter status or thread.",
+  operationId,
+  parameters,
+  responses: {
+    "200": convertResponse,
+    "400": errorResponse,
+    "404": errorResponse,
+    "502": errorResponse,
+  },
+});
+
 export const openApiDocument = (origin: string) => ({
+  components: {
+    schemas: {
+      Author: {
+        additionalProperties: true,
+        description: "Public author fields returned by the upstream provider.",
+        properties: {
+          description: { type: "string" },
+          followers: { type: "integer" },
+          following: { type: "integer" },
+          id: { type: "string" },
+          name: { type: "string" },
+          screen_name: { type: "string" },
+          url: { format: "uri", type: "string" },
+        },
+        type: "object",
+      },
+      BrowseResponse: {
+        additionalProperties: true,
+        description: "Structured browse response returned when format=json.",
+        properties: {
+          cache: { enum: ["hit", "miss", "bypass"], type: "string" },
+          feed: { enum: ["latest", "media", "top"], type: "string" },
+          handle: { type: "string" },
+          limit: { type: "integer" },
+          nextCursor: { type: "string" },
+          page: { type: "integer" },
+          posts: { items: postRef, type: "array" },
+          profile: authorRef,
+          query: { type: "string" },
+          resource: {
+            enum: ["profile", "search", "followers", "following"],
+            type: "string",
+          },
+          users: { items: authorRef, type: "array" },
+        },
+        type: "object",
+      },
+      ConvertResponse: {
+        description:
+          "Structured conversion response returned when format=json.",
+        properties: {
+          cache: { enum: ["hit", "miss", "bypass"], type: "string" },
+          compact: { type: "boolean" },
+          format: { enum: ["markdown", "obsidian", "json"], type: "string" },
+          markdown: { type: "string" },
+          postCount: { type: "integer" },
+          posts: { items: postRef, type: "array" },
+          source: { type: "string" },
+          url: { format: "uri", type: "string" },
+          warnings: { items: { type: "string" }, type: "array" },
+        },
+        required: [
+          "cache",
+          "compact",
+          "format",
+          "markdown",
+          "postCount",
+          "posts",
+          "source",
+          "url",
+          "warnings",
+        ],
+        type: "object",
+      },
+      Error: {
+        properties: {
+          code: { type: "string" },
+          error: { type: "string" },
+        },
+        required: ["error", "code"],
+        type: "object",
+      },
+      Post: {
+        additionalProperties: true,
+        description: "Public post fields returned by the upstream provider.",
+        properties: {
+          author: { $ref: "#/components/schemas/Author" },
+          context: {
+            enum: ["parent", "post", "thread", "reply"],
+            type: "string",
+          },
+          created_at: { type: "string" },
+          id: { type: "string" },
+          likes: { type: "integer" },
+          text: { type: "string" },
+          url: { format: "uri", type: "string" },
+        },
+        type: "object",
+      },
+    },
+  },
+  externalDocs: {
+    description: "Human-readable API documentation.",
+    url: absoluteUrl(origin, "/docs"),
+  },
   info: {
+    contact: { url: "https://github.com/mynameistito/x-lookup" },
     description:
-      "Read-only access to public X/Twitter statuses, profiles, search, and social graphs.",
+      "Read-only access to public X/Twitter statuses, profiles, search, and social graphs. Query parameters are strings on the wire; integer parameters are normalized and clamped as described.",
+    license: { name: "MIT", url: "https://opensource.org/license/mit" },
     title: "x-lookup API",
     version: "1.0.0",
   },
   openapi: "3.1.0",
   paths: {
-    "/api/browse": {
+    "/api/browse": { get: browseOperation(browseParameters) },
+    "/api/convert": { get: convertOperation(convertParameters) },
+    "/oembed": {
       get: {
-        description: "Browse a public profile, search results, or connections.",
-        operationId: "browseX",
+        description: "Render an oEmbed response for an X status URL.",
+        operationId: "getOEmbed",
         parameters: [
-          {
-            in: "query",
-            name: "resource",
-            required: true,
-            schema: {
-              enum: ["profile", "search", "followers", "following"],
-            },
-          },
-          {
-            in: "query",
-            name: "handle",
-            schema: { type: "string" },
-          },
-          {
-            in: "query",
-            name: "q",
-            schema: { type: "string" },
-          },
+          queryParameter(
+            "url",
+            { format: "uri", type: "string" },
+            "Status URL to embed."
+          ),
+          queryParameter(
+            "text",
+            { type: "string" },
+            "Optional title/text override."
+          ),
+          queryParameter(
+            "author",
+            { type: "string" },
+            "Optional author name override."
+          ),
+          queryParameter(
+            "status",
+            { type: "string" },
+            "Optional status text override."
+          ),
+          queryParameter(
+            "provider",
+            { type: "string" },
+            "Optional provider name override."
+          ),
         ],
         responses: {
-          "200": { description: "Browse results." },
-          "400": { description: "Invalid request." },
-          "502": { description: "Upstream provider failure." },
+          "200": {
+            content: { "application/json": { schema: { type: "object" } } },
+            description: "oEmbed response.",
+          },
         },
       },
     },
-    "/api/convert": {
-      get: {
-        description: "Convert a public X/Twitter status or thread.",
-        operationId: "convertStatus",
-        parameters: [
+    "/search": {
+      get: browseOperation(
+        browseParameters
+          .filter(
+            (parameter) =>
+              parameter.name !== "resource" && parameter.name !== "handle"
+          )
+          .map((parameter) =>
+            parameter.name === "q"
+              ? { ...parameter, required: true }
+              : parameter
+          ),
+        "searchPosts"
+      ),
+    },
+    "/{handle}": {
+      get: browseOperation(
+        [handlePathParameter, ...browseAliasParameters()],
+        "getProfile"
+      ),
+    },
+    "/{handle}/followers": {
+      get: browseOperation(
+        [handlePathParameter, ...browseAliasParameters()],
+        "listFollowers"
+      ),
+    },
+    "/{handle}/following": {
+      get: browseOperation(
+        [handlePathParameter, ...browseAliasParameters()],
+        "listFollowing"
+      ),
+    },
+    "/{handle}/status/{id}": {
+      get: convertOperation(
+        [
+          pathParameter("handle", "Status author handle."),
           {
-            in: "query",
-            name: "url",
-            required: false,
-            schema: { format: "uri", type: "string" },
-          },
-          {
-            in: "query",
-            name: "handle",
-            required: false,
-            schema: { type: "string" },
-          },
-          {
-            in: "query",
+            description: "Numeric X status ID.",
+            in: "path",
             name: "id",
-            required: false,
-            schema: { type: "string" },
+            required: true,
+            schema: { pattern: "^\\d+$", type: "string" },
           },
-          {
-            in: "query",
-            name: "format",
-            schema: { enum: ["markdown", "obsidian", "json"] },
-          },
+          ...convertParameters.filter(
+            (parameter) => !["url", "handle", "id"].includes(parameter.name)
+          ),
         ],
-        responses: {
-          "200": { description: "Converted status or thread." },
-          "400": { description: "Invalid request." },
-          "404": { description: "Status not found." },
-          "502": { description: "Upstream provider failure." },
-        },
-      },
+        "convertStatusPath"
+      ),
     },
   },
   servers: [{ url: origin }],
