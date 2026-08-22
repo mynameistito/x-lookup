@@ -1,33 +1,36 @@
 name: Deploy
 
 on:
-  push:
-    branches: [main]
+  # CI is credential-free; this workflow receives privilege only after it
+  # reports success for the exact commit being deployed.
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
   pull_request:
-    types: [opened, reopened, synchronize, closed]
+    types: [closed]
 
-# One deploy at a time per ref so preview and prod runs never interleave.
 concurrency:
-  group: deploy-${{ github.ref }}
+  group: deploy-${{ github.event.workflow_run.head_branch || format('pr-{0}', github.event.number) || github.ref }}
   cancel-in-progress: false
-
-# Pushes are restricted to main, so STAGE is always `pr-<number>` (pull
-# requests) or `prod` (main).
-env:
-  STAGE: ${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.number) || 'prod' }}
 
 jobs:
   deploy:
-    # Fork pull requests never deploy: the guard keeps repository secrets away
-    # from untrusted code, and the job would fail on empty credentials anyway.
-    if: github.event_name == 'push' || (github.event.action != 'closed' && github.event.pull_request.head.repo.full_name == github.repository)
+    if: >-
+      github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && ((github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main') || (github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.pull_requests[0].head.repo.full_name == github.repository))
     runs-on: ubuntu-latest
+    environment:
+      name: ${{ github.event.workflow_run.event == 'pull_request' && 'preview' || 'production' }}
     permissions:
       contents: read
       deployments: write
       pull-requests: write
+    env:
+      DEPLOYMENT_SHA: ${{ github.event.workflow_run.head_sha }}
+      STAGE: ${{ github.event.workflow_run.event == 'pull_request' && format('pr-{0}', github.event.workflow_run.pull_requests[0].number) || 'prod' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
       - uses: ./.github/actions/setup-bun
       - name: Require Cloudflare credentials
         run: |
@@ -46,8 +49,7 @@ jobs:
           STAGE: ${{ env.STAGE }}
       - name: Deploy Alchemy stack
         id: deploy
-        # --adopt lets the first prod run adopt the pre-Alchemy Worker in
-        # place; once owned via Alchemy tags it is a no-op.
+        # --adopt preserves the pre-Alchemy production Worker identity.
         run: |
           set -o pipefail
           bunx alchemy deploy --stage "$STAGE" --yes --adopt 2>&1 | tee "$RUNNER_TEMP/alchemy-deploy.log"
@@ -66,32 +68,42 @@ jobs:
           CLOUDFLARE_LOGS_URL: ${{ steps.deploy.outputs.logs_url }}
           DEPLOY_OUTCOME: ${{ steps.deploy.outcome }}
       - name: Comment deployment URL on pull request
-        if: always() && github.event_name == 'pull_request' && github.event.action != 'closed' && steps.create-deployment.outcome == 'success'
+        if: always() && github.event.workflow_run.event == 'pull_request' && steps.create-deployment.outcome == 'success'
         run: bun run deploy:report comment
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           STAGE: ${{ env.STAGE }}
-          PULL_REQUEST_NUMBER: ${{ github.event.pull_request.number }}
+          PULL_REQUEST_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
           DEPLOYMENT_URL: ${{ steps.deploy.outputs.url }}
           CLOUDFLARE_LOGS_URL: ${{ steps.deploy.outputs.logs_url }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           DEPLOY_OUTCOME: ${{ steps.deploy.outcome }}
 
   cleanup:
-    if: github.event_name == 'pull_request' && github.event.action == 'closed' && github.event.pull_request.head.repo.full_name == github.repository
+    if: >-
+      github.event_name == 'pull_request' && github.event.action == 'closed' && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
+    environment: preview-cleanup
     permissions:
       contents: read
       deployments: write
+    env:
+      STAGE: ${{ format('pr-{0}', github.event.pull_request.number) }}
     steps:
+      # Never check out the closed PR. Cleanup executes trusted base code only.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
       - uses: ./.github/actions/setup-bun
       - name: Guard against production teardown
         run: |
-          if [ "$STAGE" = "prod" ]; then
-            echo "refusing to destroy the prod stage from a pull request" >&2
-            exit 1
-          fi
+          case "$STAGE" in
+            pr-[1-9]*|pr-[1-9][0-9]*) ;;
+            *)
+              echo "refusing to destroy a non-preview stage: $STAGE" >&2
+              exit 1
+              ;;
+          esac
           if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
             echo "::error::Set the CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID repository secrets to enable preview cleanup." >&2
             exit 1
@@ -99,13 +111,29 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      - name: Destroy preview stack
+        id: destroy
+        run: |
+          set -o pipefail
+          bunx alchemy destroy --stage "$STAGE" --yes 2>&1 | tee "$RUNNER_TEMP/alchemy-destroy.log"
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      # Keep records as evidence of a potentially orphaned stack when destroy
+      # fails. The Actions log retains the complete destroy output.
+      - name: Record failed cleanup diagnostics
+        if: always() && steps.destroy.outcome != 'success'
+        run: |
+          {
+            echo "## Preview cleanup failed"
+            echo ""
+            echo "Alchemy destroy did not succeed for \\`$STAGE\\`. GitHub deployment records were intentionally retained."
+            echo ""
+            echo "Review this run's logs and retry cleanup after resolving the Cloudflare/Alchemy failure."
+          } >> "$GITHUB_STEP_SUMMARY"
       - name: Delete GitHub preview deployments
+        if: steps.destroy.outcome == 'success'
         run: bun run deploy:report cleanup
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           STAGE: ${{ env.STAGE }}
-      - name: Destroy preview stack
-        run: bunx alchemy destroy --stage "$STAGE" --yes
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
