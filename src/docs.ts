@@ -167,3 +167,42 @@ Made by **[mynameistito](https://github.com/mynameistito)**
 · Hosted at [x-lookup.mynameistito.com](https://x-lookup.mynameistito.com)
 · Not affiliated with X Corp.
 `;
+
+const ROOT_DESCRIPTION =
+  "Read-only, no-auth browser for public X/Twitter content, purpose-built for AI agents. Statuses and threads, profiles, search, followers/following — served as compact Markdown by default, structured JSON on request, Open Graph HTML for chat-app preview bots, plus an oEmbed endpoint.";
+
+const escapeHtml = (value: string): string =>
+  value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+
+export const rootHtml = (canonicalUrl: string): string => {
+  const title = "x-lookup";
+  const description = escapeHtml(ROOT_DESCRIPTION);
+  const url = escapeHtml(canonicalUrl);
+
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>${title}</title>
+  <meta name="description" content="${description}">
+  <meta property="og:title" content="${title}">
+  <meta property="og:description" content="${description}">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="${url}">
+  <meta property="og:site_name" content="${title}">
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="${title}">
+  <meta name="twitter:description" content="${description}">
+  <style>
+    body { margin: 0; background: #08090a; color: #d0d6e0; font-family: "IBM Plex Mono", ui-monospace, monospace; }
+    pre { margin: 0; padding: 1.5rem; white-space: pre-wrap; word-break: break-word; line-height: 1.65; font-size: 13px; }
+  </style>
+</head>
+<body><pre>${escapeHtml(ROOT_MARKDOWN)}</pre></body>
+</html>`;
+};
