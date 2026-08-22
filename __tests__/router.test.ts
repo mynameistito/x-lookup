@@ -172,16 +172,20 @@ describe("Effect HTTP boundary", () => {
     expect({
       docsBody,
       docsCors: docs.headers.get("Access-Control-Allow-Origin"),
+      docsLink: docs.headers.get("Link"),
       rootBody,
       rootCacheControl: root.headers.get("Cache-Control"),
       rootContentType: root.headers.get("Content-Type"),
+      rootLink: root.headers.get("Link"),
       rootStatus: root.status,
     }).toMatchObject({
       docsBody: expect.stringContaining("/api/convert"),
       docsCors: "*",
+      docsLink: '</docs>; rel="service-doc"',
       rootBody: expect.stringContaining("# x-lookup"),
       rootCacheControl: "public, max-age=3600",
       rootContentType: expect.stringContaining("text/markdown"),
+      rootLink: '</docs>; rel="service-doc"',
       rootStatus: 200,
     });
     expect({
