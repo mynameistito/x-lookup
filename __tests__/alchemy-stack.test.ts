@@ -85,18 +85,22 @@ describe(resolveWorkerIdentity, () => {
     expect(resolveWorkerIdentity("prod")).toStrictEqual({
       domain: "x-lookup.mynameistito.com",
       name: "x-lookup",
+      workersDev: false,
     });
   });
 
   test("derives an isolated identity for local dev and PR preview stages", () => {
     expect(resolveWorkerIdentity("pr-7")).toStrictEqual({
       name: "x-lookup-pr-7",
+      workersDev: true,
     });
     expect(resolveWorkerIdentity("dev_mynameistito")).toStrictEqual({
       name: "x-lookup-dev_mynameistito",
+      workersDev: true,
     });
     expect(resolveWorkerIdentity("test")).toStrictEqual({
       name: "x-lookup-test",
+      workersDev: true,
     });
   });
 });
