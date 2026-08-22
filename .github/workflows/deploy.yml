@@ -55,7 +55,7 @@ jobs:
             conclusion=$(gh api \
               "repos/$REPOSITORY/actions/workflows/ci.yml/runs?event=pull_request&head_sha=$DEPLOYMENT_SHA&status=completed&per_page=100" \
               -H 'Accept: application/vnd.github+json' \
-              --jq 'map(select(.head_sha == env.DEPLOYMENT_SHA))[0].conclusion // empty')
+              --jq '.workflow_runs | map(select(.head_sha == env.DEPLOYMENT_SHA))[0].conclusion // empty')
             if [ "$conclusion" = "success" ]; then
               break
             fi
