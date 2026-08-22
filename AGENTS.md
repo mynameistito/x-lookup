@@ -1,41 +1,64 @@
-# Agent notes
+# Agent Guide
+
+## Working Method
+
+1. Read this file, inspect the existing implementation, and check `git diff` before editing.
+2. Discover the relevant skills under `.agents/skills/*/SKILL.md` and read every skill that matches the task. Treat those skills as project guidance, not optional background reading.
+3. For TypeScript work, use `.agents/skills/coding-standards/SKILL.md`. For Effect services, Layers, dependency composition, or service audits, also use `.agents/skills/effect-service-design/SKILL.md` and its relevant references.
+4. For linting, formatting, or code-quality work, use `.agents/skills/ultracite/SKILL.md` and follow the repository scripts.
+5. For Effect API questions, read the installed package guidance first: `node_modules/effect/AGENTS.md`, then the relevant examples under `node_modules/effect/ai-docs/`, and finally the matching source or declarations under `node_modules/effect/src/` or `node_modules/effect/dist/`. If this repository is invoked from a directory where the package resolves as `../node_modules/effect`, use that resolved path instead. Prefer this pinned local package over memory or unrelated external copies.
+6. Implement the smallest cohesive change, add or update tests for behavior, and run the required checks before reporting completion.
+
+Completion means the implementation, tests, documentation, and validation results agree with one another; report any check that could not run and why.
 
 ## Commands
 
-- Install: `bun install --frozen-lockfile` (Bun `1.4.0`)
-- Test: `bun run test` (vitest, files in `__tests__/*.test.ts`)
-- Typecheck: `bun run typecheck` (`tsc --noEmit`; includes `alchemy.run.ts`)
-- Lint/format: `bun run check` / `bun run fix` (Ultracite)
-- Local dev: `bun run dev` (`alchemy dev`, local workerd, stage `dev_<user>`)
-- Plan: `bun run plan` (`alchemy plan --stage prod`; requires Cloudflare auth)
-- Deploy: `bun run deploy` (`alchemy deploy --stage prod --yes --adopt`)
-- Destroy: `bun run destroy` (`alchemy destroy --stage prod`; interactive confirm)
-- Alchemy stack validation: `bun run alchemy:check` (credential-free; loads and constructs `alchemy.run.ts` under vitest)
+- Install: `bun install --frozen-lockfile`
+- Test: `bun run test`
+- Typecheck: `bun run typecheck`
+- Check: `bun run check`
+- Auto-fix formatting/lint: `bun run fix`
+- Validate Alchemy stack: `bun run alchemy:check`
+- Local dev: `bun run dev`
+- Plan production infrastructure: `bun run plan`
+- Deploy production: `bun run deploy`
+- Destroy production: `bun run destroy`
 
-## Architecture
+Use Bun only. The pinned package manager is Bun `1.4.0`; commands and scripts in `package.json` are the source of truth.
 
-- Single Cloudflare Worker, API-only. No frontend build step, no static assets.
-- Infrastructure source of truth: `alchemy.run.ts` + the resource declaration in `src/worker.ts`. There is no `wrangler.jsonc` and no wrangler dependency.
-- Runtime composition root: `src/worker.ts` builds the Effect Layer graph once (providers → PostLookup/Browse/Conversion) and closes over it per fetch event. HTTP boundary: `src/router.ts`.
-- Domain logic in `src/lib/` is runtime-agnostic. Expected failures are typed values (`Data.TaggedError` implementing `HttpMappedError` in `src/lib/provider-errors.ts`); nothing throws for expected failures. Never import `node:*` in `src/lib/`.
-- Stage identity (`resolveWorkerIdentity` in `src/worker.ts`): only stage `prod` pins the physical script name `x-lookup` and custom domain `x-lookup.mynameistito.com`. Every other stage (local dev, PR previews) derives an isolated identity, so previews can never touch production.
-- Upstreams (free, no keys): FxTwitter `https://api.fxtwitter.com` and Twitter syndication `https://cdn.syndication.twimg.com`. Do not add paid providers (Context.dev, Firecrawl) or their secrets.
-- Cache seam in `src/lib/cache.ts`: `Cache` Effect service over ordered `CacheStore`s — isolate-shared `MemoryStore` (L1) plus Cloudflare Cache API L2 (`layerWorker`). TTL from `CACHE_TTL_SECONDS` var (default 3600); `nocache=true` bypasses entirely.
-- Search gating rule: when FxTwitter refuses a search (upstream NOT_FOUND), respond 502 `{ error, code: 'search_unavailable' }` — never a fake 404 "post not found".
-- Host allowlist for `requestOrigin` lives in `src/lib/http.ts`; known hosts are `x-lookup.mynameistito.com` plus localhost entries for local dev.
-- Error contract: every failure is JSON `{ "error": string, "code": string }` with a truthful status (400 bad input, 404 genuinely missing, 502 upstream refusal/failure).
+## Project Shape
 
-## Conventions
+- This is one API-only Cloudflare Worker. There is no frontend build or static asset pipeline.
+- `alchemy.run.ts` and the resource declaration in `src/worker.ts` are the infrastructure source of truth. There is no `wrangler.jsonc` or Wrangler dependency.
+- `src/worker.ts` is the composition root. It builds the Effect Layer graph once and closes over it per fetch event. `src/router.ts` is the HTTP boundary.
+- `src/lib/` is runtime-agnostic domain and provider logic. Keep `node:*` imports out of it.
+- Tests belong in root `__tests__/` and use the `.test.ts` suffix. Test provider I/O through the `HttpClient.HttpClient` seam, not global `fetch` stubs.
+- Use named exports everywhere except the default export required by `alchemy.run.ts`.
 
-- Bun only. TypeScript strict; no default exports unless required by the Alchemy CLI or Workers runtime.
-- Tests live under root `__tests__/` with `.test.ts` suffix; provider I/O is tested through the `HttpClient.HttpClient` seam, never by stubbing global `fetch`.
+## Invariants
 
-## Deployment (Alchemy)
+- Expected failures are typed values. Preserve the existing `Data.TaggedError` and `HttpMappedError` model; translate failures to HTTP only at the boundary.
+- Every HTTP failure is JSON shaped as `{ "error": string, "code": string }` with a truthful status: 400 for bad input, 404 only for a genuinely missing resource, and 502 for upstream refusal or failure.
+- If FxTwitter refuses a search with upstream `NOT_FOUND`, return 502 with code `search_unavailable`; never turn it into a fake post-not-found 404.
+- Free upstreams are FxTwitter (`https://api.fxtwitter.com`) and Twitter syndication (`https://cdn.syndication.twimg.com`). Do not add paid providers or provider secrets.
+- `Cache` in `src/lib/cache.ts` composes ordered stores: isolate-shared `MemoryStore` L1 and Cloudflare Cache API L2. `CACHE_TTL_SECONDS` defaults to 3600; `nocache=true` bypasses caching.
+- `requestOrigin` in `src/lib/http.ts` enforces the host allowlist: production domain `x-lookup.mynameistito.com` and local development hosts.
+- Only `prod` uses the physical Worker name `x-lookup` and the production custom domain. Other stages must remain isolated, including local and PR preview stages.
 
-- Auth: local commands use Alchemy's `default` profile unless `ALCHEMY_PROFILE` is set; in PowerShell use `$env:ALCHEMY_PROFILE = "your-profile"` before `bun run ...`. Profiles live in `~/.alchemy/profiles.json`; CI uses `CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_ACCOUNT_ID` repository secrets referenced by name only.
-- State: `Cloudflare.state()` bootstraps a state-store Worker into the account on first deploy (`--yes` auto-confirms upgrades).
-- Adoption: the first prod deploy runs with `--adopt` so the pre-Alchemy Wrangler-era Worker named `x-lookup` is adopted in place rather than recreated; afterwards Alchemy ownership tags make the flag a no-op. Never destroy/recreate that Worker casually.
-- CI: `.github/workflows/ci.yml` runs credential-free checks (install frozen lockfile, Ultracite, typecheck, tests, `alchemy:check`). `.github/workflows/deploy.yml` deploys only after the exact SHA has a successful CI result: `prod` on `main` and isolated `pr-<number>` preview stacks for same-repository pull requests. Preview resolution uses trusted default-branch code, and cleanup runs automatically from that code, destroys before deleting deployment records, and refuses every stage other than `pr-<number>`. Fork pull requests never receive credentials or preview deployments.
-- Do not claim a live production deploy unless a real Actions run proves it.
-- Dependency pairing: Alchemy 2.x peer-requires Effect `>=4.0.0-beta.105`. Keep `effect`, `@effect/platform-bun`, and `@effect/platform-node` on the same Effect 4 RC that the alchemy repo pins, and bump them together with `alchemy`.
-- The default export of `alchemy.run.ts` is required by the Alchemy CLI; everything else uses named exports.
+## Effect Rules
+
+- Keep `effect`, `@effect/platform-bun`, and `@effect/platform-node` on the same pinned Effect 4 RC as Alchemy compatibility requires. Update them together with Alchemy when changing that pairing.
+- Prefer `Effect.gen` for readable effect sequencing and named `Effect.fn("name")` for functions returning Effects.
+- Use Effect `Schema` for parsing untrusted data and domain modeling. Use existing Effect services (`HttpClient`, `Clock`, `Random`, `Config`, and so on) before introducing an application service.
+- Services own real authority or effectful variability. Keep request values, parsers, projections, and deterministic calculations as values or pure modules.
+- Keep service contracts narrow and domain-shaped. Put application-owned ports beside the application operation that needs them; keep concrete provider and runtime types inside adapters or the composition root.
+- Compose concrete Layers at the composition root. Do not make inner application code choose infrastructure implementations.
+- Use honest test Layers and test through public service seams. Do not create production abstractions solely to enable mocking.
+
+## Alchemy And Deployment
+
+- Local Alchemy uses the `default` profile unless `ALCHEMY_PROFILE` is set. In PowerShell, set `$env:ALCHEMY_PROFILE = "your-profile"`; profiles live in `~/.alchemy/profiles.json`.
+- `Cloudflare.state()` bootstraps the Alchemy state-store Worker on first deploy.
+- Production adoption preserves the existing Wrangler-era Worker named `x-lookup`; do not casually destroy or recreate it.
+- CI runs credential-free install, Ultracite, typecheck, tests, and `alchemy:check`. Deployment requires the exact SHA to have successful CI: production from `main`, isolated `pr-<number>` previews for same-repository pull requests, and no credentials or previews for forks.
+- Never claim a live production deployment without a real successful Actions run proving it.
