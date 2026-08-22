@@ -17,7 +17,7 @@ import XLookupStack, {
   makeXLookupWorker,
 } from "@/alchemy.run.ts";
 import type { XLookupEnv } from "@/alchemy.run.ts";
-import { resolveWorkerIdentity } from "@/worker.ts";
+import WorkerEntrypoint, { resolveWorkerIdentity } from "@/worker.ts";
 
 describe("alchemy stack", () => {
   test("exports a well-formed stack program", () => {
@@ -27,6 +27,10 @@ describe("alchemy stack", () => {
   test("declares the x-lookup worker resource per stage", () => {
     expect(Effect.isEffect(makeXLookupWorker("prod"))).toBeTruthy();
     expect(Effect.isEffect(makeXLookupWorker("pr-7"))).toBeTruthy();
+  });
+
+  test("exports an Effect-native Worker entrypoint for the runtime bridge", () => {
+    expect(Effect.isEffect(WorkerEntrypoint)).toBeTruthy();
   });
 
   test("executes the stack body against in-memory state without credentials", async () => {
