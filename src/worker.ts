@@ -127,7 +127,7 @@ export const makeXLookupWorker = (stage: string) =>
       env: WORKER_ENV,
       main: "./src/worker.ts",
       name: resolveWorkerIdentity(stage).name,
-      observability: stage === PROD_STAGE ? { enabled: true } : undefined,
+      observability: { enabled: stage === PROD_STAGE },
     },
     runtimeImplementation
   );
