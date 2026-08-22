@@ -1,3 +1,4 @@
+import { createMcpHandler } from "agents/mcp/server";
 import { Effect, Layer, Option, Schema } from "effect";
 import { HttpEffect } from "effect/unstable/http";
 
@@ -13,9 +14,13 @@ import {
 import { layerPostLookupWithoutDependencies } from "@/application/post-lookup.ts";
 import { makeHttpApplication } from "@/http/router.ts";
 import { layerWorker } from "@/infrastructure/cache/service.ts";
+import { createMcpServer } from "@/mcp/server.ts";
 import { layerFxTwitter, layerSyndication } from "@/providers/composition.ts";
 import { envSchema } from "@/runtime/env.ts";
 import type { Env } from "@/runtime/env.ts";
+
+const MCP_HOSTNAME_PATTERN =
+  /^(?:localhost|127\.0\.0\.1|x-lookup\.mynameistito\.com|x-lookup-[a-z0-9][a-z0-9-]*\.[a-z0-9-]+\.workers\.dev)$/u;
 
 /**
  * Production composition root for application capabilities.
@@ -51,15 +56,35 @@ const makeRequestHandler = async (workerEnv: XLookupEnv) => {
     () => ({})
   );
   const services = await Effect.runPromise(makeApplicationServices(env));
-  return HttpEffect.toWebHandler(makeHttpApplication(services));
+  return {
+    http: HttpEffect.toWebHandler(makeHttpApplication(services)),
+    mcp: (request: Request, requestEnv: XLookupEnv, ctx: ExecutionContext) => {
+      const { hostname } = new URL(request.url);
+      if (!MCP_HOSTNAME_PATTERN.test(hostname)) {
+        return Promise.resolve(new Response("Forbidden", { status: 403 }));
+      }
+      return createMcpHandler(() => createMcpServer(services), {
+        allowedHostnames: [hostname],
+        responseMode: "json",
+        route: "/mcp",
+      })(request, requestEnv, ctx);
+    },
+  };
 };
 
 let requestHandler: ReturnType<typeof makeRequestHandler> | undefined;
 
 /** Cloudflare runtime handler; the application graph is initialized once. */
 export default {
-  async fetch(request: Request, env: XLookupEnv): Promise<Response> {
+  async fetch(
+    request: Request,
+    env: XLookupEnv,
+    ctx: ExecutionContext
+  ): Promise<Response> {
     requestHandler ??= makeRequestHandler(env);
-    return (await requestHandler)(request);
+    const handlers = await requestHandler;
+    return new URL(request.url).pathname === "/mcp"
+      ? handlers.mcp(request, env, ctx)
+      : handlers.http(request);
   },
 };

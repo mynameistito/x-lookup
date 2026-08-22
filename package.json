@@ -20,7 +20,10 @@
     "prepare": "lefthook install"
   },
   "dependencies": {
-    "takumi-js": "2.10.0"
+    "@modelcontextprotocol/server": "2.0.0",
+    "agents": "0.21.0",
+    "takumi-js": "2.10.0",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260821.1",
