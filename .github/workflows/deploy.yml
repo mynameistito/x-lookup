@@ -3,7 +3,7 @@ name: Deploy
 on:
   push:
     branches: [main]
-  pull_request:
+  pull_request_target:
     types: [opened, reopened, synchronize, closed]
 
 # One deploy at a time per ref so preview and prod runs never interleave.
@@ -14,23 +14,26 @@ concurrency:
 # Pushes are restricted to main, so STAGE is always `pr-<number>` (pull
 # requests) or `prod` (main).
 env:
-  STAGE: ${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.number) || 'prod' }}
+  STAGE: ${{ github.event_name == 'pull_request_target' && format('pr-{0}', github.event.number) || 'prod' }}
 
 jobs:
   deploy:
-    # Fork pull requests never deploy. Same-repository preview deployments
-    # pause at the preview environment; pushes to main deploy production.
+    # pull_request_target loads this workflow from the base branch. The
+    # environment gate runs before any PR revision or Cloudflare secret is
+    # available.
     if: >-
-      (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'pull_request' && github.event.action != 'closed' && github.event.pull_request.head.repo.full_name == github.repository)
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'pull_request_target' && github.event.action != 'closed' && github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-latest
     environment:
-      name: ${{ github.event_name == 'pull_request' && 'preview' || 'production' }}
+      name: ${{ github.event_name == 'pull_request_target' && 'preview' || 'production' }}
     permissions:
       contents: read
       deployments: write
       pull-requests: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.sha }}
       - uses: ./.github/actions/setup-bun
       - name: Require Cloudflare credentials
         run: |
@@ -81,13 +84,16 @@ jobs:
           DEPLOY_OUTCOME: ${{ steps.deploy.outcome }}
 
   cleanup:
-    if: github.event_name == 'pull_request' && github.event.action == 'closed' && github.event.pull_request.head.repo.full_name == github.repository
+    if: github.event_name == 'pull_request_target' && github.event.action == 'closed' && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
+    environment: preview-cleanup
     permissions:
       contents: read
       deployments: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
       - uses: ./.github/actions/setup-bun
       - name: Guard against production teardown
         run: |
