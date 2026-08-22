@@ -49,6 +49,7 @@ curl -sS 'https://x-lookup.mynameistito.com/handle'
 | \`GET /:handle/followers\` | Follower users | \`cursor\`, \`page\`, \`limit\`, \`full\`, \`format\`, \`nocache\` |
 | \`GET /:handle/following\` | Following users | \`cursor\`, \`page\`, \`limit\`, \`full\`, \`format\`, \`nocache\` |
 | \`GET /oembed?url=…\` | oEmbed JSON | \`url\`; optional \`text\`, \`author\`, \`status\`, \`provider\` overrides |
+| \`GET /og.png\` | 1200×630 Open Graph / Twitter share image | — |
 | \`GET /\` · \`GET /docs\` | This documentation | — |
 
 ## Content negotiation
@@ -181,6 +182,7 @@ const escapeHtml = (value: string): string =>
 export const rootHtml = (canonicalUrl: string): string => {
   const title = "x-lookup";
   const description = escapeHtml(ROOT_DESCRIPTION);
+  const imageUrl = escapeHtml(new URL("/og.png", canonicalUrl).toString());
   const url = escapeHtml(canonicalUrl);
 
   return `<!doctype html>
@@ -194,10 +196,14 @@ export const rootHtml = (canonicalUrl: string): string => {
   <meta property="og:description" content="${description}">
   <meta property="og:type" content="website">
   <meta property="og:url" content="${url}">
+  <meta property="og:image" content="${imageUrl}">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
   <meta property="og:site_name" content="${title}">
-  <meta name="twitter:card" content="summary">
+  <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="${title}">
   <meta name="twitter:description" content="${description}">
+  <meta name="twitter:image" content="${imageUrl}">
   <style>
     body { margin: 0; background: #08090a; color: #d0d6e0; font-family: "IBM Plex Mono", ui-monospace, monospace; }
     pre { margin: 0; padding: 1.5rem; white-space: pre-wrap; word-break: break-word; line-height: 1.65; font-size: 13px; }
