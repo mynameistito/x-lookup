@@ -1,5 +1,14 @@
+import { createMcpHandler } from "agents/mcp/server";
+import { Effect } from "effect";
 import { describe, expect, test } from "vitest";
 
+import type { BrowseRequest, BrowseService } from "@/application/browse.ts";
+import type {
+  ConversionService,
+  ConvertRequest,
+} from "@/application/conversion.ts";
+import { createMcpServer } from "@/mcp/server.ts";
+import { FxTwitterSearchUnavailableError } from "@/providers/errors/fxtwitter-search.ts";
 import WorkerEntrypoint from "@/worker.ts";
 
 const initializeRequest = {
@@ -45,6 +54,35 @@ const mcpRequest = (
     },
     method: "POST",
   });
+
+const handlerRequest = (
+  name: string,
+  args: Record<string, string | number | boolean>
+): Request =>
+  new Request("https://x-lookup.mynameistito.com/mcp", {
+    body: JSON.stringify({
+      id: 1,
+      jsonrpc: "2.0",
+      method: "tools/call",
+      params: { arguments: args, name },
+    }),
+    headers: {
+      Accept: "application/json, text/event-stream",
+      "Content-Type": "application/json",
+      Host: "x-lookup.mynameistito.com",
+    },
+    method: "POST",
+  });
+
+const makeHandler = (browse: BrowseService, conversion: ConversionService) =>
+  createMcpHandler(() => createMcpServer({ browse, conversion }), {
+    allowedHostnames: ["x-lookup.mynameistito.com"],
+    allowedOriginHostnames: "*",
+    responseMode: "json",
+  });
+
+// SAFETY: The stateless MCP handler does not use execution-context methods in these adapter tests.
+const testExecutionContext = {} as ExecutionContext;
 
 describe("MCP boundary", () => {
   test("initializes and lists the OpenAPI-backed tools", async () => {
@@ -144,5 +182,155 @@ describe("MCP boundary", () => {
 
     expect(preview.status).toBe(200);
     expect(unknown.status).toBe(403);
+  });
+
+  test("supports valid browser origins and rejects malformed origins", async () => {
+    const env = { CACHE_TTL_SECONDS: "3600" };
+    const browser = mcpRequest(JSON.stringify(initializeRequest));
+    browser.headers.set("Origin", "https://playground.ai.cloudflare.com");
+    const malformed = mcpRequest(JSON.stringify(initializeRequest));
+    malformed.headers.set("Origin", "not-an-origin");
+
+    const browserResponse = await WorkerEntrypoint.fetch(
+      browser,
+      env,
+      // SAFETY: The MCP handler does not use execution-context methods in this protocol test.
+      {} as ExecutionContext
+    );
+    const malformedResponse = await WorkerEntrypoint.fetch(
+      malformed,
+      env,
+      // SAFETY: The MCP handler does not use execution-context methods in this protocol test.
+      {} as ExecutionContext
+    );
+
+    expect(browserResponse.status).toBe(200);
+    expect(browserResponse.headers.get("Access-Control-Allow-Origin")).toBe(
+      "*"
+    );
+    expect(malformedResponse.status).toBe(403);
+  });
+
+  test("routes tool aliases and preserves parsed operation options", async () => {
+    const browseInputs: BrowseRequest[] = [];
+    const conversionInputs: ConvertRequest[] = [];
+    const browse: BrowseService = {
+      browse: (input) => {
+        browseInputs.push(input);
+        return Effect.succeed({
+          cache: "miss" as const,
+          limit: input.limit,
+          page: input.page,
+          query:
+            input.selection._tag === "search"
+              ? input.selection.query
+              : undefined,
+          resource: input.selection._tag,
+        });
+      },
+    };
+    const conversion: ConversionService = {
+      convert: (input) => {
+        conversionInputs.push(input);
+        return Effect.succeed({
+          cache: "miss" as const,
+          canonicalUrl: "https://x.com/ada/status/123",
+          compact: input.compact,
+          format: input.format,
+          postCount: 0,
+          posts: [],
+          source: "fxtwitter" as const,
+          userinfo: input.userinfo,
+          warnings: [],
+        });
+      },
+    };
+    const handler = makeHandler(browse, conversion);
+
+    const search = await handler(
+      handlerRequest("search_posts", {
+        feed: "top",
+        full: true,
+        limit: 7,
+        page: 2,
+        q: "  from:ada release  ",
+      }),
+      {},
+      testExecutionContext
+    );
+    const profile = await handler(
+      handlerRequest("get_profile", { handle: "ada", nocache: true }),
+      {},
+      testExecutionContext
+    );
+    const conversionResponse = await handler(
+      handlerRequest("convert_status", {
+        context: "thread",
+        format: "json",
+        full: true,
+        replies: "off",
+        thread: "10",
+        url: "https://x.com/ada/status/123",
+      }),
+      {},
+      testExecutionContext
+    );
+
+    expect([
+      search.status,
+      profile.status,
+      conversionResponse.status,
+    ]).toStrictEqual([200, 200, 200]);
+    expect(browseInputs).toMatchObject([
+      {
+        full: true,
+        limit: 7,
+        page: 2,
+        selection: { _tag: "search", feed: "top", query: "from:ada release" },
+      },
+      { nocache: true, selection: { _tag: "profile", handle: "ada" } },
+    ]);
+    expect(conversionInputs[0]).toMatchObject({
+      context: "thread",
+      format: "json",
+      replies: "off",
+      thread: { _tag: "full", limit: 10 },
+    });
+  });
+
+  test("returns typed provider failures as MCP tool errors", async () => {
+    const browse: BrowseService = {
+      browse: () =>
+        Effect.fail(
+          new FxTwitterSearchUnavailableError({ operation: "search" })
+        ),
+    };
+    const conversion: ConversionService = {
+      convert: () =>
+        Effect.succeed({
+          cache: "miss" as const,
+          canonicalUrl: "https://x.com/ada/status/123",
+          compact: true,
+          format: "markdown" as const,
+          postCount: 0,
+          posts: [],
+          source: "fxtwitter" as const,
+          userinfo: "off" as const,
+          warnings: [],
+        }),
+    };
+    const handler = makeHandler(browse, conversion);
+    const response = await handler(
+      handlerRequest("search_posts", { q: "from:ada" }),
+      {},
+      testExecutionContext
+    );
+
+    const body = await response.text();
+    expect({ body, status: response.status }).toMatchObject({
+      body: expect.stringContaining('"isError":true'),
+      status: 200,
+    });
+    expect(body).toContain('\\"code\\":\\"search_unavailable\\"');
   });
 });
