@@ -327,6 +327,11 @@ export const openApiDocument = (origin: string) => ({
         required: ["error", "code"],
         type: "object",
       },
+      HealthResponse: {
+        properties: { status: { const: "ok", type: "string" } },
+        required: ["status"],
+        type: "object",
+      },
       Post: {
         additionalProperties: true,
         description: "Public post fields returned by the upstream provider.",
@@ -362,6 +367,22 @@ export const openApiDocument = (origin: string) => ({
   paths: {
     "/api/browse": { get: browseOperation(browseParameters) },
     "/api/convert": { get: convertOperation(convertParameters) },
+    "/health": {
+      get: {
+        description: "Return the service health status.",
+        operationId: "getHealth",
+        responses: {
+          "200": {
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/HealthResponse" },
+              },
+            },
+            description: "The service is healthy.",
+          },
+        },
+      },
+    },
     "/oembed": {
       get: {
         description: "Render an oEmbed response for an X status URL.",

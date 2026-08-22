@@ -375,6 +375,7 @@ describe("Effect HTTP boundary", () => {
       paths: [
         "/api/browse",
         "/api/convert",
+        "/health",
         "/oembed",
         "/search",
         "/{handle}",
