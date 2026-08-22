@@ -43,7 +43,7 @@ const imageTree = container({
     }),
     container({
       children: [
-        text("A sharper lens\nfor the public web.", {
+        text("Turn public X into\nagent-ready context.", {
           color: "#f4f7fb",
           fontFamily: "monospace",
           fontSize: 68,
