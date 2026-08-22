@@ -1,18 +1,21 @@
 import { Effect, Layer, Result } from "effect";
 import { describe, expect, test } from "vitest";
 
+import { renderBrowseMarkdown } from "@/lib/browse-renderer.ts";
 import {
   browseEffect,
-  browseResponse,
+  parseBrowseRequest,
   isOriginalPost,
   layerBrowseWithoutDependencies,
 } from "@/lib/browse.ts";
+import type { BrowseResult } from "@/lib/browse.ts";
 import { layerMemory } from "@/lib/cache.ts";
 import type {
   FxAuthor,
   FxListResponse,
   FxTweet,
 } from "@/lib/fxtwitter-types.ts";
+import { browseResponse } from "@/lib/http-presenter.ts";
 import { FxTwitterSearchUnavailableError } from "@/lib/provider-errors.ts";
 import { FxTwitter } from "@/lib/provider-service.ts";
 import type { FxTwitterService } from "@/lib/provider-service.ts";
@@ -62,6 +65,12 @@ const requireSuccess = <A, E>(result: Result.Result<A, E>): A => {
   return result.success;
 };
 
+const renderResult = (
+  input: Parameters<typeof browseEffect>[0],
+  result: BrowseResult
+): string =>
+  renderBrowseMarkdown(requireSuccess(parseBrowseRequest(input)), result);
+
 describe("Browse", () => {
   test("loads profile and posts in parallel, filters replies/reposts, and renders continuations", async () => {
     const result = requireSuccess(
@@ -92,7 +101,12 @@ describe("Browse", () => {
         "[Source](https://x.com/ada/status/1)",
         "/ada?cursor=next",
         "/ada?page=2",
-      ].every((value) => result.markdown.includes(value))
+      ].every((value) =>
+        renderResult(
+          { handle: "ada", nocache: true, resource: "profile" },
+          result
+        ).includes(value)
+      )
     ).toBeTruthy();
   });
 
@@ -137,7 +151,12 @@ describe("Browse", () => {
         "limit=7",
         "cursor=page-3",
         "page=3",
-      ].every((value) => result.markdown.includes(value))
+      ].every((value) =>
+        renderResult(
+          { full: true, limit: 7, page: 2, q: "effect", resource: "search" },
+          result
+        ).includes(value)
+      )
     ).toBeTruthy();
   });
 
@@ -222,7 +241,10 @@ describe("Browse", () => {
         })
       )
     );
-    const response = browseResponse(result, true);
+    const request = requireSuccess(
+      parseBrowseRequest({ full: true, q: "x-lookup", resource: "search" })
+    );
+    const response = browseResponse(request, result, true);
     expect(response.headers).toMatchObject({
       "Cache-Control": "public, max-age=0, must-revalidate",
       "Content-Type": "application/json; charset=utf-8",
@@ -234,7 +256,9 @@ describe("Browse", () => {
       query: "x-lookup",
       resource: "search",
     });
-    expect(result.markdown).toContain("0 likes");
+    expect(
+      renderResult({ full: true, q: "x-lookup", resource: "search" }, result)
+    ).toContain("0 likes");
   });
 
   test("rejects Obsidian output before touching providers", async () => {

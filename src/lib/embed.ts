@@ -1,11 +1,9 @@
-import type { ConvertSuccess } from "@/lib/converter.ts";
 import type {
   FxMedia,
   FxMediaItem,
   FxPoll,
   FxTweet,
 } from "@/lib/fxtwitter-types.ts";
-import type { HeaderMap, HttpPayload } from "@/lib/http.ts";
 
 export const SITE_NAME = "x-lookup";
 export const THEME_COLOR = "#146c43";
@@ -415,41 +413,6 @@ ${tags.join("\n")}
 </html>`;
 };
 
-export const embedResponse = (
-  result: ConvertSuccess,
-  options: EmbedOptions
-): HttpPayload => {
-  const match = /\/status\/(?<id>\d+)/u.exec(result.canonicalUrl);
-  const requestedId = match?.groups?.id;
-  const tweet = pickFocalTweet(result.posts, requestedId);
-  if (!tweet) {
-    return {
-      body: JSON.stringify({
-        code: "not_found",
-        error: "Post not found or unavailable.",
-      }),
-      headers: { "Content-Type": "application/json; charset=utf-8" },
-      status: 404,
-    };
-  }
-
-  const headers: HeaderMap = {
-    "Content-Type": "text/html; charset=utf-8",
-    Vary: "Accept, User-Agent",
-    "X-Cache": result.cache.toUpperCase(),
-    "X-Converter": "x-lookup",
-    "X-Embed": "1",
-    "X-Post-Count": String(result.postCount),
-    "X-Source": result.source,
-    "X-Warnings": String(result.warnings.length),
-  };
-  if (result.cache !== "bypass") {
-    headers["Cache-Control"] = "public, max-age=0, must-revalidate";
-  }
-
-  return { body: buildEmbedHtml(tweet, options), headers, status: 200 };
-};
-
 const parseStatusUrlSafe = (
   raw: string
 ): { handle: string; id: string; canonicalUrl: string } | undefined => {
@@ -492,16 +455,3 @@ export const oembedPayload = (
     version: "1.0",
   };
 };
-
-export const oembedResponse = (
-  query: OEmbedQuery,
-  origin: string
-): HttpPayload => ({
-  body: JSON.stringify(oembedPayload(query, origin)),
-  headers: {
-    "Access-Control-Allow-Origin": "*",
-    "Cache-Control": "public, max-age=3600",
-    "Content-Type": "application/json; charset=utf-8",
-  },
-  status: 200,
-});

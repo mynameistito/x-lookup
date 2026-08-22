@@ -5,9 +5,10 @@ import { layerMemory } from "@/lib/cache.ts";
 import {
   convertTweetEffect,
   layerConversionWithoutDependencies,
-  markdownResponse,
 } from "@/lib/converter.ts";
 import type { FxTweet } from "@/lib/fxtwitter-types.ts";
+import { markdownResponse } from "@/lib/http-presenter.ts";
+import { renderThreadMarkdown } from "@/lib/markdown.ts";
 import { PostLookup } from "@/lib/tweet-fetch.ts";
 import type { FetchResult, PostLookupService } from "@/lib/tweet-fetch.ts";
 
@@ -60,12 +61,12 @@ const requireSuccess = <A, E>(result: Result.Result<A, E>): A => {
 describe("Conversion", () => {
   test("defaults to compact rendering and full=true restores rich metrics", async () => {
     const compact = requireSuccess(await runConvert({ url: validUrl }));
-    expect(compact.body).not.toContain("Stats:");
+    expect(markdownResponse(compact).body).not.toContain("Stats:");
 
     const full = requireSuccess(
       await runConvert({ full: "true", url: validUrl })
     );
-    expect(full.body).toContain("Stats: 5 likes");
+    expect(markdownResponse(full).body).toContain("Stats: 5 likes");
   });
 
   test("format=json keeps structured posts and stable result metadata", async () => {
@@ -289,7 +290,14 @@ describe("Conversion", () => {
       ["2", "https://x.com/ada/status/2"],
       ["3", "https://x.com/ada/status/3"],
     ]);
-    expect(result.body).toBe(`## Parent · 1/2 — Parent · Ada (@ada)
+    expect(
+      renderThreadMarkdown(result.posts, {
+        canonicalUrl: result.canonicalUrl,
+        compact: result.compact,
+        format: "markdown",
+        userinfo: result.userinfo,
+      })
+    ).toBe(`## Parent · 1/2 — Parent · Ada (@ada)
 
 parent
 

@@ -4,16 +4,15 @@ import type { ConvertSuccess } from "@/lib/converter.ts";
 import {
   buildEmbedHtml,
   embedDescription,
-  embedResponse,
   formatCount,
   isEmbedUserAgent,
   oembedPayload,
-  oembedResponse,
   pickFocalTweet,
   socialProof,
   supportsNativeMultiImage,
 } from "@/lib/embed.ts";
 import type { FxTweet } from "@/lib/fxtwitter-types.ts";
+import { embedResponse, oembedResponse } from "@/lib/http-presenter.ts";
 
 const photoTweet: FxTweet = {
   author: {
@@ -238,6 +237,7 @@ describe("embed and oembed responses", () => {
     postCount: 1,
     posts: [photoTweet],
     source: "fxtwitter",
+    userinfo: "off",
     warnings: [],
   };
 

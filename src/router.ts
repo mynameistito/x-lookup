@@ -2,30 +2,33 @@ import { Effect, Result } from "effect";
 import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 
 import { ROOT_MARKDOWN, rootHtml } from "@/docs.ts";
-import { browseResponse, parseBrowseRequest } from "@/lib/browse.ts";
+import { parseBrowseRequest } from "@/lib/browse.ts";
 import type {
   BrowseFailure,
   BrowseInput,
   BrowseService,
 } from "@/lib/browse.ts";
-import {
-  acceptPrefersHtml,
-  markdownResponse,
-  parseConvertRequest,
-} from "@/lib/converter.ts";
+import { parseConvertRequest } from "@/lib/converter.ts";
 import type {
   ConversionService,
   ConvertFailure,
   ConvertInput,
 } from "@/lib/converter.ts";
-import {
-  embedResponse,
-  isEmbedUserAgent,
-  oembedResponse,
-} from "@/lib/embed.ts";
+import { isEmbedUserAgent } from "@/lib/embed.ts";
 import type { OEmbedQuery } from "@/lib/embed.ts";
+import {
+  browseResponse,
+  embedResponse,
+  markdownResponse,
+  oembedResponse,
+} from "@/lib/http-presenter.ts";
 import type { HttpPayload } from "@/lib/http.ts";
-import { requestOrigin, wantsJson, wantsMarkdown } from "@/lib/http.ts";
+import {
+  acceptPrefersHtml,
+  requestOrigin,
+  wantsJson,
+  wantsMarkdown,
+} from "@/lib/http.ts";
 
 const HANDLE = "([A-Za-z0-9_]{1,15})";
 const STATUS_ROUTE = new RegExp(`^/${HANDLE}/status/(\\d+)$`, "u");
@@ -157,6 +160,7 @@ const handleBrowse = (
     const result = yield* services.browse.browse(parsed.success);
     return withApiCors(
       browseResponse(
+        parsed.success,
         result,
         wantsJson(input.format, request.headers.accept ?? "")
       )

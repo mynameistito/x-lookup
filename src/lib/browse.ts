@@ -1,7 +1,6 @@
 import { Context, Effect, Layer, Result } from "effect";
 
 import {
-  DEFAULT_LIMIT,
   parseFeed,
   parseFormat,
   parseLimit,
@@ -19,14 +18,13 @@ import type {
   InvalidBrowseResource,
   MissingSearchQuery,
 } from "@/lib/browse-query.ts";
-import { Cache, buildCacheKey, cacheControlHeader } from "@/lib/cache.ts";
+import { Cache, buildCacheKey } from "@/lib/cache.ts";
 import type { CacheStatus } from "@/lib/cache.ts";
 import type {
   FxAuthor,
   FxListResponse,
   FxTweet,
 } from "@/lib/fxtwitter-types.ts";
-import type { HeaderMap, HttpPayload } from "@/lib/http.ts";
 import type { FxTwitterFailure } from "@/lib/provider-errors.ts";
 import { FxTwitter } from "@/lib/provider-service.ts";
 import { parseBrowseFlag } from "@/lib/query-flag.ts";
@@ -102,7 +100,6 @@ export interface BrowseResult {
   page: number;
   limit: number;
   nextCursor?: string;
-  markdown: string;
   cache: CacheStatus;
 }
 
@@ -194,112 +191,6 @@ const walkPages = <T, E>(
   return walk(cursor ? 1 : page, cursor);
 };
 
-const postLine = (post: FxTweet, full: boolean): string => {
-  const handle = post.author?.screen_name ?? "unknown";
-  const profileUrl = `https://x.com/${handle}`;
-  const url =
-    post.url ??
-    (post.id ? `https://x.com/${handle}/status/${post.id}` : profileUrl);
-  const text = (post.text ?? "").replaceAll(/\s+/gu, " ").trim();
-  const likes = post.likes ?? 0;
-  const reposts = post.retweets ?? 0;
-  const replies = post.replies ?? 0;
-  const metrics = full
-    ? ` — ${likes} likes, ${reposts} reposts, ${replies} replies`
-    : "";
-  const date = full && post.created_at ? ` (${post.created_at})` : "";
-  return `- [@${handle}](${profileUrl}): ${text}${date}${metrics} [Source](${url})`;
-};
-
-const userLine = (user: FxAuthor, full: boolean): string => {
-  const handle = user.screen_name ?? "unknown";
-  const bio = user.description
-    ? ` — ${user.description.replaceAll(/\s+/gu, " ")}`
-    : "";
-  const details = full ? ` — ${user.followers ?? 0} followers${bio}` : "";
-  const displayName = user.name ?? `@${handle}`;
-  return `- [${displayName} (@${handle})](https://x.com/${handle})${details}`;
-};
-
-const continuation = (
-  request: BrowseRequest,
-  result: Omit<BrowseResult, "markdown" | "cache">
-): string | undefined => {
-  if (!result.nextCursor) {
-    return undefined;
-  }
-  const controls = new URLSearchParams();
-  if (result.limit !== DEFAULT_LIMIT) {
-    controls.set("limit", String(result.limit));
-  }
-  if (request.full) {
-    controls.set("full", "true");
-  }
-  if (request.formatParam) {
-    controls.set("format", request.formatParam);
-  }
-  let path: string;
-  if (result.resource === "search") {
-    controls.set("q", result.query ?? "");
-    if (result.feed) {
-      controls.set("feed", result.feed);
-    }
-    path = "/search";
-  } else {
-    const suffix = result.resource === "profile" ? "" : `/${result.resource}`;
-    path = `/${result.handle}${suffix}`;
-  }
-  const cursorParams = new URLSearchParams(controls);
-  cursorParams.set("cursor", result.nextCursor);
-  const pageParams = new URLSearchParams(controls);
-  pageParams.set("page", String(result.page + 1));
-  return `[Continue →](${path}?${cursorParams.toString()}) · [Next page (${result.page + 1}) →](${path}?${pageParams.toString()})`;
-};
-
-const renderMarkdown = (
-  request: BrowseRequest,
-  result: Omit<BrowseResult, "markdown" | "cache">
-): string => {
-  const { full } = request;
-  const lines: string[] = [];
-  if (result.resource === "profile" && result.profile) {
-    const { profile } = result;
-    const handle = profile.screen_name ?? result.handle ?? "unknown";
-    const displayName = profile.name ?? `@${handle}`;
-    lines.push(`# [${displayName} (@${handle})](https://x.com/${handle})`, "");
-    if (profile.description) {
-      lines.push(profile.description, "");
-    }
-    if (full) {
-      lines.push(
-        `Followers: ${profile.followers ?? 0} · Following: ${profile.following ?? 0} · Posts: ${profile.statuses ?? 0}`,
-        ""
-      );
-    }
-    lines.push(
-      "## Latest posts",
-      ...(result.posts ?? []).map((post) => postLine(post, full))
-    );
-  } else if (result.resource === "search") {
-    lines.push(
-      `# X search: ${result.query}`,
-      "",
-      ...(result.posts ?? []).map((post) => postLine(post, full))
-    );
-  } else {
-    lines.push(
-      `# @${result.handle} ${result.resource}`,
-      "",
-      ...(result.users ?? []).map((user) => userLine(user, full))
-    );
-  }
-  const next = continuation(request, result);
-  if (next) {
-    lines.push("", next);
-  }
-  return `${lines.join("\n").trim()}\n`;
-};
-
 const makeBrowse = Effect.gen(function* makeBrowseService() {
   const cache = yield* Cache;
   const fxTwitter = yield* FxTwitter;
@@ -325,7 +216,7 @@ const makeBrowse = Effect.gen(function* makeBrowseService() {
           query: selection.query,
           resource: selection._tag,
         };
-        return { ...base, markdown: renderMarkdown(request, base) };
+        return base;
       }
 
       const { handle } = selection;
@@ -351,7 +242,7 @@ const makeBrowse = Effect.gen(function* makeBrowseService() {
           profile,
           resource: selection._tag,
         };
-        return { ...base, markdown: renderMarkdown(request, base) };
+        return base;
       }
 
       const list = yield* walkPages(request.page, request.cursor, (cursor) =>
@@ -370,7 +261,7 @@ const makeBrowse = Effect.gen(function* makeBrowseService() {
         resource: selection._tag,
         users: list.results.slice(0, request.limit),
       };
-      return { ...base, markdown: renderMarkdown(request, base) };
+      return base;
     }
   );
 
@@ -421,27 +312,3 @@ export const browseEffect = (
     }
     return yield* browseRequestEffect(parsed.success);
   });
-
-export const browseResponse = (
-  result: BrowseResult,
-  asJson: boolean
-): HttpPayload => {
-  const headers: HeaderMap = {
-    "Content-Type": asJson
-      ? "application/json; charset=utf-8"
-      : "text/markdown; charset=utf-8",
-    Vary: "Accept",
-    "X-Browse-Resource": result.resource,
-    "X-Cache": result.cache.toUpperCase(),
-    "X-Result-Count": String(result.posts?.length ?? result.users?.length ?? 0),
-    "X-Source": "fxtwitter",
-  };
-  if (result.cache !== "bypass") {
-    headers["Cache-Control"] = cacheControlHeader();
-  }
-  return {
-    body: asJson ? JSON.stringify(result) : result.markdown,
-    headers,
-    status: 200,
-  };
-};
