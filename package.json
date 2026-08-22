@@ -31,7 +31,6 @@
     "oxlint": "^1.79.0",
     "typescript": "npm:@typescript/typescript6@^6.0.2",
     "ultracite": "7.10.6",
-    "vitest": "^4.1.11",
-    "workerd": "1.20260821.1"
+    "vitest": "^4.1.11"
   }
 }

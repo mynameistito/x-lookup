@@ -122,6 +122,7 @@ export const makeXLookupWorker = (stage: string) =>
     "x-lookup",
     {
       compatibility: { date: "2026-07-11" },
+      dev: { host: "127.0.0.1" },
       domain: resolveWorkerIdentity(stage).domain,
       env: WORKER_ENV,
       main: "./src/worker.ts",
