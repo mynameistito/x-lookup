@@ -140,7 +140,7 @@ jobs:
             const name = succeeded ? `[${workerName}](${process.env.DEPLOYMENT_URL})` : workerName;
             const body = [
               marker,
-              `## Deploying with &nbsp;<a href="https://alchemy.run/"><img alt="Alchemy" src="https://raw.githubusercontent.com/${context.repo.owner}/${context.repo.repo}/${context.sha}/.github/alchemy.svg" width="42" height="42"></a> &nbsp;Alchemy`,
+              `## Deploying with &nbsp;<a href="https://alchemy.run/"><img alt="Alchemy" src="https://raw.githubusercontent.com/${context.repo.owner}/${context.repo.repo}/${context.sha}/.github/alchemy.svg" width="16" height="16"></a> &nbsp;Alchemy`,
               "",
               "The latest updates on your project.",
               "",
