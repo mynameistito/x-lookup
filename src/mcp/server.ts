@@ -23,21 +23,32 @@ export interface McpApplicationServices {
 
 const optionalString = z.string().optional();
 
-const browseBaseInputSchema = {
+const browseCommonInputSchema = {
   cursor: optionalString,
-  feed: optionalString,
   format: z.enum(["markdown", "json"]).optional(),
   full: z.boolean().optional(),
-  handle: optionalString,
   limit: z.number().int().min(1).max(50).optional(),
   nocache: z.boolean().optional(),
   page: z.number().int().min(1).max(10).optional(),
-  q: optionalString,
 };
 
 const browseInputSchema = {
-  ...browseBaseInputSchema,
+  ...browseCommonInputSchema,
+  feed: optionalString,
+  handle: optionalString,
+  q: optionalString,
   resource: z.enum(["profile", "search", "followers", "following"]).optional(),
+};
+
+const searchInputSchema = {
+  ...browseCommonInputSchema,
+  feed: optionalString,
+  q: z.string().min(1),
+};
+
+const profileInputSchema = {
+  ...browseCommonInputSchema,
+  handle: z.string().min(1),
 };
 
 const convertInputSchema = {
@@ -62,7 +73,6 @@ const oembedInputSchema = {
 };
 
 type BrowseToolInput = z.infer<z.ZodObject<typeof browseInputSchema>>;
-type BrowseAliasToolInput = z.infer<z.ZodObject<typeof browseBaseInputSchema>>;
 type ConvertToolInput = z.infer<z.ZodObject<typeof convertInputSchema>>;
 type OEmbedToolInput = z.infer<z.ZodObject<typeof oembedInputSchema>>;
 interface ToolFailure {
@@ -78,7 +88,7 @@ const browseInput = (
 const convertInput = (input: ConvertToolInput): ConvertInput => input;
 
 const browseAliasInput = (
-  input: BrowseAliasToolInput,
+  input: BrowseToolInput,
   resource: string
 ): BrowseInput => ({ ...input, resource });
 
@@ -155,7 +165,10 @@ const browseTool = (
   name: string,
   description: string,
   resource: string | undefined,
-  inputSchema: typeof browseInputSchema | typeof browseBaseInputSchema
+  inputSchema:
+    | typeof browseInputSchema
+    | typeof searchInputSchema
+    | typeof profileInputSchema
 ) => {
   server.registerTool(
     name,
@@ -200,7 +213,7 @@ export const createMcpServer = (
     "search_posts",
     "Search public X posts using an X search query.",
     "search",
-    browseBaseInputSchema
+    searchInputSchema
   );
   browseTool(
     server,
@@ -208,7 +221,7 @@ export const createMcpServer = (
     "get_profile",
     "Get a public X profile and its latest original posts.",
     "profile",
-    browseBaseInputSchema
+    profileInputSchema
   );
   browseTool(
     server,
@@ -216,7 +229,7 @@ export const createMcpServer = (
     "list_followers",
     "List public followers for an X profile.",
     "followers",
-    browseBaseInputSchema
+    profileInputSchema
   );
   browseTool(
     server,
@@ -224,7 +237,7 @@ export const createMcpServer = (
     "list_following",
     "List public accounts followed by an X profile.",
     "following",
-    browseBaseInputSchema
+    profileInputSchema
   );
 
   server.registerTool(
