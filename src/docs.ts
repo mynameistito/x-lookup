@@ -2,8 +2,7 @@ export const ROOT_MARKDOWN = `# x-lookup
 
 Read-only, no-auth browser for public X/Twitter content, purpose-built for AI
 agents. Statuses and threads, profiles, search, followers/following — served as
-compact Markdown by default, structured JSON on request, Open Graph HTML for
-chat-app preview bots, plus an oEmbed endpoint.
+compact Markdown by default, structured JSON on request.
 
 Made by **[mynameistito](https://github.com/mynameistito)**
 · Source: [github.com/mynameistito/x-lookup](https://github.com/mynameistito/x-lookup)
@@ -170,7 +169,7 @@ Made by **[mynameistito](https://github.com/mynameistito)**
 `;
 
 const ROOT_DESCRIPTION =
-  "Read-only, no-auth browser for public X/Twitter content, purpose-built for AI agents. Statuses and threads, profiles, search, followers/following — served as compact Markdown by default, structured JSON on request, Open Graph HTML for chat-app preview bots, plus an oEmbed endpoint.";
+  "Read-only, no-auth browser for public X/Twitter content, purpose-built for AI agents. Statuses and threads, profiles, search, followers/following — served as compact Markdown by default, structured JSON on request.";
 
 const escapeHtml = (value: string): string =>
   value
