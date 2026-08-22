@@ -32,6 +32,7 @@ import {
 import { renderOpenGraphImage } from "@/lib/opengraph.ts";
 import { robotsTxt } from "@/robots.ts";
 import { sitemapXml } from "@/sitemap.ts";
+import { webBotAuthDirectory } from "@/web-bot-auth.ts";
 
 const HANDLE = "([A-Za-z0-9_]{1,15})";
 const STATUS_ROUTE = new RegExp(`^/${HANDLE}/status/(\\d+)$`, "u");
@@ -107,6 +108,15 @@ const robotsPayload = (origin: string): HttpPayload =>
 
 const sitemapPayload = (origin: string): HttpPayload =>
   textPayload(sitemapXml(origin), "application/xml; charset=utf-8");
+
+const webBotAuthPayload = (): HttpPayload => ({
+  body: webBotAuthDirectory(),
+  headers: {
+    "Cache-Control": "public, max-age=86400, immutable",
+    "Content-Type": "application/http-message-signatures-directory+json",
+  },
+  status: 200,
+});
 
 /** Translate every expected domain/application/provider failure in one place. */
 const failurePayload = (failure: BoundaryFailure): HttpPayload =>
@@ -339,6 +349,11 @@ const routeRequest = (
   if (path === "/sitemap.xml") {
     return Effect.succeed(
       serverResponse(sitemapPayload(origin), request.method === "HEAD")
+    );
+  }
+  if (path === "/.well-known/http-message-signatures-directory") {
+    return Effect.succeed(
+      serverResponse(webBotAuthPayload(), request.method === "HEAD")
     );
   }
   if (path === "/og.png") {
