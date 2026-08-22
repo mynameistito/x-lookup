@@ -62,6 +62,20 @@ curl -sS 'https://x-lookup.mynameistito.com/handle'
 Every response carries CORS \`*\`; \`OPTIONS\` returns 204, \`HEAD\` is supported,
 other methods return 405.
 
+## MCP server
+
+The same public, read-only capabilities are available through the stateless MCP
+endpoint:
+
+
+\`https://x-lookup.mynameistito.com/mcp\`
+
+The server exposes \`browse_x\`, \`convert_status\`, \`search_posts\`,
+\`get_profile\`, \`list_followers\`, \`list_following\`, \`get_oembed\`, and
+\`get_health\`. Browse and conversion tools return structured JSON with the
+same Markdown, posts, warnings, provider, and cache data as the HTTP API.
+MCP requests are stateless and do not require authentication.
+
 ## Statuses and threads
 
 \`\`\`

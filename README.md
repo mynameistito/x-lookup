@@ -40,6 +40,41 @@ Browsers that request HTML get a readable page containing the Markdown. Discord,
 
 All API responses send CORS `*`, support `OPTIONS` (204) and `HEAD`; other methods get 405. Errors are always `{ "error": string, "code": string }` with a truthful status: 400 bad input, 404 genuinely missing content, 502 upstream refusal or failure.
 
+## MCP server
+
+The same public, read-only capabilities are available through the stateless MCP endpoint:
+
+```text
+https://x-lookup.mynameistito.com/mcp
+```
+
+Example remote MCP configuration:
+
+```json
+{
+  "mcpServers": {
+    "x-lookup": {
+      "url": "https://x-lookup.mynameistito.com/mcp"
+    }
+  }
+}
+```
+
+The server exposes these tools:
+
+| Tool | Required input | Optional input |
+| --- | --- | --- |
+| `browse_x` | `resource` | `handle`, `q`, `feed`, `cursor`, `page`, `limit`, `full`, `format`, `nocache` |
+| `convert_status` | `url`, or `handle` + `id` | `format`, `thread`, `context`, `replies`, `userinfo`, `full`, `nocache` |
+| `search_posts` | `q` | `feed`, `cursor`, `page`, `limit`, `full`, `format`, `nocache` |
+| `get_profile` | `handle` | `cursor`, `page`, `limit`, `full`, `format`, `nocache` |
+| `list_followers` | `handle` | `cursor`, `page`, `limit`, `full`, `format`, `nocache` |
+| `list_following` | `handle` | `cursor`, `page`, `limit`, `full`, `format`, `nocache` |
+| `get_oembed` | — | `url`, `text`, `author`, `status`, `provider` |
+| `get_health` | — | — |
+
+Browse tools return structured JSON with an included Markdown rendering. Conversion returns structured JSON with the rendered Markdown, posts, warnings, provider, and cache status. The MCP endpoint is stateless; it does not require an MCP session ID or authentication.
+
 ## Post conversion parameters
 
 Both `GET /:handle/status/:id` and `GET /api/convert?url=…` support:
