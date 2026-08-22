@@ -145,4 +145,31 @@ describe("MCP boundary", () => {
     expect(preview.status).toBe(200);
     expect(unknown.status).toBe(403);
   });
+
+  test("supports valid browser origins and rejects malformed origins", async () => {
+    const env = { CACHE_TTL_SECONDS: "3600" };
+    const browser = mcpRequest(JSON.stringify(initializeRequest));
+    browser.headers.set("Origin", "https://playground.ai.cloudflare.com");
+    const malformed = mcpRequest(JSON.stringify(initializeRequest));
+    malformed.headers.set("Origin", "not-an-origin");
+
+    const browserResponse = await WorkerEntrypoint.fetch(
+      browser,
+      env,
+      // SAFETY: The MCP handler does not use execution-context methods in this protocol test.
+      {} as ExecutionContext
+    );
+    const malformedResponse = await WorkerEntrypoint.fetch(
+      malformed,
+      env,
+      // SAFETY: The MCP handler does not use execution-context methods in this protocol test.
+      {} as ExecutionContext
+    );
+
+    expect(browserResponse.status).toBe(200);
+    expect(browserResponse.headers.get("Access-Control-Allow-Origin")).toBe(
+      "*"
+    );
+    expect(malformedResponse.status).toBe(403);
+  });
 });

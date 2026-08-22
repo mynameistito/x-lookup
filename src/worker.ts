@@ -22,6 +22,22 @@ import type { Env } from "@/runtime/env.ts";
 const MCP_HOSTNAME_PATTERN =
   /^(?:localhost|127\.0\.0\.1|x-lookup\.mynameistito\.com|x-lookup-[a-z0-9][a-z0-9-]*\.[a-z0-9-]+\.workers\.dev)$/u;
 
+const validMcpOrigin = (request: Request): boolean => {
+  const origin = request.headers.get("Origin");
+  if (!origin) {
+    return true;
+  }
+  try {
+    const parsed = new URL(origin);
+    return (
+      (parsed.protocol === "http:" || parsed.protocol === "https:") &&
+      parsed.hostname.length > 0
+    );
+  } catch {
+    return false;
+  }
+};
+
 /**
  * Production composition root for application capabilities.
  *
@@ -60,11 +76,13 @@ const makeRequestHandler = async (workerEnv: XLookupEnv) => {
     http: HttpEffect.toWebHandler(makeHttpApplication(services)),
     mcp: (request: Request, requestEnv: XLookupEnv, ctx: ExecutionContext) => {
       const { hostname } = new URL(request.url);
-      if (!MCP_HOSTNAME_PATTERN.test(hostname)) {
+      if (!MCP_HOSTNAME_PATTERN.test(hostname) || !validMcpOrigin(request)) {
         return Promise.resolve(new Response("Forbidden", { status: 403 }));
       }
       return createMcpHandler(() => createMcpServer(services), {
         allowedHostnames: [hostname],
+        // The endpoint is public and read-only; validate Origin syntax above before allowing cross-origin clients.
+        allowedOriginHostnames: "*",
         responseMode: "json",
         route: "/mcp",
       })(request, requestEnv, ctx);
