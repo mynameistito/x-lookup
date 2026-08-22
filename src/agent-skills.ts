@@ -1,4 +1,4 @@
-import browseXSkill from "../skills/browse-x/SKILL.md?raw";
+import xLookupSkill from "../skills/x-lookup/SKILL.md?raw";
 
 export const AGENT_SKILLS_SCHEMA =
   "https://schemas.agentskills.io/discovery/0.2.0/schema.json";
@@ -65,13 +65,13 @@ const skillEntry = async (
 
 export const agentSkillsIndex = async (): Promise<AgentSkillsIndex> => ({
   $schema: AGENT_SKILLS_SCHEMA,
-  skills: [await skillEntry("browse-x", browseXSkill)],
+  skills: [await skillEntry("x-lookup", xLookupSkill)],
 });
 
 export const agentSkillsIndexJson = async (): Promise<string> =>
   JSON.stringify(await agentSkillsIndex());
 
-export const browseXSkillMarkdown = (): string => browseXSkill;
+export const xLookupSkillMarkdown = (): string => xLookupSkill;
 
 export const agentSkillsHeaders = (contentType: string) => ({
   "Cache-Control": SKILL_CACHE_CONTROL,

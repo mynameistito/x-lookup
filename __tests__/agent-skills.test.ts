@@ -3,7 +3,7 @@ import { describe, expect, test } from "vitest";
 import {
   AGENT_SKILLS_SCHEMA,
   agentSkillsIndex,
-  browseXSkillMarkdown,
+  xLookupSkillMarkdown,
 } from "@/agent-skills.ts";
 
 describe("Agent Skills discovery", () => {
@@ -15,14 +15,14 @@ describe("Agent Skills discovery", () => {
     expect(skill).toMatchObject({
       description: expect.stringContaining("Reads public X"),
       digest: expect.stringMatching(/^sha256:[0-9a-f]{64}$/u),
-      name: "browse-x",
+      name: "x-lookup",
       type: "skill-md",
-      url: "/.well-known/agent-skills/browse-x/SKILL.md",
+      url: "/.well-known/agent-skills/x-lookup/SKILL.md",
     });
 
     const digest = await crypto.subtle.digest(
       "SHA-256",
-      new TextEncoder().encode(browseXSkillMarkdown())
+      new TextEncoder().encode(xLookupSkillMarkdown())
     );
     const expected = `sha256:${Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
     expect(skill?.digest).toBe(expected);

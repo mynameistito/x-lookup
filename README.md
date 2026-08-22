@@ -109,4 +109,4 @@ CI runs credential-free lint/typecheck/tests plus a stateless stack validation (
 
 Preview deployments, production deploys, and preview cleanup run automatically after their safety checks. Cleanup uses repository-scoped Cloudflare secrets, checks out only the trusted default branch, destroys `pr-<number>` first, and removes GitHub deployment records only after successful teardown; failed cleanup retains those records and the diagnostic run. The `workflow_run` deployment workflow checks out the exact CI-passed SHA.
 
-The bundled agent skill in `skills/browse-x/` wraps this API for CLI use; override its target with `X_API_BASE` when testing another deployment.
+The bundled agent skill in `skills/x-lookup/` wraps this API for CLI use; override its target with `X_API_BASE` when testing another deployment.

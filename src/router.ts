@@ -6,7 +6,7 @@ import {
   agentSkillsIndexContentType,
   agentSkillsIndexJson,
   agentSkillsMarkdownContentType,
-  browseXSkillMarkdown,
+  xLookupSkillMarkdown,
 } from "@/agent-skills.ts";
 import {
   API_CATALOG_CONTENT_TYPE,
@@ -135,7 +135,7 @@ const webBotAuthPayload = (): HttpPayload => ({
 });
 
 const agentSkillsSkillPayload = (): HttpPayload => ({
-  body: browseXSkillMarkdown(),
+  body: xLookupSkillMarkdown(),
   headers: agentSkillsHeaders(agentSkillsMarkdownContentType),
   status: 200,
 });
@@ -402,7 +402,7 @@ const routeRequest = (
       serverResponse(apiCatalogPayload(origin), request.method === "HEAD")
     );
   }
-  if (path === "/.well-known/agent-skills/browse-x/SKILL.md") {
+  if (path === "/.well-known/agent-skills/x-lookup/SKILL.md") {
     return Effect.succeed(
       serverResponse(agentSkillsSkillPayload(), request.method === "HEAD")
     );

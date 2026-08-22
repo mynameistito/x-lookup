@@ -341,7 +341,7 @@ describe("Effect HTTP boundary", () => {
       services
     );
     const skillResponse = await runBoundary(
-      request("/.well-known/agent-skills/browse-x/SKILL.md"),
+      request("/.well-known/agent-skills/x-lookup/SKILL.md"),
       services
     );
     const head = await runBoundary(
@@ -364,7 +364,7 @@ describe("Effect HTTP boundary", () => {
       headBody: "",
       headStatus: 200,
       indexContentType: "application/json; charset=utf-8",
-      skillBody: expect.stringContaining("name: browse-x"),
+      skillBody: expect.stringContaining("name: x-lookup"),
       skillContentType: "text/markdown; charset=utf-8",
       status: 200,
     });
