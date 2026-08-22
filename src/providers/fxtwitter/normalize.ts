@@ -214,20 +214,21 @@ export const normalizeReplyingTo = (
   return {
     profile_url: replyingTo.profile_url,
     screen_name: replyingTo.screen_name,
-    status: replyingTo.status,
+    status:
+      replyingTo.status === undefined ? undefined : String(replyingTo.status),
     url: replyingTo.url,
   };
 };
 
 /** Normalize the provider's optional parent-status array. */
 export const normalizeReplyingToStatus = (
-  status: readonly string[] | null | undefined
+  status: readonly (string | number)[] | null | undefined
 ): string[] | null | undefined => {
   if (status === null) {
     return null;
   }
   if (status) {
-    return [...status];
+    return status.map(String);
   }
   return undefined;
 };
@@ -253,7 +254,7 @@ export const normalizeTweet = (raw: {
   readonly community_note?: unknown;
   readonly created_at?: string;
   readonly created_timestamp?: number;
-  readonly id?: string;
+  readonly id?: string | number;
   readonly lang?: string;
   readonly likes?: number;
   readonly media?: FxMediaTransport;
@@ -263,7 +264,7 @@ export const normalizeTweet = (raw: {
   readonly quotes?: number;
   readonly replies?: number;
   readonly replying_to?: FxReplyingToTransport;
-  readonly replying_to_status?: readonly string[] | null;
+  readonly replying_to_status?: readonly (string | number)[] | null;
   readonly reposted_by?: FxRepostedByTransport;
   readonly reposts?: number;
   readonly retweets?: number;
@@ -278,7 +279,7 @@ export const normalizeTweet = (raw: {
   community_note: raw.community_note,
   created_at: raw.created_at,
   created_timestamp: raw.created_timestamp,
-  id: raw.id,
+  id: raw.id === undefined ? undefined : String(raw.id),
   lang: raw.lang,
   likes: raw.likes,
   media: normalizeMedia(raw.media),

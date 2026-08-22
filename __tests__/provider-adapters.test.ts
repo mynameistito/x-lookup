@@ -264,6 +264,28 @@ describe("FxTwitter Effect adapter", () => {
     ).toBeTruthy();
   });
 
+  test("accepts provider replies without parent metadata and numeric IDs", async () => {
+    const client = makeClient(() =>
+      Response.json({
+        code: 200,
+        replies: [
+          { id: 2, likes: 4, text: "reply one" },
+          { id: "3", likes: 2, text: "reply two" },
+        ],
+      })
+    );
+
+    const result = await runWithClient(
+      fetchFxConversationRepliesEffect("20", "likes", 10),
+      client
+    );
+
+    expect(result.map((tweet) => tweet.text)).toStrictEqual([
+      "reply one",
+      "reply two",
+    ]);
+  });
+
   test("classifies private, not-found, search refusal, and upstream failures", async () => {
     const privateClient = makeClient(() =>
       Response.json({ code: 403, message: "PRIVATE_TWEET" })
