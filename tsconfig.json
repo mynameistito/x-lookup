@@ -20,6 +20,11 @@
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src", "scripts", "alchemy.run.ts"],
+  "include": [
+    "src",
+    "scripts",
+    "skills/browse-x/scripts/browse-x.ts",
+    "alchemy.run.ts"
+  ],
   "exclude": ["**/*.test.ts"]
 }

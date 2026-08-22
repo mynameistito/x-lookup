@@ -3,7 +3,7 @@ name: browse-x
 description: >-
   Reads public X (Twitter) statuses and conversations, profiles, search results, followers, and following through x-lookup.mynameistito.com. Use when an agent needs X content as compact or full Markdown or JSON without cloning a repository.
 allowed-tools:
-  - Bash(skills/browse-x/scripts/browse-x.sh *)
+  - Bash(bun skills/browse-x/scripts/browse-x.ts *)
   - Bash(curl *x-lookup.mynameistito.com*)
 ---
 
@@ -14,10 +14,10 @@ Use the hosted, read-only API. It needs no repository checkout, install, X login
 ## Read statuses and conversations
 
 ```bash
-skills/browse-x/scripts/browse-x.sh \
+bun skills/browse-x/scripts/browse-x.ts \
   "https://x.com/handle/status/1234567890"
 
-skills/browse-x/scripts/browse-x.sh status \
+bun skills/browse-x/scripts/browse-x.ts status \
   "https://x.com/handle/status/1234567890" \
   --thread full --context full --replies top --userinfo author --full
 ```
@@ -37,10 +37,10 @@ Direct status rewrites also work at `https://x-lookup.mynameistito.com/:handle/s
 ## Browse profiles and people
 
 ```bash
-skills/browse-x/scripts/browse-x.sh profile @handle --limit 20
-skills/browse-x/scripts/browse-x.sh "https://x.com/handle" --full
-skills/browse-x/scripts/browse-x.sh followers handle --limit 50
-skills/browse-x/scripts/browse-x.sh following handle --page 2 --full
+bun skills/browse-x/scripts/browse-x.ts profile @handle --limit 20
+bun skills/browse-x/scripts/browse-x.ts "https://x.com/handle" --full
+bun skills/browse-x/scripts/browse-x.ts followers handle --limit 50
+bun skills/browse-x/scripts/browse-x.ts following handle --page 2 --full
 ```
 
 Profiles return profile details and original recent posts. The upstream API does not expose pinned-post markers. Followers and following return users. `--full` adds metrics, dates, descriptions, and counts; compact Markdown is the default.
@@ -48,9 +48,9 @@ Profiles return profile details and original recent posts. The upstream API does
 ## Search and pagination
 
 ```bash
-skills/browse-x/scripts/browse-x.sh search "from:handle release" --feed latest
-skills/browse-x/scripts/browse-x.sh search "typescript" --feed media --page 3 --limit 10
-skills/browse-x/scripts/browse-x.sh search "typescript" --cursor '<opaque cursor>'
+bun skills/browse-x/scripts/browse-x.ts search "from:handle release" --feed latest
+bun skills/browse-x/scripts/browse-x.ts search "typescript" --feed media --page 3 --limit 10
+bun skills/browse-x/scripts/browse-x.ts search "typescript" --cursor '<opaque cursor>'
 ```
 
 Search feeds are `latest` (default), `top`, and `media`. `--page` walks from the first page and is capped at 10; `--limit` is capped at 50. Prefer the opaque cursor from the Markdown `Continue` link or JSON `nextCursor` for reliable continuation. When a cursor is supplied, the API fetches that continuation directly and ignores page walking.
