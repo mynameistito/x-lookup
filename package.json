@@ -5,7 +5,6 @@
   "description": "Read-only, no-auth Cloudflare Worker that turns public X/Twitter statuses, threads, profiles, search, and social graphs into compact Markdown or JSON for AI agents",
   "license": "MIT",
   "type": "module",
-  "packageManager": "bun@1.4.0",
   "scripts": {
     "dev": "alchemy dev",
     "deploy": "alchemy deploy --stage prod --yes --adopt",
@@ -36,5 +35,6 @@
     "typescript": "npm:@typescript/typescript6@^6.0.2",
     "ultracite": "7.10.6",
     "vitest": "^4.1.11"
-  }
+  },
+  "packageManager": "bun@1.4.0"
 }
