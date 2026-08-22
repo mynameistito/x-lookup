@@ -30,7 +30,8 @@ import {
   wantsMarkdown,
 } from "@/lib/http.ts";
 import { renderOpenGraphImage } from "@/lib/opengraph.ts";
-import { ROBOTS_TXT } from "@/robots.ts";
+import { robotsTxt } from "@/robots.ts";
+import { sitemapXml } from "@/sitemap.ts";
 
 const HANDLE = "([A-Za-z0-9_]{1,15})";
 const STATUS_ROUTE = new RegExp(`^/${HANDLE}/status/(\\d+)$`, "u");
@@ -89,14 +90,20 @@ const docsPayload = (html: boolean, canonicalUrl: string): HttpPayload => ({
   status: 200,
 });
 
-const robotsPayload = (): HttpPayload => ({
-  body: ROBOTS_TXT,
+const textPayload = (body: string, contentType: string): HttpPayload => ({
+  body,
   headers: {
     "Cache-Control": "public, max-age=3600",
-    "Content-Type": "text/plain; charset=utf-8",
+    "Content-Type": contentType,
   },
   status: 200,
 });
+
+const robotsPayload = (origin: string): HttpPayload =>
+  textPayload(robotsTxt(origin), "text/plain; charset=utf-8");
+
+const sitemapPayload = (origin: string): HttpPayload =>
+  textPayload(sitemapXml(origin), "application/xml; charset=utf-8");
 
 /** Translate every expected domain/application/provider failure in one place. */
 const failurePayload = (failure: BoundaryFailure): HttpPayload =>
@@ -320,9 +327,15 @@ const routeRequest = (
 
   const url = new URL(request.originalUrl);
   const path = url.pathname.replace(/\/+$/u, "") || "/";
+  const origin = originOf(request);
   if (path === "/robots.txt") {
     return Effect.succeed(
-      serverResponse(robotsPayload(), request.method === "HEAD")
+      serverResponse(robotsPayload(origin), request.method === "HEAD")
+    );
+  }
+  if (path === "/sitemap.xml") {
+    return Effect.succeed(
+      serverResponse(sitemapPayload(origin), request.method === "HEAD")
     );
   }
   if (path === "/og.png") {
