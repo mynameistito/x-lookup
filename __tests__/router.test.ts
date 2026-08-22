@@ -334,6 +334,64 @@ describe("Effect HTTP boundary", () => {
     await expect(health.json()).resolves.toStrictEqual({ status: "ok" });
   });
 
+  test("publishes an ARD capability manifest", async () => {
+    const { services } = await makeHarness();
+    const response = await runBoundary(
+      request("/.well-known/ai-catalog.json"),
+      services
+    );
+    const head = await runBoundary(
+      request("/.well-known/ai-catalog.json", { method: "HEAD" }),
+      services
+    );
+    const catalog = await response.json();
+
+    expect(catalog).toStrictEqual({
+      entries: [
+        {
+          displayName: "x-lookup OpenAPI schema",
+          identifier: "urn:air:x-lookup.mynameistito.com:api:openapi",
+          representativeQueries: [
+            "convert an X post into Markdown",
+            "look up a public X profile",
+            "search public X posts",
+          ],
+          type: "application/vnd.oai.openapi+json;version=3.1",
+          url: "https://x-lookup.mynameistito.com/openapi.json",
+        },
+        {
+          displayName: "x-lookup agent skill",
+          identifier: "urn:air:x-lookup.mynameistito.com:skill:x-lookup",
+          representativeQueries: [
+            "how do I use x-lookup to read an X post",
+            "fetch an X thread as Markdown",
+            "find public X posts by search query",
+          ],
+          type: "text/markdown",
+          url: "https://x-lookup.mynameistito.com/.well-known/agent-skills/x-lookup/SKILL.md",
+        },
+      ],
+      host: {
+        displayName: "x-lookup",
+        identifier: "did:web:x-lookup.mynameistito.com",
+      },
+      specVersion: "1.0",
+    });
+    expect({
+      contentType: response.headers.get("Content-Type"),
+      cors: response.headers.get("Access-Control-Allow-Origin"),
+      headBody: await head.text(),
+      headStatus: head.status,
+      status: response.status,
+    }).toStrictEqual({
+      contentType: "application/json",
+      cors: "*",
+      headBody: "",
+      headStatus: 200,
+      status: 200,
+    });
+  });
+
   test("publishes the Agent Skills discovery index and source skill", async () => {
     const { services } = await makeHarness();
     const indexResponse = await runBoundary(
