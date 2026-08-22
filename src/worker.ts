@@ -1,5 +1,6 @@
 // oxlint-disable-next-line sonarjs/no-wildcard-import -- SAFETY: namespace import is the documented Alchemy Effect-native Worker style.
 import * as Cloudflare from "alchemy/Cloudflare";
+import { Stack } from "alchemy/Stack";
 import { Effect, Layer, Option, Schema } from "effect";
 
 import { envSchema } from "@/env.ts";
@@ -121,7 +122,7 @@ export const makeXLookupWorker = (stage: string) =>
   Cloudflare.Worker(
     "x-lookup",
     {
-      compatibility: { date: "2026-03-17" },
+      compatibility: { date: "2026-07-04" },
       dev: { host: "127.0.0.1" },
       domain: resolveWorkerIdentity(stage).domain,
       env: WORKER_ENV,
@@ -132,13 +133,21 @@ export const makeXLookupWorker = (stage: string) =>
     runtimeImplementation
   );
 
+/**
+ * Effect-native entrypoint imported by Alchemy's generated Worker bridge.
+ * The bridge provides the current stack at runtime, while stack evaluation
+ * provides the same service during planning and deployment.
+ */
+export const xLookupWorkerEntrypoint = Effect.gen(function* makeEntrypoint() {
+  const stack = yield* Stack;
+  return yield* makeXLookupWorker(stack.stage);
+});
+
 /** Runtime env contract derived from the Alchemy Worker declaration. */
 export type XLookupEnv = Cloudflare.InferEnv<typeof WORKER_ENV>;
 
 /**
- * Default export required by Alchemy's generated Worker entry, which imports
- * the main module's default binding while bundling the deployable script.
- * The runtime resolves the actual handler through the registered resource,
- * so only the binding's existence matters.
+ * Default export required by Alchemy's generated Worker entry. It must resolve
+ * to the declared Worker resource so the bridge can access RuntimeContext.
  */
-export default makeXLookupWorker;
+export default xLookupWorkerEntrypoint;
