@@ -29,13 +29,15 @@ export interface WorkerIdentity {
   readonly name?: string;
   /** The canonical custom domain, attached only in `prod`. */
   readonly domain?: string;
+  /** Whether the default `workers.dev` hostname is enabled for the stage. */
+  readonly workersDev: boolean;
 }
 
 /** Resolve the Worker's isolated script name and optional production domain. */
 export const resolveWorkerIdentity = (stage: string): WorkerIdentity =>
   stage === PROD_STAGE
-    ? { domain: CUSTOM_DOMAIN, name: WORKER_NAME }
-    : { name: `${WORKER_NAME}-${stage}` };
+    ? { domain: CUSTOM_DOMAIN, name: WORKER_NAME, workersDev: false }
+    : { name: `${WORKER_NAME}-${stage}`, workersDev: true };
 
 /** Declare the x-lookup Worker and its deployment-time configuration. */
 export const makeXLookupWorker = (stage: string) => {
@@ -49,6 +51,7 @@ export const makeXLookupWorker = (stage: string) => {
     main: "./src/worker.ts",
     name: identity.name,
     observability: { enabled: stage === PROD_STAGE },
+    workersDev: identity.workersDev,
   });
 };
 
