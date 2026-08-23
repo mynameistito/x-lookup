@@ -11,20 +11,27 @@ on:
 
 jobs:
   deploy:
-    uses: mynameistito/alchemy-deploy/.github/workflows/deploy.yml@2615f57b12c33ef256d8395a559f5f3643843beb # v1.0.0
+    runs-on: ubuntu-latest
+    concurrency:
+      group: alchemy-deploy-${{ github.event_name == 'workflow_run' && 'prod' || format('pr-{0}', github.event.pull_request.number) }}
+      cancel-in-progress: false
     permissions:
       actions: read
       contents: read
       deployments: write
       pull-requests: write
-    with:
-      worker-name: x-lookup
-      deploy-command: bunx --no-install alchemy deploy --stage "$STAGE" --yes
-      destroy-command: bunx --no-install alchemy destroy --stage "$STAGE" --yes
-      production-stage: prod
-      production-url: https://x-lookup.mynameistito.com
-      preview-url-pattern: https://{worker}-{stage}.*.workers.dev
-      use-adopt: true
-    secrets:
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - name: Run Alchemy deployment
+        uses: mynameistito/alchemy-deploy@af2720893467376a0c2ea3c615cd74763fd00002 # v2.0.0
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          worker-name: x-lookup
+          deploy-command: bunx --no-install alchemy deploy --stage "$STAGE" --yes
+          destroy-command: bunx --no-install alchemy destroy --stage "$STAGE" --yes
+          production-stage: prod
+          production-url: https://x-lookup.mynameistito.com
+          preview-url-pattern: https://{worker}-{stage}.*.workers.dev
+          use-adopt: true
