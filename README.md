@@ -1,6 +1,6 @@
 # x-lookup
 
-<!-- temporary CI workflow identity canary -->
+<!-- temporary stale preview gate canary v3 -->
 
 Read-only, no-auth browser for public X/Twitter content, purpose-built for AI agents. Statuses and threads, profiles, search, followers/following — served as compact Markdown by default, structured JSON on request, Open Graph HTML for chat-app preview bots, plus an oEmbed endpoint.
 
