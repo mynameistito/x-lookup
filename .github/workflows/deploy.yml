@@ -108,10 +108,14 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       - name: Create GitHub deployment
         id: create-deployment
-        run: bun run deploy:report create
+        uses: mynameistito/.github/.github/actions/deployment-report@b9212a6
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          STAGE: ${{ env.STAGE }}
+        with:
+          mode: create
+          stage: ${{ env.STAGE }}
+          worker-name: x-lookup
+          deployment-sha: ${{ env.DEPLOYMENT_SHA }}
       - name: Deploy Alchemy stack
         id: deploy
         # --adopt preserves the pre-Alchemy production Worker identity.
@@ -124,25 +128,34 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       - name: Complete GitHub deployment
         if: always() && steps.create-deployment.outcome == 'success'
-        run: bun run deploy:report complete
+        uses: mynameistito/.github/.github/actions/deployment-report@b9212a6
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          STAGE: ${{ env.STAGE }}
-          DEPLOYMENT_ID: ${{ steps.create-deployment.outputs.id }}
-          DEPLOYMENT_URL: ${{ steps.deploy.outputs.url }}
-          CLOUDFLARE_LOGS_URL: ${{ steps.deploy.outputs.logs_url }}
-          DEPLOY_OUTCOME: ${{ steps.deploy.outcome }}
+        with:
+          mode: complete
+          stage: ${{ env.STAGE }}
+          worker-name: x-lookup
+          deployment-sha: ${{ env.DEPLOYMENT_SHA }}
+          deployment-id: ${{ steps.create-deployment.outputs.deployment-id }}
+          deployment-url: ${{ steps.deploy.outputs.url }}
+          logs-url: ${{ steps.deploy.outputs.logs_url }}
+          deploy-outcome: ${{ steps.deploy.outcome }}
+          cloudflare-account-id: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       - name: Comment deployment URL on pull request
         if: always() && needs.resolve.outputs.preview == 'true' && steps.create-deployment.outcome == 'success'
-        run: bun run deploy:report comment
+        uses: mynameistito/.github/.github/actions/deployment-report@b9212a6
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          STAGE: ${{ env.STAGE }}
-          PULL_REQUEST_NUMBER: ${{ needs.resolve.outputs.pr_number }}
-          DEPLOYMENT_URL: ${{ steps.deploy.outputs.url }}
-          CLOUDFLARE_LOGS_URL: ${{ steps.deploy.outputs.logs_url }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          DEPLOY_OUTCOME: ${{ steps.deploy.outcome }}
+        with:
+          mode: comment
+          stage: ${{ env.STAGE }}
+          worker-name: x-lookup
+          deployment-sha: ${{ env.DEPLOYMENT_SHA }}
+          pull-request-number: ${{ needs.resolve.outputs.pr_number }}
+          deployment-url: ${{ steps.deploy.outputs.url }}
+          logs-url: ${{ steps.deploy.outputs.logs_url }}
+          deploy-outcome: ${{ steps.deploy.outcome }}
+          cloudflare-account-id: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
   cleanup:
     if: >-
@@ -197,7 +210,11 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
       - name: Delete GitHub preview deployments
         if: steps.destroy.outcome == 'success'
-        run: bun run deploy:report cleanup
+        uses: mynameistito/.github/.github/actions/deployment-report@b9212a6
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          STAGE: ${{ env.STAGE }}
+        with:
+          mode: cleanup
+          stage: ${{ env.STAGE }}
+          worker-name: x-lookup
+          deployment-sha: ${{ github.sha }}

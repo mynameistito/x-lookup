@@ -11,7 +11,6 @@
     "plan": "alchemy plan --stage prod",
     "destroy": "alchemy destroy --stage prod",
     "alchemy:check": "vitest --run __tests__/alchemy-stack.test.ts",
-    "deploy:report": "bun scripts/github/deployment-report.ts",
     "deploy:output": "bun scripts/deployment/alchemy-output.ts",
     "test": "vitest --run",
     "typecheck": "tsc --noEmit",
