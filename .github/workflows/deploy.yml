@@ -21,7 +21,7 @@ jobs:
     steps:
       - name: Run Alchemy deployment
         # v2.1.1 workflow_run preview deployment.
-        uses: mynameistito/alchemy-deploy@dd03a1f03fceabd097c929783947dd82fdcddc72 # v2.1.1
+        uses: mynameistito/alchemy-deploy@10e5294774c90fa4d3208441847bb67066304448 # v2.1.2
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
