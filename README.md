@@ -6,7 +6,7 @@ Hosted at [https://x-lookup.mynameistito.com](https://x-lookup.mynameistito.com)
 
 **Not affiliated with X Corp.**
 
-Preview lifecycle canary marker, stale race A.
+Preview lifecycle canary marker, stale race B.
 
 ## Quick start
 
