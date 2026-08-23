@@ -11,7 +11,7 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     concurrency:
-      group: alchemy-deploy-${{ github.event_name == 'workflow_run' && 'prod' || format('pr-{0}', github.event.pull_request.number) }}
+      group: alchemy-deploy-${{ github.event.workflow_run.event == 'pull_request' && format('pr-{0}', github.event.workflow_run.pull_requests[0].number) || github.event.workflow_run.event == 'push' && 'prod' || format('pr-{0}', github.event.pull_request.number) }}
       cancel-in-progress: false
     permissions:
       actions: read
@@ -20,8 +20,8 @@ jobs:
       pull-requests: write
     steps:
       - name: Run Alchemy deployment
-        # v2.1.1 workflow_run preview deployment.
-        uses: mynameistito/alchemy-deploy@10e5294774c90fa4d3208441847bb67066304448 # v2.1.2
+        # Secure preview policy canary, pinned to an immutable alchemy-deploy commit.
+        uses: mynameistito/alchemy-deploy@4314b2a769e852d2b9485f21ee28a5d7707259b6
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -31,6 +31,8 @@ jobs:
           deploy-command: bunx --no-install alchemy deploy --stage "$STAGE" --yes
           destroy-command: bunx --no-install alchemy destroy --stage "$STAGE" --yes
           production-stage: prod
+          # Canary safety: no branch can satisfy this value, so production is disabled.
+          production-branch: canary-production-disabled
           production-url: https://x-lookup.mynameistito.com
           preview-url-pattern: https://{worker}-{stage}.*.workers.dev
           use-adopt: true
