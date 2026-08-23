@@ -6,7 +6,7 @@ Hosted at [https://x-lookup.mynameistito.com](https://x-lookup.mynameistito.com)
 
 **Not affiliated with X Corp.**
 
-Preview lifecycle canary marker, parallel pass.
+Preview lifecycle canary marker, fork refusal check.
 
 ## Quick start
 
