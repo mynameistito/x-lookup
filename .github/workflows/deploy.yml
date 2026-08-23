@@ -108,7 +108,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       - name: Create GitHub deployment
         id: create-deployment
-        uses: mynameistito/.github/.github/actions/deployment-report@0dfc694
+        uses: mynameistito/.github/.github/actions/deployment-report@2ec34f2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
@@ -128,7 +128,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       - name: Complete GitHub deployment
         if: always() && steps.create-deployment.outcome == 'success'
-        uses: mynameistito/.github/.github/actions/deployment-report@0dfc694
+        uses: mynameistito/.github/.github/actions/deployment-report@2ec34f2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
@@ -143,7 +143,7 @@ jobs:
           cloudflare-account-id: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       - name: Comment deployment URL on pull request
         if: always() && needs.resolve.outputs.preview == 'true' && steps.create-deployment.outcome == 'success'
-        uses: mynameistito/.github/.github/actions/deployment-report@0dfc694
+        uses: mynameistito/.github/.github/actions/deployment-report@2ec34f2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
@@ -210,7 +210,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
       - name: Delete GitHub preview deployments
         if: steps.destroy.outcome == 'success'
-        uses: mynameistito/.github/.github/actions/deployment-report@0dfc694
+        uses: mynameistito/.github/.github/actions/deployment-report@2ec34f2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
