@@ -21,7 +21,7 @@ jobs:
     steps:
       - name: Run Alchemy deployment
         # Secure preview policy canary, pinned to an immutable alchemy-deploy commit.
-        uses: mynameistito/alchemy-deploy@617fc17ceab50a04fccd343326d9fdb97e2d241b
+         uses: mynameistito/alchemy-deploy@d6373f4b311f5bb66e7d30a561bb4222ae8aced3
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
