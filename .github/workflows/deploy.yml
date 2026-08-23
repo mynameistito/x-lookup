@@ -1,8 +1,6 @@
 name: Deploy
 
 on:
-  # CI is credential-free; this workflow receives privilege only after it
-  # reports success for the exact commit being deployed.
   workflow_run:
     workflows: [CI]
     types: [completed]
@@ -11,210 +9,29 @@ on:
   pull_request:
     types: [closed]
 
-concurrency:
-  group: deploy-${{ github.event.workflow_run.head_sha || format('pr-{0}', github.event.number) || github.ref }}
-  cancel-in-progress: false
-
 jobs:
-  resolve:
-    if: >-
-      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main') || (github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name == github.repository)
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      actions: read
-      pull-requests: read
-    outputs:
-      deploy: ${{ steps.resolve.outputs.deploy }}
-      deployment_sha: ${{ steps.resolve.outputs.deployment_sha }}
-      pr_number: ${{ steps.resolve.outputs.pr_number }}
-      stage: ${{ steps.resolve.outputs.stage }}
-      preview: ${{ steps.resolve.outputs.preview }}
-    steps:
-      - name: Resolve deployment target
-        id: resolve
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          EVENT: ${{ github.event_name }}
-          DEPLOYMENT_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.event.pull_request.head.sha }}
-          PULL_REQUEST_NUMBER: ${{ github.event.pull_request.number }}
-          REPOSITORY: ${{ github.repository }}
-        run: |
-          if [ "$EVENT" = "workflow_run" ]; then
-            {
-              echo "deploy=true"
-              echo "deployment_sha=$DEPLOYMENT_SHA"
-              echo "stage=prod"
-              echo "preview=false"
-            } >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          for attempt in {1..60}; do
-            conclusion=$(gh api \
-              "repos/$REPOSITORY/actions/workflows/ci.yml/runs?event=pull_request&head_sha=$DEPLOYMENT_SHA&status=completed&per_page=100" \
-              -H 'Accept: application/vnd.github+json' \
-              --jq '.workflow_runs | map(select(.head_sha == env.DEPLOYMENT_SHA))[0].conclusion // empty')
-            if [ "$conclusion" = "success" ]; then
-              break
-            fi
-            if [ -n "$conclusion" ]; then
-              echo "CI for $DEPLOYMENT_SHA completed with conclusion $conclusion; refusing preview deployment."
-              echo "deploy=false" >> "$GITHUB_OUTPUT"
-              exit 0
-            fi
-            if [ "$attempt" -eq 60 ]; then
-              echo "Timed out waiting for successful CI for $DEPLOYMENT_SHA; refusing preview deployment."
-              echo "deploy=false" >> "$GITHUB_OUTPUT"
-              exit 0
-            fi
-            sleep 10
-          done
-
-          {
-            echo "deploy=true"
-            echo "deployment_sha=$DEPLOYMENT_SHA"
-            echo "pr_number=$PULL_REQUEST_NUMBER"
-            echo "stage=pr-$PULL_REQUEST_NUMBER"
-            echo "preview=true"
-          } >> "$GITHUB_OUTPUT"
-
   deploy:
-    needs: resolve
-    if: >-
-      needs.resolve.outputs.deploy == 'true'
     runs-on: ubuntu-latest
+    concurrency:
+      group: alchemy-deploy-${{ github.event_name == 'workflow_run' && 'prod' || format('pr-{0}', github.event.pull_request.number) }}
+      cancel-in-progress: false
     permissions:
+      actions: read
       contents: read
       deployments: write
       pull-requests: write
-    env:
-      DEPLOYMENT_SHA: ${{ needs.resolve.outputs.deployment_sha }}
-      STAGE: ${{ needs.resolve.outputs.stage }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ needs.resolve.outputs.deployment_sha }}
-      - uses: ./.github/actions/setup-bun
-      - name: Require Cloudflare credentials
-        run: |
-          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
-            echo "::error::Set the CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID repository secrets to enable Alchemy deploys." >&2
-            exit 1
-          fi
+      - name: Run Alchemy deployment
+        uses: mynameistito/alchemy-deploy@af2720893467376a0c2ea3c615cd74763fd00002 # v2.0.0
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      - name: Create GitHub deployment
-        id: create-deployment
-        uses: mynameistito/.github/.github/actions/deployment-report@dea81867fa63f1c6bd1f58211fb565dbbc9378b7
-        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          mode: create
-          stage: ${{ env.STAGE }}
           worker-name: x-lookup
-          deployment-sha: ${{ env.DEPLOYMENT_SHA }}
-      - name: Deploy Alchemy stack
-        id: deploy
-        # --adopt preserves the pre-Alchemy production Worker identity.
-        run: |
-          set -o pipefail
-          bunx alchemy deploy --stage "$STAGE" --yes --adopt 2>&1 | tee "$RUNNER_TEMP/alchemy-deploy.log"
-          bun run deploy:output "$RUNNER_TEMP/alchemy-deploy.log"
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      - name: Complete GitHub deployment
-        if: always() && steps.create-deployment.outcome == 'success'
-        uses: mynameistito/.github/.github/actions/deployment-report@dea81867fa63f1c6bd1f58211fb565dbbc9378b7
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          mode: complete
-          stage: ${{ env.STAGE }}
-          worker-name: x-lookup
-          deployment-sha: ${{ env.DEPLOYMENT_SHA }}
-          deployment-id: ${{ steps.create-deployment.outputs.deployment-id }}
-          deployment-url: ${{ steps.deploy.outputs.url }}
-          logs-url: ${{ steps.deploy.outputs.logs_url }}
-          deploy-outcome: ${{ steps.deploy.outcome }}
-          cloudflare-account-id: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      - name: Comment deployment URL on pull request
-        if: always() && needs.resolve.outputs.preview == 'true' && steps.create-deployment.outcome == 'success'
-        uses: mynameistito/.github/.github/actions/deployment-report@dea81867fa63f1c6bd1f58211fb565dbbc9378b7
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          mode: comment
-          stage: ${{ env.STAGE }}
-          worker-name: x-lookup
-          deployment-sha: ${{ env.DEPLOYMENT_SHA }}
-          pull-request-number: ${{ needs.resolve.outputs.pr_number }}
-          deployment-url: ${{ steps.deploy.outputs.url }}
-          logs-url: ${{ steps.deploy.outputs.logs_url }}
-          deploy-outcome: ${{ steps.deploy.outcome }}
-          cloudflare-account-id: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-
-  cleanup:
-    if: >-
-      github.event_name == 'pull_request' && github.event.action == 'closed' && github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      deployments: write
-    env:
-      STAGE: ${{ format('pr-{0}', github.event.pull_request.number) }}
-    steps:
-      # Never check out the closed PR. Cleanup executes trusted base code only.
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ github.event.repository.default_branch }}
-      - uses: ./.github/actions/setup-bun
-      - name: Guard against production teardown
-        run: |
-          case "$STAGE" in
-            pr-[1-9]*|pr-[1-9][0-9]*) ;;
-            *)
-              echo "refusing to destroy a non-preview stage: $STAGE" >&2
-              exit 1
-              ;;
-          esac
-          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
-            echo "::error::Set the CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID repository secrets to enable preview cleanup." >&2
-            exit 1
-          fi
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      - name: Destroy preview stack
-        id: destroy
-        run: |
-          set -o pipefail
-          bunx alchemy destroy --stage "$STAGE" --yes 2>&1 | tee "$RUNNER_TEMP/alchemy-destroy.log"
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      # Keep records as evidence of a potentially orphaned stack when destroy
-      # fails. The Actions log retains the complete destroy output.
-      - name: Record failed cleanup diagnostics
-        if: always() && steps.destroy.outcome != 'success'
-        run: |
-          {
-            echo "## Preview cleanup failed"
-            echo ""
-            echo "Alchemy destroy did not succeed for \\`$STAGE\\`. GitHub deployment records were intentionally retained."
-            echo ""
-            echo "Review this run's logs and retry cleanup after resolving the Cloudflare/Alchemy failure."
-          } >> "$GITHUB_STEP_SUMMARY"
-      - name: Delete GitHub preview deployments
-        if: steps.destroy.outcome == 'success'
-        uses: mynameistito/.github/.github/actions/deployment-report@dea81867fa63f1c6bd1f58211fb565dbbc9378b7
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          mode: cleanup
-          stage: ${{ env.STAGE }}
-          worker-name: x-lookup
-          deployment-sha: ${{ github.sha }}
+          deploy-command: bunx --no-install alchemy deploy --stage "$STAGE" --yes
+          destroy-command: bunx --no-install alchemy destroy --stage "$STAGE" --yes
+          production-stage: prod
+          production-url: https://x-lookup.mynameistito.com
+          preview-url-pattern: https://{worker}-{stage}.*.workers.dev
+          use-adopt: true

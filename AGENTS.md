@@ -60,5 +60,5 @@ Use Bun only. The pinned package manager is Bun `1.4.0`; commands and scripts in
 - Local Alchemy uses the `default` profile unless `ALCHEMY_PROFILE` is set. In PowerShell, set `$env:ALCHEMY_PROFILE = "your-profile"`; profiles live in `~/.alchemy/profiles.json`.
 - `Cloudflare.state()` bootstraps the Alchemy state-store Worker on first deploy.
 - Production adoption preserves the existing Wrangler-era Worker named `x-lookup`; do not casually destroy or recreate it.
-- CI runs credential-free install, Ultracite, typecheck, tests, and `alchemy:check`. Deployment requires the exact SHA to have successful CI: production from `main`, isolated `pr-<number>` previews for same-repository pull requests, and no credentials or previews for forks.
+- CI runs credential-free install, Ultracite, typecheck, tests, and `alchemy:check`. The pinned `alchemy-deploy` reusable workflow owns exact-SHA gating, deployment reporting, preview URL resolution, and cleanup: production from `main`, isolated `pr-<number>` previews for same-repository pull requests, and no credentials or previews for forks.
 - Never claim a live production deployment without a real successful Actions run proving it.
