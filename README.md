@@ -6,6 +6,8 @@ Hosted at [https://x-lookup.mynameistito.com](https://x-lookup.mynameistito.com)
 
 **Not affiliated with X Corp.**
 
+Preview lifecycle canary marker.
+
 ## Quick start
 
 Replace `x.com` with `x-lookup.mynameistito.com` on any public status URL:
