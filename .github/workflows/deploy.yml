@@ -22,7 +22,7 @@ jobs:
       pull-requests: write
     steps:
       - name: Run Alchemy deployment
-        # v2.0.2 live Marketplace verification fixture.
+        # v2.0.2 fresh preview verification.
         uses: mynameistito/alchemy-deploy@53663562966edb1635e13243813d665e48bf5c1d # v2.0.2
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
