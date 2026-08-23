@@ -22,7 +22,7 @@ jobs:
       pull-requests: write
     steps:
       - name: Run Alchemy deployment
-        uses: mynameistito/alchemy-deploy@af2720893467376a0c2ea3c615cd74763fd00002 # v2.0.0
+        uses: mynameistito/alchemy-deploy@a2f80f5f87668fb894f65bf275958704ad2aa451 # v2.0.1
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
