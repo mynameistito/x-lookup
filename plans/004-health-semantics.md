@@ -5,6 +5,7 @@
 > **Drift check**: `git diff --stat fa6aeba..HEAD -- src/http/routes/static.ts src/http/payloads.ts src/mcp/server.ts src/metadata/api-catalog.ts __tests__/router.test.ts __tests__/mcp-server.test.ts`
 
 ## Status
+
 - **Priority**: P2
 - **Effort**: S/M
 - **Risk**: LOW
@@ -26,7 +27,7 @@ Both HTTP `/health` and MCP `get_health` always return `{status:"ok"}` without c
 ## Commands
 
 | Purpose | Command | Expected |
-|---|---|---|
+| --- | --- | --- |
 | Tests | `bun run test -- __tests__/router.test.ts __tests__/mcp-server.test.ts` | all pass |
 | Typecheck | `bun run typecheck` | exit 0 |
 | Check | `bun run check` | no warnings/errors |

@@ -5,6 +5,7 @@
 > **Drift check**: `git diff --stat fa6aeba..HEAD -- src/application/browse.ts src/application/conversion.ts src/http/routes/application.ts src/mcp/server.ts src/metadata/api-catalog.ts __tests__`
 
 ## Status
+
 - **Priority**: P1
 - **Effort**: M
 - **Risk**: MED
@@ -27,7 +28,7 @@ HTTP parsing, MCP Zod schemas, OpenAPI metadata, README, and generated docs desc
 ## Commands
 
 | Purpose | Command | Expected |
-|---|---|---|
+| --- | --- | --- |
 | Tests | `bun run test -- __tests__/browse-query.test.ts __tests__/convert-query.test.ts __tests__/mcp-server.test.ts __tests__/router.test.ts` | all pass |
 | Typecheck | `bun run typecheck` | exit 0 |
 | Check | `bun run check` | no warnings/errors |

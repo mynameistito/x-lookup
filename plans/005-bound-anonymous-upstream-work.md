@@ -5,6 +5,7 @@
 > **Drift check**: `git diff --stat fa6aeba..HEAD -- src/worker.ts src/http/router.ts src/application/browse.ts src/application/conversion.ts src/infrastructure src/http/payloads.ts __tests__`
 
 ## Status
+
 - **Priority**: P1
 - **Effort**: M/L
 - **Risk**: MED
@@ -27,7 +28,7 @@ The service is intentionally public and unauthenticated. Callers can bypass cach
 ## Commands
 
 | Purpose | Command | Expected |
-|---|---|---|
+| --- | --- | --- |
 | Tests | `bun run test -- __tests__/router.test.ts __tests__/browse.test.ts __tests__/converter.test.ts __tests__/cache.test.ts __tests__/mcp-server.test.ts` | all pass |
 | Typecheck | `bun run typecheck` | exit 0 |
 | Check | `bun run check` | no warnings/errors |

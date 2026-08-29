@@ -5,6 +5,7 @@
 > **Drift check**: `git diff --stat fa6aeba..HEAD -- src/mcp/server.ts __tests__/mcp-server.test.ts package.json`
 
 ## Status
+
 - **Priority**: P1
 - **Effort**: M
 - **Risk**: MED
@@ -26,7 +27,7 @@ MCP browse and conversion tools currently return JSON only as a string inside `c
 ## Commands
 
 | Purpose | Command | Expected |
-|---|---|---|
+| --- | --- | --- |
 | Install | `bun install --frozen-lockfile` | exit 0 |
 | Tests | `bun run test -- __tests__/mcp-server.test.ts` | all MCP tests pass |
 | Typecheck | `bun run typecheck` | exit 0 |

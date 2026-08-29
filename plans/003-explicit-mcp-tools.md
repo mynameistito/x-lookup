@@ -5,6 +5,7 @@
 > **Drift check**: `git diff --stat fa6aeba..HEAD -- src/mcp/server.ts src/metadata/api-catalog.ts src/metadata/docs.ts __tests__/mcp-server.test.ts`
 
 ## Status
+
 - **Priority**: P2
 - **Effort**: M
 - **Risk**: MED
@@ -26,7 +27,7 @@
 ## Commands
 
 | Purpose | Command | Expected |
-|---|---|---|
+| --- | --- | --- |
 | Tests | `bun run test -- __tests__/mcp-server.test.ts` | all pass |
 | Typecheck | `bun run typecheck` | exit 0 |
 | Check | `bun run check` | no warnings/errors |
