@@ -134,6 +134,108 @@ const oembedInputSchema = {
   url: z.string().url().describe("Status URL to embed.").optional(),
 };
 
+const authorSchema = z
+  .object({
+    avatar_url: z.string().optional(),
+    banner_url: z.string().optional(),
+    description: z.string().optional(),
+    followers: z.number().optional(),
+    following: z.number().optional(),
+    id: z.string().optional(),
+    joined: z.string().optional(),
+    likes: z.number().optional(),
+    location: z.string().optional(),
+    media_count: z.number().optional(),
+    name: z.string().optional(),
+    protected: z.boolean().optional(),
+    screen_name: z.string().optional(),
+    statuses: z.number().optional(),
+    url: z.string().optional(),
+    verification: z
+      .object({ type: z.string().optional(), verified: z.boolean().optional() })
+      .optional(),
+    website: z
+      .object({
+        display_url: z.string().optional(),
+        url: z.string().optional(),
+      })
+      .optional(),
+  })
+  .passthrough();
+
+const tweetSchema = z
+  .object({
+    article: z.record(z.string(), z.unknown()).optional(),
+    author: authorSchema.optional(),
+    bookmarks: z.number().optional(),
+    community_note: z.unknown().optional(),
+    context: z.enum(["parent", "post", "thread", "reply"]).optional(),
+    created_at: z.string().optional(),
+    created_timestamp: z.number().optional(),
+    id: z.string().optional(),
+    lang: z.string().optional(),
+    likes: z.number().optional(),
+    media: z.record(z.string(), z.unknown()).optional(),
+    poll: z.record(z.string(), z.unknown()).optional(),
+    possibly_sensitive: z.boolean().optional(),
+    quote: z.record(z.string(), z.unknown()).optional(),
+    quotes: z.number().optional(),
+    replies: z.number().optional(),
+    replying_to: z
+      .union([z.array(z.string()), z.record(z.string(), z.unknown()), z.null()])
+      .optional(),
+    replying_to_status: z.array(z.string()).nullable().optional(),
+    reposted_by: authorSchema.nullable().optional(),
+    reposts: z.number().optional(),
+    retweets: z.number().optional(),
+    source: z.string().optional(),
+    text: z.string().optional(),
+    url: z.string().optional(),
+    views: z.number().nullable().optional(),
+  })
+  .passthrough();
+
+const browseOutputSchema = z
+  .object({
+    cache: z.enum(["hit", "miss", "bypass"]),
+    feed: z.string().optional(),
+    handle: z.string().optional(),
+    limit: z.number(),
+    markdown: z.string(),
+    nextCursor: z.string().optional(),
+    page: z.number(),
+    posts: z.array(tweetSchema).optional(),
+    profile: authorSchema.optional(),
+    query: z.string().optional(),
+    resource: z.enum(["profile", "search", "followers", "following"]),
+    users: z.array(authorSchema).optional(),
+  })
+  .passthrough();
+
+const conversionOutputSchema = z.object({
+  cache: z.enum(["hit", "miss", "bypass"]),
+  compact: z.boolean(),
+  format: z.enum(["markdown", "obsidian", "json"]),
+  markdown: z.string(),
+  postCount: z.number(),
+  posts: z.array(tweetSchema),
+  source: z.string(),
+  url: z.string(),
+  warnings: z.array(z.string()),
+});
+
+const oembedOutputSchema = z.object({
+  author_name: z.string(),
+  author_url: z.string(),
+  provider_name: z.string(),
+  provider_url: z.string(),
+  title: z.string(),
+  type: z.string(),
+  version: z.string(),
+});
+
+const healthOutputSchema = z.object({ status: z.literal("ok") });
+
 type BrowseToolInput = z.infer<z.ZodObject<typeof browseInputSchema>>;
 type ConvertToolInput = z.infer<z.ZodObject<typeof convertInputSchema>>;
 type OEmbedToolInput = z.infer<z.ZodObject<typeof oembedInputSchema>>;
@@ -174,8 +276,12 @@ const internalErrorResult = () => ({
   isError: true,
 });
 
-const jsonResult = (body: string) => ({
+const jsonResult = <StructuredContent>(
+  body: string,
+  structuredContent: StructuredContent
+) => ({
   content: [{ text: body, type: "text" as const }],
+  structuredContent,
 });
 
 const causeResult = <Failure extends ToolFailure>(
@@ -201,8 +307,10 @@ const runBrowse = async (
   const exit = await Effect.runPromiseExit(service.browse(parsed.success));
   return Exit.match(exit, {
     onFailure: causeResult,
-    onSuccess: (result) =>
-      jsonResult(browseResponse(parsed.success, result, true).body),
+    onSuccess: (result) => {
+      const { body } = browseResponse(parsed.success, result, true);
+      return jsonResult(body, JSON.parse(body));
+    },
   });
 };
 
@@ -217,7 +325,10 @@ const runConvert = async (
   const exit = await Effect.runPromiseExit(service.convert(parsed.success));
   return Exit.match(exit, {
     onFailure: causeResult,
-    onSuccess: (result) => jsonResult(markdownResponse(result, true).body),
+    onSuccess: (result) => {
+      const { body } = markdownResponse(result, true);
+      return jsonResult(body, JSON.parse(body));
+    },
   });
 };
 
@@ -234,7 +345,11 @@ const browseTool = (
 ) => {
   server.registerTool(
     name,
-    { description, inputSchema },
+    {
+      description,
+      inputSchema,
+      outputSchema: browseOutputSchema,
+    },
     (input: BrowseToolInput) =>
       runBrowse(
         services.browse,
@@ -260,6 +375,7 @@ export const createMcpServer = (
       description:
         "Convert a public X/Twitter status or thread to structured JSON and Markdown.",
       inputSchema: convertInputSchema,
+      outputSchema: conversionOutputSchema,
     },
     (input) => runConvert(services.conversion, convertInput(input))
   );
@@ -310,9 +426,12 @@ export const createMcpServer = (
     {
       description: "Render an oEmbed response for an X status URL.",
       inputSchema: oembedInputSchema,
+      outputSchema: oembedOutputSchema,
     },
-    (input: OEmbedToolInput) =>
-      Promise.resolve(jsonResult(oembedResponse(input, DEFAULT_ORIGIN).body))
+    (input: OEmbedToolInput) => {
+      const { body } = oembedResponse(input, DEFAULT_ORIGIN);
+      return Promise.resolve(jsonResult(body, JSON.parse(body)));
+    }
   );
 
   server.registerTool(
@@ -320,8 +439,12 @@ export const createMcpServer = (
     {
       description: "Return the x-lookup service health status.",
       inputSchema: {},
+      outputSchema: healthOutputSchema,
     },
-    () => Promise.resolve(jsonResult(JSON.stringify({ status: "ok" })))
+    () => {
+      const body = JSON.stringify({ status: "ok" });
+      return Promise.resolve(jsonResult(body, { status: "ok" }));
+    }
   );
 
   return server;
