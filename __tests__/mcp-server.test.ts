@@ -113,6 +113,7 @@ describe("MCP boundary", () => {
     expect(listedBody).toMatch(
       /"(?:context|feed|format|full|limit|nocache|resource|thread|userinfo)"/u
     );
+    expect(listedBody).toContain('"outputSchema"');
   });
 
   test("calls health and oEmbed tools through the Worker boundary", async () => {
@@ -136,11 +137,14 @@ describe("MCP boundary", () => {
     );
 
     expect(health.status).toBe(200);
-    await expect(health.text()).resolves.toContain('{\\"status\\":\\"ok\\"}');
+    const healthBody = await health.text();
     expect(oembed.status).toBe(200);
-    await expect(oembed.text()).resolves.toContain(
-      '\\"provider_name\\":\\"x-lookup\\"'
-    );
+    const oembedBody = await oembed.text();
+    expect({ healthBody, oembedBody }).toMatchObject({
+      healthBody: expect.stringContaining('{\\"status\\":\\"ok\\"}'),
+      oembedBody: expect.stringContaining('\\"provider_name\\":\\"x-lookup\\"'),
+    });
+    expect(`${healthBody}${oembedBody}`).toContain('"structuredContent"');
   });
 
   test("rejects missing operation-specific parameters", async () => {
@@ -283,6 +287,8 @@ describe("MCP boundary", () => {
       profile.status,
       conversionResponse.status,
     ]).toStrictEqual([200, 200, 200]);
+    const searchBody = await search.text();
+    const conversionBody = await conversionResponse.text();
     expect(browseInputs).toMatchObject([
       {
         full: true,
@@ -298,6 +304,13 @@ describe("MCP boundary", () => {
       replies: "off",
       thread: { _tag: "full", limit: 10 },
     });
+    expect({ conversionBody, searchBody }).toMatchObject({
+      conversionBody: expect.stringContaining('"posts"'),
+      searchBody: expect.stringContaining('"markdown"'),
+    });
+    expect(`${searchBody}${conversionBody}`).toMatch(
+      /"structuredContent".*"cache".*"source"/u
+    );
   });
 
   test("returns typed provider failures as MCP tool errors", async () => {
@@ -334,5 +347,6 @@ describe("MCP boundary", () => {
       status: 200,
     });
     expect(body).toContain('\\"code\\":\\"search_unavailable\\"');
+    expect(body).not.toContain('"structuredContent"');
   });
 });
