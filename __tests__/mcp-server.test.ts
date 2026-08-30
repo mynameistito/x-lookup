@@ -265,7 +265,7 @@ describe("MCP boundary", () => {
       testExecutionContext
     );
     const profile = await handler(
-      handlerRequest("get_profile", { handle: "ada", nocache: true }),
+      handlerRequest("get_profile", { handle: "@ada", nocache: true }),
       {},
       testExecutionContext
     );
