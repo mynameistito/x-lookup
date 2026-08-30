@@ -12,6 +12,8 @@ import type {
 import { apiContract } from "@/domain/api-contract.ts";
 import type { ApiParameter } from "@/domain/api-contract.ts";
 import { DEFAULT_ORIGIN } from "@/http/request.ts";
+import { openApiJson } from "@/metadata/api-catalog.ts";
+import { ROOT_MARKDOWN } from "@/metadata/docs.ts";
 import {
   browseResponse,
   markdownResponse,
@@ -134,6 +136,20 @@ const convertInputSchema = {
   userinfo: stringParameter("conversion", "userinfo"),
 };
 
+const conversationInputSchema = {
+  format: stringParameter("conversion", "format"),
+  full,
+  handle: handle.optional(),
+  id: stringParameter("conversion", "id").optional(),
+  nocache,
+  url: z
+    .string()
+    .url()
+    .describe(parameter("conversion", "url").description)
+    .optional(),
+  userinfo: stringParameter("conversion", "userinfo"),
+};
+
 const oembedInputSchema = {
   author: optionalString,
   provider: optionalString,
@@ -246,6 +262,9 @@ const healthOutputSchema = z.object({ status: z.literal("ok") });
 
 type BrowseToolInput = z.infer<z.ZodObject<typeof browseInputSchema>>;
 type ConvertToolInput = z.infer<z.ZodObject<typeof convertInputSchema>>;
+type ConversationToolInput = z.infer<
+  z.ZodObject<typeof conversationInputSchema>
+>;
 type OEmbedToolInput = z.infer<z.ZodObject<typeof oembedInputSchema>>;
 interface ToolFailure {
   readonly code: string;
@@ -258,6 +277,13 @@ const browseInput = (
 ): BrowseInput => ({ ...input, resource: resource ?? input.resource });
 
 const convertInput = (input: ConvertToolInput): ConvertInput => input;
+
+const conversationInput = (input: ConversationToolInput): ConvertInput => ({
+  ...input,
+  context: "full",
+  replies: "top",
+  thread: "conversation",
+});
 
 const browseAliasInput = (
   input: BrowseToolInput,
@@ -388,6 +414,28 @@ export const createMcpServer = (
     (input) => runConvert(services.conversion, convertInput(input))
   );
 
+  server.registerTool(
+    "get_status",
+    {
+      description:
+        "Convert a public X/Twitter status. Use convert_status when you need explicit thread or conversation controls.",
+      inputSchema: convertInputSchema,
+      outputSchema: conversionOutputSchema,
+    },
+    (input) => runConvert(services.conversion, convertInput(input))
+  );
+
+  server.registerTool(
+    "get_conversation_context",
+    {
+      description:
+        "Convert a public X/Twitter status with its parent context, author thread, and top replies.",
+      inputSchema: conversationInputSchema,
+      outputSchema: conversionOutputSchema,
+    },
+    (input) => runConvert(services.conversion, conversationInput(input))
+  );
+
   browseTool(
     server,
     services,
@@ -453,6 +501,42 @@ export const createMcpServer = (
       const body = JSON.stringify({ status: "ok" });
       return Promise.resolve(jsonResult(body, { status: "ok" }));
     }
+  );
+
+  server.registerResource(
+    "human_documentation",
+    new URL("/docs", DEFAULT_ORIGIN).toString(),
+    {
+      description: "Human-readable x-lookup API documentation.",
+      mimeType: "text/markdown",
+      title: "x-lookup API documentation",
+    },
+    (uri) =>
+      Promise.resolve({
+        contents: [
+          { mimeType: "text/markdown", text: ROOT_MARKDOWN, uri: uri.href },
+        ],
+      })
+  );
+
+  server.registerResource(
+    "openapi",
+    new URL("/openapi.json", DEFAULT_ORIGIN).toString(),
+    {
+      description: "OpenAPI 3.1 description of the x-lookup HTTP API.",
+      mimeType: "application/json",
+      title: "x-lookup OpenAPI document",
+    },
+    (uri) =>
+      Promise.resolve({
+        contents: [
+          {
+            mimeType: "application/json",
+            text: openApiJson(DEFAULT_ORIGIN),
+            uri: uri.href,
+          },
+        ],
+      })
   );
 
   return server;
