@@ -199,7 +199,9 @@ describe("MCP boundary", () => {
     expect(oembed.status).toBe(200);
     const oembedBody = await oembed.text();
     expect({ healthBody, oembedBody }).toMatchObject({
-      healthBody: expect.stringContaining('{\\"status\\":\\"ok\\"}'),
+      healthBody: expect.stringContaining(
+        '{\\"check\\":\\"liveness\\",\\"status\\":\\"ok\\",\\"version\\":\\"1\\"}'
+      ),
       oembedBody: expect.stringContaining('\\"provider_name\\":\\"x-lookup\\"'),
     });
     expect(`${healthBody}${oembedBody}`).toContain('"structuredContent"');
