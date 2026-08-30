@@ -1,3 +1,6 @@
+import { apiContract } from "@/domain/api-contract.ts";
+import type { ApiParameter } from "@/domain/api-contract.ts";
+
 export interface LinkTarget {
   readonly href: string;
   readonly type?: string;
@@ -83,121 +86,42 @@ const errorResponse = {
 
 const authorRef = { $ref: "#/components/schemas/Author" };
 const postRef = { $ref: "#/components/schemas/Post" };
+type HttpDefault = string | number | boolean | undefined;
+
+const httpDefault = (parameter: ApiParameter): HttpDefault => {
+  if (parameter.default === true) {
+    return "true";
+  }
+  if (parameter.default === false) {
+    return "false";
+  }
+  return parameter.default;
+};
+
+const contractSchema = (parameter: ApiParameter): OpenApiSchema => ({
+  default: httpDefault(parameter),
+  enum: parameter.httpValues ?? parameter.values,
+  format: parameter.format,
+  maximum: parameter.maximum,
+  minLength: parameter.minLength,
+  minimum: parameter.minimum,
+  pattern: parameter.pattern,
+  type: parameter.httpType,
+});
+
+const contractParameters = (operation: keyof typeof apiContract) =>
+  apiContract[operation].map((parameter: ApiParameter) =>
+    queryParameter(
+      parameter.name,
+      contractSchema(parameter),
+      parameter.description,
+      parameter.required
+    )
+  );
+
+const browseParameters = contractParameters("browse");
+const convertParameters = contractParameters("conversion");
 const browseAliasExcluded = new Set(["resource", "handle", "q", "feed"]);
-
-const browseParameters = [
-  queryParameter(
-    "resource",
-    {
-      enum: ["profile", "search", "followers", "following"],
-      type: "string",
-    },
-    "Resource to browse. `handle` is required for profile, followers, and following; `q` is required for search.",
-    true
-  ),
-  queryParameter(
-    "handle",
-    { pattern: "^[A-Za-z0-9_]{1,15}$", type: "string" },
-    "X handle, with an optional leading `@`. Required unless resource is `search`."
-  ),
-  queryParameter(
-    "q",
-    { minLength: 1, type: "string" },
-    "Search query. Required when resource is `search`; leading and trailing whitespace is trimmed."
-  ),
-  queryParameter(
-    "feed",
-    { default: "latest", enum: ["latest", "media", "top"], type: "string" },
-    "Search result ordering. Unsupported values fall back to `latest`."
-  ),
-  queryParameter(
-    "cursor",
-    { type: "string" },
-    "Opaque continuation cursor returned as `nextCursor`."
-  ),
-  queryParameter(
-    "page",
-    { default: 1, maximum: 10, minimum: 1, type: "integer" },
-    "Page to fetch when no cursor is supplied. Values are normalized and clamped to 1-10."
-  ),
-  queryParameter(
-    "limit",
-    { default: 20, maximum: 50, minimum: 1, type: "integer" },
-    "Maximum results per response. Values are normalized and clamped to 1-50."
-  ),
-  queryParameter(
-    "full",
-    { default: "false", enum: ["1", "true"], type: "string" },
-    "Set to `1` or `true` to include richer post metrics and user details."
-  ),
-  queryParameter(
-    "format",
-    { default: "markdown", enum: ["markdown", "json"], type: "string" },
-    "Response format. `Accept: application/json` also selects JSON."
-  ),
-  queryParameter(
-    "nocache",
-    { default: "false", enum: ["1", "true"], type: "string" },
-    "Set to `1` or `true` to bypass the cache."
-  ),
-];
-
-const convertParameters = [
-  queryParameter(
-    "url",
-    { format: "uri", type: "string" },
-    "X status URL. Use this or the `handle` + `id` pair, but not neither."
-  ),
-  queryParameter(
-    "handle",
-    { type: "string" },
-    "Status author handle, used with `id` when `url` is absent."
-  ),
-  queryParameter(
-    "id",
-    { pattern: "^\\d+$", type: "string" },
-    "Numeric status ID, used with `handle` when `url` is absent."
-  ),
-  queryParameter(
-    "format",
-    {
-      default: "markdown",
-      enum: ["markdown", "obsidian", "json"],
-      type: "string",
-    },
-    "Response format. JSON includes structured posts and rendered Markdown."
-  ),
-  queryParameter(
-    "thread",
-    { default: "full", type: "string" },
-    "Thread selection: `off`, `full`, `conversation`, or a numeric limit from 2 to 100."
-  ),
-  queryParameter(
-    "context",
-    { default: "full", enum: ["full", "thread"], type: "string" },
-    "Conversation context to include."
-  ),
-  queryParameter(
-    "replies",
-    { default: "top", enum: ["top", "recent", "off"], type: "string" },
-    "Replies to include around the focal post."
-  ),
-  queryParameter(
-    "userinfo",
-    { default: "off", enum: ["off", "author", "all"], type: "string" },
-    "Author information included in rendered output."
-  ),
-  queryParameter(
-    "full",
-    { default: "false", enum: ["1", "true", "yes"], type: "string" },
-    "Set to `1`, `true`, or `yes` to expand rendered metadata."
-  ),
-  queryParameter(
-    "nocache",
-    { default: "false", enum: ["1", "true", "yes"], type: "string" },
-    "Set to `1`, `true`, or `yes` to bypass the cache."
-  ),
-];
 
 const browseAliasParameters = () =>
   browseParameters.filter(

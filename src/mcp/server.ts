@@ -9,6 +9,8 @@ import type {
   ConvertInput,
   ConversionService,
 } from "@/application/conversion.ts";
+import { apiContract } from "@/domain/api-contract.ts";
+import type { ApiParameter } from "@/domain/api-contract.ts";
 import { DEFAULT_ORIGIN } from "@/http/request.ts";
 import {
   browseResponse,
@@ -22,44 +24,70 @@ export interface McpApplicationServices {
 }
 
 const optionalString = z.string().optional();
-const handle = z
+const parameter = (
+  operation: keyof typeof apiContract,
+  name: string
+): ApiParameter => {
+  const found = apiContract[operation].find((item) => item.name === name);
+  if (!found) {
+    throw new Error(`Missing API contract parameter: ${operation}.${name}`);
+  }
+  return found;
+};
+
+const stringParameter = (operation: keyof typeof apiContract, name: string) => {
+  const item = parameter(operation, name);
+  if (item.values && name !== "thread") {
+    const schema = z.enum(item.values);
+    if (item.default === undefined) {
+      return schema.describe(item.description);
+    }
+    return schema.default(String(item.default)).describe(item.description);
+  }
+  let schema = z.string();
+  if (item.pattern) {
+    schema = schema.regex(new RegExp(item.pattern, "u"));
+  }
+  if (item.minLength) {
+    schema = schema.min(item.minLength);
+  }
+  if (item.default === undefined) {
+    return schema.describe(item.description);
+  }
+  return schema.default(String(item.default)).describe(item.description);
+};
+
+const booleanParameter = (operation: keyof typeof apiContract, name: string) =>
+  z
+    .boolean()
+    .default(parameter(operation, name).default === true)
+    .describe(parameter(operation, name).description);
+
+const handle = stringParameter("profile", "handle");
+const cursor = stringParameter("profile", "cursor").optional();
+const searchQuery = z
   .string()
-  .regex(/^[A-Za-z0-9_]{1,15}$/u)
-  .describe("X handle, without the @ prefix.");
-const cursor = z
-  .string()
-  .describe("Opaque continuation cursor returned by a previous response.")
-  .optional();
+  .min(parameter("search", "q").minLength ?? 1)
+  .describe(parameter("search", "q").description)
+  .trim();
 const page = z
   .number()
   .int()
-  .min(1)
-  .max(10)
-  .default(1)
-  .describe("Page to fetch when no cursor is supplied.");
+  .min(parameter("profile", "page").minimum ?? 1)
+  .max(parameter("profile", "page").maximum ?? 10)
+  .default(Number(parameter("profile", "page").default))
+  .describe(parameter("profile", "page").description);
 const limit = z
   .number()
   .int()
-  .min(1)
-  .max(50)
-  .default(20)
-  .describe("Maximum number of results to return.");
-const full = z
-  .boolean()
-  .default(false)
-  .describe("Include richer post metrics and user details.");
-const nocache = z
-  .boolean()
-  .default(false)
-  .describe("Bypass the application cache.");
-const browseFormat = z
-  .enum(["markdown", "json"])
-  .default("markdown")
-  .describe("Response representation.");
-const feed = z
-  .enum(["latest", "media", "top"])
-  .default("latest")
-  .describe("Search result ordering.");
+  .min(parameter("profile", "limit").minimum ?? 1)
+  .max(parameter("profile", "limit").maximum ?? 50)
+  .default(Number(parameter("profile", "limit").default))
+  .describe(parameter("profile", "limit").description);
+const full = booleanParameter("profile", "full");
+const nocache = booleanParameter("profile", "nocache");
+const browseFormat = stringParameter("profile", "format");
+const feed = stringParameter("search", "feed");
 
 const browseCommonInputSchema = {
   cursor,
@@ -75,19 +103,13 @@ const browseInputSchema = {
   feed,
   handle: handle.optional(),
   q: optionalString,
-  resource: z
-    .enum(["profile", "search", "followers", "following"])
-    .describe("Browse resource to query."),
+  resource: stringParameter("browse", "resource"),
 };
 
 const searchInputSchema = {
   ...browseCommonInputSchema,
   feed,
-  q: z
-    .string()
-    .min(1)
-    .describe("Search query, including X operators such as from: or since:.")
-    .trim(),
+  q: searchQuery,
 };
 
 const profileInputSchema = {
@@ -96,34 +118,20 @@ const profileInputSchema = {
 };
 
 const convertInputSchema = {
-  context: z
-    .enum(["full", "thread"])
-    .default("full")
-    .describe("Conversation context to include."),
-  format: z
-    .enum(["markdown", "obsidian", "json"])
-    .default("markdown")
-    .describe("Response representation."),
+  context: stringParameter("conversion", "context"),
+  format: stringParameter("conversion", "format"),
   full,
   handle: handle.optional(),
-  id: z.string().regex(/^\d+$/u).describe("Numeric X status ID.").optional(),
+  id: stringParameter("conversion", "id").optional(),
   nocache,
-  replies: z
-    .enum(["top", "recent", "off"])
-    .default("top")
-    .describe("Replies to include around the focal post."),
-  thread: z
-    .union([
-      z.enum(["off", "full", "conversation"]),
-      z.string().regex(/^(?:[2-9]|[1-9]\d|100)$/u),
-    ])
-    .default("full")
-    .describe("Thread selection: off, full, conversation, or 2-100."),
-  url: z.string().url().describe("Public X or Twitter status URL.").optional(),
-  userinfo: z
-    .enum(["off", "author", "all"])
-    .default("off")
-    .describe("Author information to include."),
+  replies: stringParameter("conversion", "replies"),
+  thread: stringParameter("conversion", "thread"),
+  url: z
+    .string()
+    .url()
+    .describe(parameter("conversion", "url").description)
+    .optional(),
+  userinfo: stringParameter("conversion", "userinfo"),
 };
 
 const oembedInputSchema = {
