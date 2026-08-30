@@ -68,11 +68,18 @@ export const serverResponse = (
     : HttpServerResponse.text(payload.body, options);
 };
 
-export const failurePayload = (failure: BoundaryFailure): HttpPayload =>
-  jsonErrorPayload(failure.status, {
+export const failurePayload = (failure: BoundaryFailure): HttpPayload => {
+  const payload = jsonErrorPayload(failure.status, {
     code: failure.code,
     error: failure.message,
   });
+  return failure.code === "upstream_work_limit"
+    ? {
+        ...payload,
+        headers: { ...payload.headers, "X-Upstream-Budget": "refused" },
+      }
+    : payload;
+};
 
 const textPayload = (body: string, contentType: string): HttpPayload => ({
   body,

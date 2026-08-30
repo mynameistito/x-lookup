@@ -33,6 +33,8 @@ import type {
 } from "@/domain/thread-selection.ts";
 import { Cache, buildCacheKey } from "@/infrastructure/cache/service.ts";
 import type { CacheStatus } from "@/infrastructure/cache/service.ts";
+import { enforceUpstreamCallBudget } from "@/infrastructure/upstream-work-budget.ts";
+import type { UpstreamWorkLimitError } from "@/infrastructure/upstream-work-budget.ts";
 import type { FxTweet } from "@/providers/fxtwitter/types.ts";
 
 /** Raw, untrusted convert query values exactly as they arrive from HTTP. */
@@ -73,7 +75,10 @@ export type ConvertParseError =
   | ResolveError;
 
 /** A convert failure: a parse refusal or a typed post/provider failure. */
-export type ConvertFailure = ConvertParseError | PostLookupFailure;
+export type ConvertFailure =
+  | ConvertParseError
+  | PostLookupFailure
+  | UpstreamWorkLimitError;
 
 export interface ConvertSuccess {
   warnings: string[];
@@ -90,7 +95,10 @@ export interface ConvertSuccess {
 export interface ConversionService {
   readonly convert: (
     request: ConvertRequest
-  ) => Effect.Effect<ConvertSuccess, PostLookupFailure>;
+  ) => Effect.Effect<
+    ConvertSuccess,
+    PostLookupFailure | UpstreamWorkLimitError
+  >;
 }
 
 /** Owns parsed conversion policy, post lookup, caching, truncation, and metadata. */
@@ -188,6 +196,13 @@ const makeConversion = Effect.gen(function* makeConversionService() {
   const convertUncached = Effect.fn("Conversion.loadUncached")(
     function* convertUncachedEffect(request: ConvertRequest) {
       const warnings: string[] = [];
+      const budgetError = enforceUpstreamCallBudget(
+        "convert",
+        request.thread._tag === "off" || request.replies === "off" ? 2 : 3
+      );
+      if (budgetError) {
+        return yield* Effect.fail(budgetError);
+      }
       const { compact, context, format, replies, target, thread, userinfo } =
         request;
       const { canonicalUrl, handle, id } = target;
@@ -264,8 +279,11 @@ export const layerConversionWithoutDependencies = Layer.effect(
 /** Invoke conversion orchestration with an already-parsed boundary value. */
 export const convertRequestEffect = (
   request: ConvertRequest
-): Effect.Effect<ConvertSuccess, PostLookupFailure, Conversion> =>
-  Conversion.use((service) => service.convert(request));
+): Effect.Effect<
+  ConvertSuccess,
+  PostLookupFailure | UpstreamWorkLimitError,
+  Conversion
+> => Conversion.use((service) => service.convert(request));
 
 /** Raw-input compatibility helper for non-HTTP callers and focused parser tests. */
 export const convertTweetEffect = (

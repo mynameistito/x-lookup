@@ -7,6 +7,7 @@ import type {
   ConversionService,
   ConvertRequest,
 } from "@/application/conversion.ts";
+import { UpstreamWorkLimitError } from "@/infrastructure/upstream-work-budget.ts";
 import { createMcpServer } from "@/mcp/server.ts";
 import { FxTwitterSearchUnavailableError } from "@/providers/errors/fxtwitter-search.ts";
 import WorkerEntrypoint from "@/worker.ts";
@@ -408,5 +409,38 @@ describe("MCP boundary", () => {
     });
     expect(body).toContain('\\"code\\":\\"search_unavailable\\"');
     expect(body).not.toContain('"structuredContent"');
+  });
+
+  test("returns upstream work refusal as a stable MCP tool error", async () => {
+    const browse: BrowseService = {
+      browse: () =>
+        Effect.fail(
+          new UpstreamWorkLimitError({
+            limit: 3,
+            operation: "browse",
+            requested: 4,
+          })
+        ),
+    };
+    const conversion: ConversionService = {
+      convert: () =>
+        Effect.fail(
+          new UpstreamWorkLimitError({
+            limit: 3,
+            operation: "convert",
+            requested: 4,
+          })
+        ),
+    };
+    const handler = makeHandler(browse, conversion);
+    const response = await handler(
+      handlerRequest("search_posts", { q: "from:ada" }),
+      {},
+      testExecutionContext
+    );
+
+    await expect(response.text()).resolves.toContain(
+      '\\"code\\":\\"upstream_work_limit\\"'
+    );
   });
 });

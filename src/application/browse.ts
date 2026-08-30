@@ -23,6 +23,12 @@ import { parse as parseXHandle } from "@/domain/x-handle.ts";
 import type { InvalidXHandle, XHandle } from "@/domain/x-handle.ts";
 import { Cache, buildCacheKey } from "@/infrastructure/cache/service.ts";
 import type { CacheStatus } from "@/infrastructure/cache/service.ts";
+import {
+  MAX_BROWSE_PAGE_WALK,
+  UpstreamWorkLimitError,
+  browseUpstreamCalls,
+  enforceUpstreamCallBudget,
+} from "@/infrastructure/upstream-work-budget.ts";
 import { FxTwitter } from "@/providers/contracts.ts";
 import type { FxTwitterFailure } from "@/providers/errors.ts";
 import type {
@@ -87,7 +93,10 @@ export type BrowseParseError =
   | MissingSearchQuery;
 
 /** A browse failure: a parse refusal or an FxTwitter provider failure. */
-export type BrowseFailure = BrowseParseError | FxTwitterFailure;
+export type BrowseFailure =
+  | BrowseParseError
+  | FxTwitterFailure
+  | UpstreamWorkLimitError;
 
 export interface BrowseResult {
   resource: BrowseResource;
@@ -106,7 +115,7 @@ export interface BrowseResult {
 export interface BrowseService {
   readonly browse: (
     request: BrowseRequest
-  ) => Effect.Effect<BrowseResult, FxTwitterFailure>;
+  ) => Effect.Effect<BrowseResult, FxTwitterFailure | UpstreamWorkLimitError>;
 }
 
 /** Owns profile/search/social-graph page walking and cache orchestration. */
@@ -198,6 +207,26 @@ const makeBrowse = Effect.gen(function* makeBrowseService() {
   const browseUncached = Effect.fn("Browse.loadUncached")(
     function* browseUncachedEffect(request: BrowseRequest) {
       const { selection } = request;
+      const budgetError = enforceUpstreamCallBudget(
+        "browse",
+        browseUpstreamCalls(
+          request.page,
+          request.cursor !== undefined,
+          selection._tag === "profile"
+        )
+      );
+      if (budgetError) {
+        return yield* Effect.fail(budgetError);
+      }
+      if (!request.cursor && request.page > MAX_BROWSE_PAGE_WALK) {
+        return yield* Effect.fail(
+          new UpstreamWorkLimitError({
+            limit: MAX_BROWSE_PAGE_WALK,
+            operation: "browse",
+            requested: request.page,
+          })
+        );
+      }
       if (selection._tag === "search") {
         const list = yield* walkPages(request.page, request.cursor, (cursor) =>
           fxTwitter.searchStatuses(
@@ -298,8 +327,11 @@ export const layerBrowseWithoutDependencies = Layer.effect(Browse, makeBrowse);
 /** Invoke browse orchestration with an already-parsed boundary value. */
 export const browseRequestEffect = (
   request: BrowseRequest
-): Effect.Effect<BrowseResult, FxTwitterFailure, Browse> =>
-  Browse.use((service) => service.browse(request));
+): Effect.Effect<
+  BrowseResult,
+  FxTwitterFailure | UpstreamWorkLimitError,
+  Browse
+> => Browse.use((service) => service.browse(request));
 
 /** Raw-input compatibility helper for non-HTTP callers and focused parser tests. */
 export const browseEffect = (
