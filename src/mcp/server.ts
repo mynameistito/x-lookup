@@ -12,7 +12,7 @@ import type {
 import { apiContract } from "@/domain/api-contract.ts";
 import type { ApiParameter } from "@/domain/api-contract.ts";
 import { DEFAULT_ORIGIN } from "@/http/request.ts";
-import { openApiJson } from "@/metadata/api-catalog.ts";
+import { healthJson, openApiJson } from "@/metadata/api-catalog.ts";
 import { ROOT_MARKDOWN } from "@/metadata/docs.ts";
 import {
   browseResponse,
@@ -493,13 +493,14 @@ export const createMcpServer = (
   server.registerTool(
     "get_health",
     {
-      description: "Return the x-lookup service health status.",
+      description:
+        "Return static x-lookup liveness status. This does not verify upstream providers or cache availability.",
       inputSchema: {},
       outputSchema: healthOutputSchema,
     },
     () => {
-      const body = JSON.stringify({ status: "ok" });
-      return Promise.resolve(jsonResult(body, { status: "ok" }));
+      const body = healthJson();
+      return Promise.resolve(jsonResult(body, JSON.parse(body)));
     }
   );
 

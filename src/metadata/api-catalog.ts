@@ -252,8 +252,14 @@ export const openApiDocument = (origin: string) => ({
         type: "object",
       },
       HealthResponse: {
-        properties: { status: { const: "ok", type: "string" } },
-        required: ["status"],
+        description:
+          "Static liveness response. It does not verify upstream providers or cache availability.",
+        properties: {
+          check: { const: "liveness", type: "string" },
+          status: { const: "ok", type: "string" },
+          version: { const: "1", type: "string" },
+        },
+        required: ["check", "status", "version"],
         type: "object",
       },
       Post: {
@@ -293,7 +299,8 @@ export const openApiDocument = (origin: string) => ({
     "/api/convert": { get: convertOperation(convertParameters) },
     "/health": {
       get: {
-        description: "Return the service health status.",
+        description:
+          "Return static liveness status. This does not verify upstream providers or cache availability.",
         operationId: "getHealth",
         responses: {
           "200": {
@@ -404,4 +411,5 @@ export const openApiDocument = (origin: string) => ({
 export const openApiJson = (origin: string): string =>
   JSON.stringify(openApiDocument(origin));
 
-export const healthJson = (): string => JSON.stringify({ status: "ok" });
+export const healthJson = (): string =>
+  JSON.stringify({ check: "liveness", status: "ok", version: "1" });

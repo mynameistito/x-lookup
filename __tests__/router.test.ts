@@ -339,6 +339,9 @@ describe("Effect HTTP boundary", () => {
         "/api/convert"
       ].get.parameters.map((parameter: { name: string }) => parameter.name),
       errorRequired: openApiDocument.components.schemas.Error.required,
+      healthDescription: openApiDocument.paths["/health"].get.description,
+      healthRequired:
+        openApiDocument.components.schemas.HealthResponse.required,
       infoTitle: openApiDocument.info.title,
       infoVersion: openApiDocument.info.version,
       openapi: openApiDocument.openapi,
@@ -369,6 +372,9 @@ describe("Effect HTTP boundary", () => {
         "nocache",
       ],
       errorRequired: ["error", "code"],
+      healthDescription:
+        "Return static liveness status. This does not verify upstream providers or cache availability.",
+      healthRequired: ["check", "status", "version"],
       infoTitle: "x-lookup API",
       infoVersion: "1.0.0",
       openapi: "3.1.0",
@@ -384,7 +390,11 @@ describe("Effect HTTP boundary", () => {
         "/{handle}/status/{id}",
       ],
     });
-    await expect(health.json()).resolves.toStrictEqual({ status: "ok" });
+    await expect(health.json()).resolves.toStrictEqual({
+      check: "liveness",
+      status: "ok",
+      version: "1",
+    });
   });
 
   test("publishes an ARD capability manifest", async () => {
