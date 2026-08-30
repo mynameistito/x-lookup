@@ -3,24 +3,9 @@ import { describe, expect, test } from "vitest";
 import { apiContract } from "@/domain/api-contract.ts";
 import { openApiDocument } from "@/metadata/api-catalog.ts";
 
-// SAFETY: The document projection is checked against this narrow read-only test shape.
-const document = openApiDocument("https://example.com") as {
-  paths: Record<string, { get: { parameters: readonly OpenApiParameter[] } }>;
-};
+const document = openApiDocument("https://example.com");
 
-interface OpenApiParameter {
-  readonly description: string;
-  readonly name: string;
-  readonly schema: {
-    readonly default?: string | number | boolean;
-    readonly enum?: readonly string[];
-    readonly maximum?: number;
-    readonly minimum?: number;
-    readonly type?: string;
-  };
-}
-
-const parametersAt = (path: string): readonly OpenApiParameter[] =>
+const parametersAt = (path: string) =>
   document.paths[path]?.get.parameters ?? [];
 
 const httpDefault = (parameter: {

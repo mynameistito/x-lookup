@@ -1,10 +1,8 @@
-// oxlint-disable-next-line sonarjs/no-wildcard-import -- SAFETY: namespace import is the documented Alchemy stack style; the CLI contract lives on the module namespace.
-import * as Alchemy from "alchemy";
-// oxlint-disable-next-line sonarjs/no-wildcard-import -- SAFETY: namespace import keeps Cloudflare providers and state addressable under one name.
-import * as Cloudflare from "alchemy/Cloudflare";
+import { Stack } from "alchemy";
+import { providers, state, Worker } from "alchemy/Cloudflare";
+import type { InferEnv } from "alchemy/Cloudflare";
 import { Stage } from "alchemy/Stage";
-// oxlint-disable-next-line sonarjs/no-wildcard-import -- SAFETY: namespace import matches Effect's recommended style and keeps the stack readable as Effect.gen.
-import * as Effect from "effect/Effect";
+import { gen } from "effect/Effect";
 
 interface WorkerEnvBindings {
   readonly CACHE_TTL_SECONDS: string;
@@ -43,7 +41,7 @@ export const resolveWorkerIdentity = (stage: string): WorkerIdentity =>
 export const makeXLookupWorker = (stage: string) => {
   const identity = resolveWorkerIdentity(stage);
 
-  return Cloudflare.Worker("x-lookup", {
+  return Worker("x-lookup", {
     compatibility: { date: "2026-07-04" },
     dev: { host: "127.0.0.1" },
     domain: identity.domain,
@@ -56,7 +54,7 @@ export const makeXLookupWorker = (stage: string) => {
 };
 
 /** Runtime environment inferred from the Worker's declared variables. */
-export type XLookupEnv = Cloudflare.InferEnv<typeof WORKER_ENV>;
+export type XLookupEnv = InferEnv<typeof WORKER_ENV>;
 
 /**
  * The stack's build program: resolves the current stage so the Worker
@@ -64,7 +62,7 @@ export type XLookupEnv = Cloudflare.InferEnv<typeof WORKER_ENV>;
  * resource, and returns its public URL. Tests execute this against Alchemy's
  * in-memory state, so stack validation remains credential-free.
  */
-export const buildXLookupStack = Effect.gen(function* buildXLookupStack() {
+export const buildXLookupStack = gen(function* buildXLookupStack() {
   const stage = yield* Stage;
   const worker = yield* makeXLookupWorker(stage);
 
@@ -74,11 +72,11 @@ export const buildXLookupStack = Effect.gen(function* buildXLookupStack() {
 });
 
 /** The x-lookup Alchemy stack consumed by the CLI. */
-export default Alchemy.Stack(
+export default Stack(
   "x-lookup",
   {
-    providers: Cloudflare.providers(),
-    state: Cloudflare.state(),
+    providers: providers(),
+    state: state(),
   },
   buildXLookupStack
 );

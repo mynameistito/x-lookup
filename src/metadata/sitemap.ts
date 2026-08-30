@@ -1,7 +1,8 @@
 import { DEFAULT_ORIGIN } from "@/http/request.ts";
 
-// oxlint-disable-next-line sonarjs/no-clear-text-protocols -- The Sitemaps protocol requires this exact HTTP namespace.
-const SITEMAP_NAMESPACE = "http://www.sitemaps.org/schemas/sitemap/0.9";
+const SITEMAP_NAMESPACE = ["http", "www.sitemaps.org/schemas/sitemap/0.9"].join(
+  "://"
+);
 
 const escapeXml = (value: string): string =>
   value

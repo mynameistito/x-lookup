@@ -1,15 +1,10 @@
-// oxlint-disable-next-line sonarjs/no-wildcard-import -- SAFETY: namespace import is the documented Alchemy stack style; inMemoryState lives on the module namespace.
-import * as Alchemy from "alchemy";
-// oxlint-disable-next-line sonarjs/no-wildcard-import -- SAFETY: namespace import matches the stack under test; providers() lives on the Cloudflare namespace.
-import * as Cloudflare from "alchemy/Cloudflare";
+import { inMemoryState } from "alchemy";
+import { providers } from "alchemy/Cloudflare";
 import { Stack } from "alchemy/Stack";
 import { Stage } from "alchemy/Stage";
-// oxlint-disable-next-line sonarjs/no-wildcard-import -- SAFETY: namespace import keeps the test-harness runtime addressable under one name.
-import * as Core from "alchemy/Test/Core";
-// oxlint-disable-next-line sonarjs/no-wildcard-import -- SAFETY: namespace import matches Effect's recommended style.
-import * as Effect from "effect/Effect";
-// oxlint-disable-next-line sonarjs/no-wildcard-import -- SAFETY: namespace import matches Effect's recommended style.
-import * as Layer from "effect/Layer";
+import { run } from "alchemy/Test/Core";
+import { isEffect, provide } from "effect/Effect";
+import { provideMerge, succeed } from "effect/Layer";
 import { describe, expect, expectTypeOf, test } from "vitest";
 
 import XLookupStack, {
@@ -22,12 +17,12 @@ import WorkerEntrypoint from "@/worker.ts";
 
 describe("alchemy stack", () => {
   test("exports a well-formed stack program", () => {
-    expect(Effect.isEffect(XLookupStack)).toBeTruthy();
+    expect(isEffect(XLookupStack)).toBeTruthy();
   });
 
   test("declares the x-lookup worker resource per stage", () => {
-    expect(Effect.isEffect(makeXLookupWorker("prod"))).toBeTruthy();
-    expect(Effect.isEffect(makeXLookupWorker("pr-7"))).toBeTruthy();
+    expect(isEffect(makeXLookupWorker("prod"))).toBeTruthy();
+    expect(isEffect(makeXLookupWorker("pr-7"))).toBeTruthy();
   });
 
   test("exports the runtime fetch handler", () => {
@@ -53,20 +48,16 @@ describe("alchemy stack", () => {
       stage: "test",
     };
     const options = {
-      providers: Cloudflare.providers(),
+      providers: providers(),
       stage: "test",
-      state: Alchemy.inMemoryState(),
+      state: inMemoryState(),
     };
     const program = buildXLookupStack.pipe(
-      Effect.provide(
-        options.providers.pipe(
-          Layer.provideMerge(Layer.succeed(Stack, stackSpec))
-        )
-      ),
-      Effect.provide(Layer.succeed(Stage, "test"))
+      provide(options.providers.pipe(provideMerge(succeed(Stack, stackSpec)))),
+      provide(succeed(Stage, "test"))
     );
 
-    const output = await Core.run(program, options);
+    const output = await run(program, options);
 
     expect(Object.keys(stackSpec.resources)).toStrictEqual(["x-lookup"]);
     expect(Object.keys(output)).toStrictEqual(["url"]);
