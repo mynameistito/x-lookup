@@ -29,6 +29,21 @@ const listToolsRequest = {
   params: {},
 };
 
+const listResourcesRequest = {
+  id: 3,
+  jsonrpc: "2.0",
+  method: "resources/list",
+  params: {},
+};
+
+const readResourceRequest = (id: number, uri: string): string =>
+  JSON.stringify({
+    id,
+    jsonrpc: "2.0",
+    method: "resources/read",
+    params: { uri },
+  });
+
 const toolCallRequest = (
   id: number,
   name: string,
@@ -108,12 +123,55 @@ describe("MCP boundary", () => {
     }).toStrictEqual({ initialized: 200, listed: 200 });
     expect(initializedBody).toContain('"name":"x-lookup"');
     expect(listedBody).toMatch(
-      /"name":"(?:browse_x|convert_status|get_health|get_oembed|get_profile|list_followers|list_following|search_posts)"/u
+      /"name":"(?:browse_x|convert_status|get_conversation_context|get_health|get_oembed|get_profile|get_status|list_followers|list_following|search_posts)"/u
     );
     expect(listedBody).toMatch(
       /"(?:context|feed|format|full|limit|nocache|resource|thread|userinfo)"/u
     );
     expect(listedBody).toContain('"outputSchema"');
+  });
+
+  test("reads documentation resources without a session", async () => {
+    const env = { CACHE_TTL_SECONDS: "3600" };
+    const resources = await WorkerEntrypoint.fetch(
+      mcpRequest(JSON.stringify(listResourcesRequest)),
+      env,
+      // SAFETY: The MCP handler does not use execution-context methods in this protocol test.
+      {} as ExecutionContext
+    );
+    const docs = await WorkerEntrypoint.fetch(
+      mcpRequest(
+        readResourceRequest(7, "https://x-lookup.mynameistito.com/docs")
+      ),
+      env,
+      // SAFETY: The MCP handler does not use execution-context methods in this protocol test.
+      {} as ExecutionContext
+    );
+    const resourcesBody = await resources.text();
+    const openapi = await WorkerEntrypoint.fetch(
+      mcpRequest(
+        readResourceRequest(8, "https://x-lookup.mynameistito.com/openapi.json")
+      ),
+      env,
+      // SAFETY: The MCP handler does not use execution-context methods in this protocol test.
+      {} as ExecutionContext
+    );
+
+    expect({
+      docs: docs.status,
+      openapi: openapi.status,
+      resources: resources.status,
+      resourcesBody,
+    }).toMatchObject({
+      docs: 200,
+      openapi: 200,
+      resources: 200,
+      resourcesBody: expect.stringMatching(
+        /human_documentation.*openapi|openapi.*human_documentation/u
+      ),
+    });
+    await expect(docs.text()).resolves.toContain("x-lookup");
+    await expect(openapi.text()).resolves.toContain("openapi");
   });
 
   test("calls health and oEmbed tools through the Worker boundary", async () => {

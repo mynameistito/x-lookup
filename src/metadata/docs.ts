@@ -70,10 +70,12 @@ endpoint:
 
 \`https://x-lookup.mynameistito.com/mcp\`
 
-The server exposes \`browse_x\`, \`convert_status\`, \`search_posts\`,
-\`get_profile\`, \`list_followers\`, \`list_following\`, \`get_oembed\`, and
-\`get_health\`. Browse and conversion tools return structured JSON with the
-same Markdown, posts, warnings, provider, and cache data as the HTTP API.
+The server exposes \`browse_x\`, \`convert_status\`, \`get_status\`,
+\`get_conversation_context\`, \`search_posts\`, \`get_profile\`,
+\`list_followers\`, \`list_following\`, \`get_oembed\`, and \`get_health\`.
+Browse and conversion tools return structured JSON with the same Markdown,
+posts, warnings, provider, and cache data as the HTTP API. The MCP server also
+publishes the human documentation and OpenAPI document as read-only resources.
 MCP requests are stateless and do not require authentication.
 
 ## Statuses and threads
