@@ -186,6 +186,28 @@ describe("Browse", () => {
     expect(result.nextCursor).toBe("next");
   });
 
+  test("refuses page walking beyond the anonymous budget before providers", async () => {
+    let calls = 0;
+    const result = await runBrowse(
+      { page: 4, q: "effect", resource: "search" },
+      makeFxTwitter({
+        searchStatuses: () => {
+          calls += 1;
+          return Effect.succeed(emptyList<FxTweet>());
+        },
+      })
+    );
+
+    expect(result).toMatchObject({
+      _tag: "Failure",
+      failure: {
+        code: "upstream_work_limit",
+        status: 429,
+      },
+    });
+    expect(calls).toBe(0);
+  });
+
   test.each(["followers", "following"] as const)(
     "dispatches %s with cursor handling and capped limits",
     async (relation) => {

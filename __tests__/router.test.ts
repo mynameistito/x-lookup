@@ -770,6 +770,30 @@ describe("Effect HTTP boundary", () => {
     });
     expect(calls.statuses).toStrictEqual(["777"]);
   });
+
+  test("maps upstream work refusal to 429 and exposes bounded budget metadata", async () => {
+    const { calls, services } = await makeHarness();
+    const refused = await runBoundary(
+      request("/search?q=effect&page=4"),
+      services
+    );
+    const allowed = await runBoundary(request("/search?q=effect"), services);
+
+    expect({
+      budget: refused.headers.get("X-Upstream-Budget"),
+      payload: await refused.json(),
+      status: refused.status,
+    }).toStrictEqual({
+      budget: "refused",
+      payload: {
+        code: "upstream_work_limit",
+        error: "This request would exceed the anonymous upstream work limit.",
+      },
+      status: 429,
+    });
+    expect(allowed.headers.get("X-Upstream-Budget")).toBe("bounded");
+    expect(calls.searches).toHaveLength(1);
+  });
 });
 
 describe("HTTP typed parse error mapping", () => {

@@ -58,7 +58,18 @@ const routeRequest = (
       onFailure: failurePayload,
       onSuccess: (payload) => payload,
     }),
-    Effect.map((payload) => serverResponse(payload, request.method === "HEAD"))
+    Effect.map((payload) =>
+      serverResponse(
+        {
+          ...payload,
+          headers: {
+            ...payload.headers,
+            "X-Upstream-Budget": payload.status === 429 ? "refused" : "bounded",
+          },
+        },
+        request.method === "HEAD"
+      )
+    )
   );
 };
 
