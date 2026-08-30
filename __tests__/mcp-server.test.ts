@@ -97,8 +97,7 @@ const makeHandler = (browse: BrowseService, conversion: ConversionService) =>
     responseMode: "json",
   });
 
-// SAFETY: The stateless MCP handler does not use execution-context methods in these adapter tests.
-const testExecutionContext = {} as ExecutionContext;
+const testExecutionContext = {};
 
 describe("MCP boundary", () => {
   test("initializes and lists the OpenAPI-backed tools", async () => {
@@ -106,14 +105,12 @@ describe("MCP boundary", () => {
     const initialized = await WorkerEntrypoint.fetch(
       mcpRequest(JSON.stringify(initializeRequest)),
       env,
-      // SAFETY: The MCP handler does not use execution-context methods in this protocol test.
-      {} as ExecutionContext
+      testExecutionContext
     );
     const listed = await WorkerEntrypoint.fetch(
       mcpRequest(JSON.stringify(listToolsRequest)),
       env,
-      // SAFETY: The MCP handler does not use execution-context methods in this protocol test.
-      {} as ExecutionContext
+      testExecutionContext
     );
     const initializedBody = await initialized.text();
     const listedBody = await listed.text();
@@ -137,16 +134,14 @@ describe("MCP boundary", () => {
     const resources = await WorkerEntrypoint.fetch(
       mcpRequest(JSON.stringify(listResourcesRequest)),
       env,
-      // SAFETY: The MCP handler does not use execution-context methods in this protocol test.
-      {} as ExecutionContext
+      testExecutionContext
     );
     const docs = await WorkerEntrypoint.fetch(
       mcpRequest(
         readResourceRequest(7, "https://x-lookup.mynameistito.com/docs")
       ),
       env,
-      // SAFETY: The MCP handler does not use execution-context methods in this protocol test.
-      {} as ExecutionContext
+      testExecutionContext
     );
     const resourcesBody = await resources.text();
     const openapi = await WorkerEntrypoint.fetch(
@@ -154,8 +149,7 @@ describe("MCP boundary", () => {
         readResourceRequest(8, "https://x-lookup.mynameistito.com/openapi.json")
       ),
       env,
-      // SAFETY: The MCP handler does not use execution-context methods in this protocol test.
-      {} as ExecutionContext
+      testExecutionContext
     );
 
     expect({
@@ -180,8 +174,7 @@ describe("MCP boundary", () => {
     const health = await WorkerEntrypoint.fetch(
       mcpRequest(toolCallRequest(3, "get_health", {})),
       env,
-      // SAFETY: The MCP handler does not use execution-context methods in this protocol test.
-      {} as ExecutionContext
+      testExecutionContext
     );
     const oembed = await WorkerEntrypoint.fetch(
       mcpRequest(
@@ -191,8 +184,7 @@ describe("MCP boundary", () => {
         })
       ),
       env,
-      // SAFETY: The MCP handler does not use execution-context methods in this protocol test.
-      {} as ExecutionContext
+      testExecutionContext
     );
 
     expect(health.status).toBe(200);
@@ -213,14 +205,12 @@ describe("MCP boundary", () => {
     const search = await WorkerEntrypoint.fetch(
       mcpRequest(toolCallRequest(5, "search_posts", {})),
       env,
-      // SAFETY: The MCP handler does not use execution-context methods in this protocol test.
-      {} as ExecutionContext
+      testExecutionContext
     );
     const profile = await WorkerEntrypoint.fetch(
       mcpRequest(toolCallRequest(6, "get_profile", {})),
       env,
-      // SAFETY: The MCP handler does not use execution-context methods in this protocol test.
-      {} as ExecutionContext
+      testExecutionContext
     );
 
     expect(search.status).toBe(200);
@@ -237,14 +227,12 @@ describe("MCP boundary", () => {
         "x-lookup-pr-7.preview.workers.dev"
       ),
       env,
-      // SAFETY: The MCP handler does not use execution-context methods in this protocol test.
-      {} as ExecutionContext
+      testExecutionContext
     );
     const unknown = await WorkerEntrypoint.fetch(
       mcpRequest(JSON.stringify(initializeRequest), "not-x-lookup.example.com"),
       env,
-      // SAFETY: The MCP handler does not use execution-context methods in this protocol test.
-      {} as ExecutionContext
+      testExecutionContext
     );
 
     expect(preview.status).toBe(200);
@@ -261,14 +249,12 @@ describe("MCP boundary", () => {
     const browserResponse = await WorkerEntrypoint.fetch(
       browser,
       env,
-      // SAFETY: The MCP handler does not use execution-context methods in this protocol test.
-      {} as ExecutionContext
+      testExecutionContext
     );
     const malformedResponse = await WorkerEntrypoint.fetch(
       malformed,
       env,
-      // SAFETY: The MCP handler does not use execution-context methods in this protocol test.
-      {} as ExecutionContext
+      testExecutionContext
     );
 
     expect(browserResponse.status).toBe(200);

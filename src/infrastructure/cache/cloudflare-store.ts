@@ -14,26 +14,22 @@ import type {
 } from "@/infrastructure/cache/store.ts";
 import { CacheStoreError } from "@/infrastructure/cache/store.ts";
 
+declare global {
+  interface CacheStorage {
+    readonly default: Cache;
+  }
+}
+
 const CACHE_PREFIX = "https://x-lookup.cache/__cache";
 
 export interface MinimalCache {
-  readonly match: (key: string) => Promise<Response | undefined>;
+  readonly match: (key: string) => Promise<Response | null | undefined>;
   readonly put: (key: string, response: Response) => Promise<void>;
-}
-
-interface WorkerdCrypto {
-  readonly getRandomValues: (array: Uint8Array) => Uint8Array;
-  readonly subtle: {
-    readonly digest: (
-      algorithm: EffectCrypto.DigestAlgorithm,
-      data: Uint8Array
-    ) => Promise<ArrayBuffer>;
-  };
 }
 
 const CacheEnvelopeSchema = Schema.Struct({
   expiresAt: Schema.Number,
-  value: Schema.Unknown,
+  value: Schema.Any,
 });
 
 const decodeCacheEnvelope = Schema.decodeUnknownEffect(
@@ -89,9 +85,7 @@ const readCacheEntry = <T>(
 
     return {
       expiresAt: payload.expiresAt,
-      // SAFETY: the cache authority writes and reads values under the same
-      // typed cache key; the envelope schema already validates its structure.
-      value: payload.value as T,
+      value: payload.value,
     };
   });
 
@@ -146,11 +140,7 @@ export const makeCacheApiStore = (
   );
 
 const makeWebCryptoService = (): EffectCrypto.Crypto => {
-  // SAFETY: workerd provides the Web Crypto runtime even though the project
-  // intentionally omits DOM globals from tsconfig and types it at this adapter.
-  const { crypto: webCrypto } = globalThis as typeof globalThis & {
-    readonly crypto: WorkerdCrypto;
-  };
+  const { crypto: webCrypto } = globalThis;
 
   const randomBytes = (size: number): Uint8Array => {
     const bytes = new Uint8Array(size);
@@ -187,10 +177,6 @@ export const layerWebCrypto: Layer.Layer<EffectCrypto.Crypto> = Layer.effect(
 
 /** Return workerd's default Cache API binding when the runtime provides it. */
 export const defaultCacheApi = (): MinimalCache | undefined => {
-  // SAFETY: Cloudflare exposes `caches.default` at runtime; tests may omit the
-  // binding entirely, so the adapter models that runtime property as optional.
-  const runtime = globalThis as typeof globalThis & {
-    readonly caches?: { readonly default?: MinimalCache };
-  };
+  const runtime = globalThis;
   return runtime.caches?.default;
 };

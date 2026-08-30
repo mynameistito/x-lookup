@@ -3,21 +3,22 @@ import { Clock, Effect } from "effect";
 import type { CacheEntry, CacheStore } from "@/infrastructure/cache/store.ts";
 
 const MAX_MEMORY_ENTRIES = 500;
-const sharedMemoryMap = new Map<string, CacheEntry<unknown>>();
+type CacheValue = ReturnType<typeof JSON.parse>;
+
+const sharedMemoryMap = new Map<string, CacheEntry<CacheValue>>();
 
 /** L1 store shared per isolate unless an explicit map is supplied. */
 export class MemoryStore implements CacheStore {
-  private readonly map: Map<string, CacheEntry<unknown>>;
+  private readonly map: Map<string, CacheEntry<CacheValue>>;
 
-  constructor(map?: Map<string, CacheEntry<unknown>>) {
+  constructor(map?: Map<string, CacheEntry<CacheValue>>) {
     this.map = map ?? sharedMemoryMap;
   }
 
   get<T>(key: string): Effect.Effect<CacheEntry<T> | undefined> {
     const { map } = this;
     return Effect.gen(function* memoryGet() {
-      // SAFETY: values are only inserted by set() using the same cache key.
-      const entry = map.get(key) as CacheEntry<T> | undefined;
+      const entry = map.get(key);
       if (!entry) {
         return;
       }
