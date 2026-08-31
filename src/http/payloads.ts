@@ -20,6 +20,11 @@ import {
   openApiJson,
 } from "@/metadata/api-catalog.ts";
 import { ROOT_MARKDOWN, rootHtml } from "@/metadata/docs.ts";
+import {
+  integrationsJson,
+  llmsTxt,
+  mcpServerCardJson,
+} from "@/metadata/integrations.ts";
 import { robotsTxt } from "@/metadata/robots.ts";
 import { sitemapXml } from "@/metadata/sitemap.ts";
 import { webBotAuthDirectory } from "@/metadata/web-bot-auth.ts";
@@ -147,10 +152,16 @@ export const ardPayload = (origin: string): HttpPayload => ({
 });
 
 export const openApiPayload = (origin: string): HttpPayload =>
-  textPayload(
-    openApiJson(origin),
-    "application/vnd.oai.openapi+json;version=3.1"
-  );
+  textPayload(openApiJson(origin), JSON_CONTENT_TYPE);
+
+export const integrationsPayload = (origin: string): HttpPayload =>
+  textPayload(integrationsJson(origin), JSON_CONTENT_TYPE);
+
+export const llmsTxtPayload = (origin: string): HttpPayload =>
+  textPayload(llmsTxt(origin), "text/plain; charset=utf-8");
+
+export const mcpServerCardPayload = (origin: string): HttpPayload =>
+  textPayload(mcpServerCardJson(origin), JSON_CONTENT_TYPE);
 
 export const agentSkillsIndexPayload = async (): Promise<HttpPayload> => ({
   body: await agentSkillsIndexJson(),

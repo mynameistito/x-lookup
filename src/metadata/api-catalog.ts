@@ -41,6 +41,21 @@ export const apiCatalog = (origin: string): ApiCatalog => ({
         { href: absoluteUrl(origin, "/health"), type: "application/json" },
       ],
     },
+    {
+      anchor: absoluteUrl(origin, "/mcp"),
+      "service-desc": [
+        {
+          href: absoluteUrl(origin, "/.well-known/mcp/server-card.json"),
+          type: "application/json",
+        },
+      ],
+      "service-doc": [
+        { href: absoluteUrl(origin, "/docs"), type: "text/html" },
+      ],
+      status: [
+        { href: absoluteUrl(origin, "/health"), type: "application/json" },
+      ],
+    },
   ],
 });
 
