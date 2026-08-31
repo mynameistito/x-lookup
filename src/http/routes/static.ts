@@ -8,6 +8,9 @@ import {
   apiCatalogPayload,
   ardPayload,
   healthPayload,
+  integrationsPayload,
+  llmsTxtPayload,
+  mcpServerCardPayload,
   openApiPayload,
   originOf,
   robotsPayload,
@@ -44,6 +47,14 @@ export const matchStaticRoute = (
   if (path === "/.well-known/ai-catalog.json") {
     return Effect.succeed(staticResponse(request, ardPayload(origin)));
   }
+  if (path === "/.well-known/integrations.json") {
+    return Effect.succeed(staticResponse(request, integrationsPayload(origin)));
+  }
+  if (path === "/.well-known/mcp/server-card.json") {
+    return Effect.succeed(
+      staticResponse(request, mcpServerCardPayload(origin))
+    );
+  }
   if (path === "/.well-known/agent-skills/x-lookup/SKILL.md") {
     return Effect.succeed(staticResponse(request, agentSkillsSkillPayload()));
   }
@@ -54,6 +65,9 @@ export const matchStaticRoute = (
   }
   if (path === "/openapi.json") {
     return Effect.succeed(staticResponse(request, openApiPayload(origin)));
+  }
+  if (path === "/llms.txt") {
+    return Effect.succeed(staticResponse(request, llmsTxtPayload(origin)));
   }
   if (path === "/health") {
     return Effect.succeed(staticResponse(request, healthPayload()));

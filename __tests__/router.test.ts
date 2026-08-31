@@ -293,14 +293,32 @@ describe("Effect HTTP boundary", () => {
       services
     );
     const catalog = await response.json();
-    const [entry] = catalog.linkset;
+    const [httpEntry, mcpEntry] = catalog.linkset;
 
-    expect(entry).toStrictEqual({
+    expect(httpEntry).toStrictEqual({
       anchor: "https://x-lookup.mynameistito.com/api/convert",
       "service-desc": [
         {
           href: "https://x-lookup.mynameistito.com/openapi.json",
           type: "application/vnd.oai.openapi+json;version=3.1",
+        },
+      ],
+      "service-doc": [
+        { href: "https://x-lookup.mynameistito.com/docs", type: "text/html" },
+      ],
+      status: [
+        {
+          href: "https://x-lookup.mynameistito.com/health",
+          type: "application/json",
+        },
+      ],
+    });
+    expect(mcpEntry).toStrictEqual({
+      anchor: "https://x-lookup.mynameistito.com/mcp",
+      "service-desc": [
+        {
+          href: "https://x-lookup.mynameistito.com/.well-known/mcp/server-card.json",
+          type: "application/json",
         },
       ],
       "service-doc": [
@@ -488,6 +506,99 @@ describe("Effect HTTP boundary", () => {
       skillBody: expect.stringContaining("name: x-lookup"),
       skillContentType: "text/markdown; charset=utf-8",
       status: 200,
+    });
+  });
+
+  test("publishes integration discovery metadata and agent documentation", async () => {
+    const { services } = await makeHarness();
+    const integrationsResponse = await runBoundary(
+      request("/.well-known/integrations.json"),
+      services
+    );
+    const mcpCardResponse = await runBoundary(
+      request("/.well-known/mcp/server-card.json"),
+      services
+    );
+    const llmsResponse = await runBoundary(request("/llms.txt"), services);
+    const openApiResponse = await runBoundary(
+      request("/openapi.json"),
+      services
+    );
+
+    await expect(integrationsResponse.json()).resolves.toStrictEqual({
+      summary:
+        "Read-only, no-auth access to public X/Twitter statuses, profiles, search, followers, and following for AI agents.",
+      surfaces: [
+        {
+          auth: {
+            basis: {
+              source:
+                "https://x-lookup.mynameistito.com/.well-known/integrations.json",
+              via: "declared",
+            },
+            status: "none",
+          },
+          basis: {
+            source:
+              "https://x-lookup.mynameistito.com/.well-known/integrations.json",
+            via: "declared",
+          },
+          docs: "https://x-lookup.mynameistito.com/docs",
+          name: "x-lookup HTTP API",
+          slug: "x-lookup-api",
+          spec: "https://x-lookup.mynameistito.com/openapi.json",
+          type: "http",
+          url: "https://x-lookup.mynameistito.com",
+        },
+        {
+          auth: {
+            basis: {
+              source:
+                "https://x-lookup.mynameistito.com/.well-known/integrations.json",
+              via: "declared",
+            },
+            status: "none",
+          },
+          basis: {
+            source:
+              "https://x-lookup.mynameistito.com/.well-known/integrations.json",
+            via: "declared",
+          },
+          docs: "https://x-lookup.mynameistito.com/docs",
+          name: "x-lookup MCP server",
+          slug: "x-lookup-mcp",
+          transports: ["streamable-http"],
+          type: "mcp",
+          url: "https://x-lookup.mynameistito.com/mcp",
+        },
+      ],
+      version: 3,
+    });
+    await expect(mcpCardResponse.json()).resolves.toStrictEqual({
+      url: "https://x-lookup.mynameistito.com/mcp",
+    });
+    await expect(llmsResponse.text()).resolves.toContain(
+      "https://x-lookup.mynameistito.com/openapi.json"
+    );
+    expect({
+      integrationsCacheControl:
+        integrationsResponse.headers.get("Cache-Control"),
+      integrationsContentType: integrationsResponse.headers.get("Content-Type"),
+      llmsCacheControl: llmsResponse.headers.get("Cache-Control"),
+      llmsContentType: llmsResponse.headers.get("Content-Type"),
+      mcpCardCacheControl: mcpCardResponse.headers.get("Cache-Control"),
+      mcpCardContentType: mcpCardResponse.headers.get("Content-Type"),
+      openApiCacheControl: openApiResponse.headers.get("Cache-Control"),
+      openApiContentType: openApiResponse.headers.get("Content-Type"),
+    }).toStrictEqual({
+      integrationsCacheControl: "public, max-age=3600",
+      integrationsContentType: "application/json; charset=utf-8",
+      llmsCacheControl: "public, max-age=3600",
+      llmsContentType: "text/plain; charset=utf-8",
+      mcpCardCacheControl: "public, max-age=3600",
+      mcpCardContentType: "application/json; charset=utf-8",
+      openApiCacheControl: "public, max-age=3600",
+      openApiContentType: "application/json; charset=utf-8",
     });
   });
 
