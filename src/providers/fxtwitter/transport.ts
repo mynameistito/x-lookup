@@ -1,9 +1,29 @@
-import { Schema } from "effect";
+import { Schema, SchemaGetter } from "effect";
 
-const optionalString = Schema.optional(Schema.String);
-const optionalNumber = Schema.optional(Schema.Number);
-const optionalBoolean = Schema.optional(Schema.Boolean);
-const optionalStatusId = Schema.optional(
+/**
+ * A struct field the provider may omit. FxTwitter encodes absent values by
+ * omission *and* as `null` (for example an author with no `website`, or an
+ * unverified author whose `verification.type` is `null`), so decode both to
+ * `undefined` and keep the decoded shape unchanged.
+ */
+const optionalNullish = <S extends Schema.Constraint>(schema: S) =>
+  Schema.optional(
+    Schema.NullOr(schema).pipe(
+      Schema.decodeTo(Schema.UndefinedOr(schema), {
+        decode: SchemaGetter.transform(
+          (value: S["Type"] | null): S["Type"] | undefined => value ?? undefined
+        ),
+        encode: SchemaGetter.transform(
+          (value: S["Type"] | undefined): S["Type"] | null => value ?? null
+        ),
+      })
+    )
+  );
+
+const optionalString = optionalNullish(Schema.String);
+const optionalNumber = optionalNullish(Schema.Number);
+const optionalBoolean = optionalNullish(Schema.Boolean);
+const optionalStatusId = optionalNullish(
   Schema.Union([Schema.String, Schema.Number])
 );
 
@@ -33,8 +53,8 @@ const FxAuthorTransportSchema = Schema.Struct({
   screen_name: optionalString,
   statuses: optionalNumber,
   url: optionalString,
-  verification: Schema.optional(FxVerificationTransportSchema),
-  website: Schema.optional(FxWebsiteTransportSchema),
+  verification: optionalNullish(FxVerificationTransportSchema),
+  website: optionalNullish(FxWebsiteTransportSchema),
 });
 
 const FxMediaVariantTransportSchema = Schema.Struct({
@@ -57,29 +77,29 @@ const FxMediaItemTransportSchema = Schema.Struct({
   duration: optionalNumber,
   duration_ms: optionalNumber,
   format: optionalString,
-  formats: Schema.optional(Schema.Array(FxMediaFormatTransportSchema)),
+  formats: optionalNullish(Schema.Array(FxMediaFormatTransportSchema)),
   height: optionalNumber,
   thumbnail_url: optionalString,
   type: optionalString,
   url: optionalString,
-  variants: Schema.optional(Schema.Array(FxMediaVariantTransportSchema)),
+  variants: optionalNullish(Schema.Array(FxMediaVariantTransportSchema)),
   width: optionalNumber,
 });
 
 const FxMosaicTransportSchema = Schema.Struct({
-  formats: Schema.optional(
+  formats: optionalNullish(
     Schema.Struct({ jpeg: optionalString, webp: optionalString })
   ),
-  photos: Schema.optional(Schema.Array(FxMediaItemTransportSchema)),
+  photos: optionalNullish(Schema.Array(FxMediaItemTransportSchema)),
   type: optionalString,
 });
 
 const FxMediaTransportSchema = Schema.Struct({
-  all: Schema.optional(Schema.Array(FxMediaItemTransportSchema)),
-  animated: Schema.optional(Schema.Array(FxMediaItemTransportSchema)),
-  mosaic: Schema.optional(FxMosaicTransportSchema),
-  photos: Schema.optional(Schema.Array(FxMediaItemTransportSchema)),
-  videos: Schema.optional(Schema.Array(FxMediaItemTransportSchema)),
+  all: optionalNullish(Schema.Array(FxMediaItemTransportSchema)),
+  animated: optionalNullish(Schema.Array(FxMediaItemTransportSchema)),
+  mosaic: optionalNullish(FxMosaicTransportSchema),
+  photos: optionalNullish(Schema.Array(FxMediaItemTransportSchema)),
+  videos: optionalNullish(Schema.Array(FxMediaItemTransportSchema)),
 });
 
 const FxPollChoiceTransportSchema = Schema.Struct({
@@ -89,16 +109,16 @@ const FxPollChoiceTransportSchema = Schema.Struct({
 });
 
 const FxPollTransportSchema = Schema.Struct({
-  choices: Schema.optional(Schema.Array(FxPollChoiceTransportSchema)),
+  choices: optionalNullish(Schema.Array(FxPollChoiceTransportSchema)),
   ends_at: optionalString,
   time_left_en: optionalString,
   total_votes: optionalNumber,
 });
 
 const FxArticleBlockTransportSchema = Schema.Struct({
-  data: Schema.optional(
+  data: optionalNullish(
     Schema.Struct({
-      urls: Schema.optional(
+      urls: optionalNullish(
         Schema.Array(
           Schema.Struct({
             fromIndex: Schema.Number,
@@ -109,7 +129,7 @@ const FxArticleBlockTransportSchema = Schema.Struct({
       ),
     })
   ),
-  inlineStyleRanges: Schema.optional(
+  inlineStyleRanges: optionalNullish(
     Schema.Array(
       Schema.Struct({
         length: Schema.Number,
@@ -123,14 +143,14 @@ const FxArticleBlockTransportSchema = Schema.Struct({
 });
 
 const FxArticleTransportSchema = Schema.Struct({
-  content: Schema.optional(
+  content: optionalNullish(
     Schema.Struct({
-      blocks: Schema.optional(Schema.Array(FxArticleBlockTransportSchema)),
+      blocks: optionalNullish(Schema.Array(FxArticleBlockTransportSchema)),
     })
   ),
-  cover_media: Schema.optional(
+  cover_media: optionalNullish(
     Schema.Struct({
-      media_info: Schema.optional(
+      media_info: optionalNullish(
         Schema.Struct({ original_img_url: optionalString })
       ),
     })
@@ -159,8 +179,8 @@ const FxRepostedByTransportSchema = Schema.Union([
 ]);
 
 export const FxTweetTransportSchema = Schema.Struct({
-  article: Schema.optional(FxArticleTransportSchema),
-  author: Schema.optional(FxAuthorTransportSchema),
+  article: optionalNullish(FxArticleTransportSchema),
+  author: optionalNullish(FxAuthorTransportSchema),
   bookmarks: optionalNumber,
   community_note: Schema.optional(Schema.Unknown),
   created_at: optionalString,
@@ -168,8 +188,8 @@ export const FxTweetTransportSchema = Schema.Struct({
   id: optionalStatusId,
   lang: optionalString,
   likes: optionalNumber,
-  media: Schema.optional(FxMediaTransportSchema),
-  poll: Schema.optional(FxPollTransportSchema),
+  media: optionalNullish(FxMediaTransportSchema),
+  poll: optionalNullish(FxPollTransportSchema),
   possibly_sensitive: optionalBoolean,
   quote: Schema.optional(Schema.Unknown),
   quotes: optionalNumber,
@@ -189,19 +209,19 @@ export const FxTweetTransportSchema = Schema.Struct({
 
 export const FxEnvelopeTransportSchema = Schema.Struct({
   code: optionalNumber,
-  conversation: Schema.optional(Schema.Array(Schema.Unknown)),
-  cursor: Schema.optional(
+  conversation: optionalNullish(Schema.Array(Schema.Unknown)),
+  cursor: optionalNullish(
     Schema.Struct({ bottom: optionalString, top: optionalString })
   ),
   message: optionalString,
   replies: Schema.optional(
     Schema.Union([Schema.Array(Schema.Unknown), Schema.Null])
   ),
-  results: Schema.optional(Schema.Array(Schema.Unknown)),
+  results: optionalNullish(Schema.Array(Schema.Unknown)),
   status: Schema.optional(Schema.Unknown),
-  thread: Schema.optional(Schema.Array(Schema.Unknown)),
+  thread: optionalNullish(Schema.Array(Schema.Unknown)),
   tweet: Schema.optional(Schema.Unknown),
-  tweets: Schema.optional(Schema.Array(Schema.Unknown)),
+  tweets: optionalNullish(Schema.Array(Schema.Unknown)),
   user: Schema.optional(Schema.Unknown),
 });
 

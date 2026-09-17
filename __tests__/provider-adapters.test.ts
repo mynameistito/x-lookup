@@ -339,6 +339,51 @@ describe("FxTwitter Effect adapter", () => {
       status: 502,
     });
   });
+
+  test("tolerates provider nulls for absent optional fields", async () => {
+    const client = makeClient(() =>
+      Response.json({
+        code: 200,
+        results: [
+          {
+            author: {
+              screen_name: "AJEnglish",
+              verification: { type: null, verified: false },
+            },
+            id: "1",
+            text: "unverified author",
+          },
+          {
+            author: { screen_name: "TheStudyofWar", website: null },
+            id: "2",
+            text: "author without a website",
+          },
+          {
+            author: { screen_name: "other" },
+            id: "3",
+            media: null,
+            poll: null,
+            text: "no media or poll",
+          },
+        ],
+      })
+    );
+
+    const statuses = await runWithClient(
+      fetchFxProfileStatusesEffect("AJEnglish", undefined, 12),
+      client
+    );
+
+    expect(statuses.results.map((tweet) => tweet.id)).toStrictEqual([
+      "1",
+      "2",
+      "3",
+    ]);
+    expect(statuses.results[0]?.author?.verification?.type).toBeUndefined();
+    expect(statuses.results[1]?.author?.website).toBeUndefined();
+    expect(statuses.results[2]?.media).toBeUndefined();
+    expect(statuses.results[2]?.poll).toBeUndefined();
+  });
 });
 
 describe("syndication Effect adapter", () => {
