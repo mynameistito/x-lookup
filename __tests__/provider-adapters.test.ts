@@ -384,6 +384,50 @@ describe("FxTwitter Effect adapter", () => {
     expect(statuses.results[2]?.media).toBeUndefined();
     expect(statuses.results[2]?.poll).toBeUndefined();
   });
+
+  test("tolerates provider nulls in profile and connection author payloads", async () => {
+    const client = makeClient(() =>
+      Response.json({
+        code: 200,
+        results: [
+          { screen_name: "eastdakota", website: null },
+          {
+            screen_name: "ignatz_",
+            verification: { type: null, verified: false },
+          },
+          {
+            screen_name: "Cloudflare",
+            website: {
+              display_url: "cloudflare.com",
+              url: "https://cloudflare.com",
+            },
+          },
+        ],
+        user: {
+          screen_name: "querylookup",
+          verification: { type: null, verified: false },
+          website: null,
+        },
+      })
+    );
+
+    const following = await runWithClient(
+      fetchFxConnectionsEffect("eastdakota", "following", undefined, 20),
+      client
+    );
+    const profile = await runWithClient(
+      fetchFxProfileEffect("querylookup"),
+      client
+    );
+
+    expect(following.results.map((author) => author.screen_name)).toStrictEqual(
+      ["eastdakota", "ignatz_", "Cloudflare"]
+    );
+    expect(following.results[0]?.website).toBeUndefined();
+    expect(following.results[1]?.verification?.type).toBeUndefined();
+    expect(profile.website).toBeUndefined();
+    expect(profile.verification?.type).toBeUndefined();
+  });
 });
 
 describe("syndication Effect adapter", () => {
