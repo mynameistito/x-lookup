@@ -428,6 +428,40 @@ describe("FxTwitter Effect adapter", () => {
     expect(profile.website).toBeUndefined();
     expect(profile.verification?.type).toBeUndefined();
   });
+
+  test("tolerates provider nulls in search results and cursor", async () => {
+    const client = makeClient(() =>
+      Response.json({
+        code: 200,
+        cursor: null,
+        results: [
+          {
+            author: { screen_name: "TheStudyofWar", website: null },
+            id: "s1",
+            text: "author without a website",
+          },
+          {
+            author: {
+              screen_name: "AJEnglish",
+              verification: { type: null, verified: false },
+            },
+            id: "s2",
+            text: "unverified author",
+          },
+        ],
+      })
+    );
+
+    const search = await runWithClient(
+      searchFxStatusesEffect("news", "latest", undefined, 12),
+      client
+    );
+
+    expect(search.results.map((tweet) => tweet.id)).toStrictEqual(["s1", "s2"]);
+    expect(search.results[0]?.author?.website).toBeUndefined();
+    expect(search.results[1]?.author?.verification?.type).toBeUndefined();
+    expect(search.cursor).toBeUndefined();
+  });
 });
 
 describe("syndication Effect adapter", () => {
