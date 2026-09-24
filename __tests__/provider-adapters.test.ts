@@ -339,6 +339,129 @@ describe("FxTwitter Effect adapter", () => {
       status: 502,
     });
   });
+
+  test("tolerates provider nulls for absent optional fields", async () => {
+    const client = makeClient(() =>
+      Response.json({
+        code: 200,
+        results: [
+          {
+            author: {
+              screen_name: "AJEnglish",
+              verification: { type: null, verified: false },
+            },
+            id: "1",
+            text: "unverified author",
+          },
+          {
+            author: { screen_name: "TheStudyofWar", website: null },
+            id: "2",
+            text: "author without a website",
+          },
+          {
+            author: { screen_name: "other" },
+            id: "3",
+            media: null,
+            poll: null,
+            text: "no media or poll",
+          },
+        ],
+      })
+    );
+
+    const statuses = await runWithClient(
+      fetchFxProfileStatusesEffect("AJEnglish", undefined, 12),
+      client
+    );
+
+    expect(statuses.results.map((tweet) => tweet.id)).toStrictEqual([
+      "1",
+      "2",
+      "3",
+    ]);
+    expect(statuses.results[0]?.author?.verification?.type).toBeUndefined();
+    expect(statuses.results[1]?.author?.website).toBeUndefined();
+    expect(statuses.results[2]?.media).toBeUndefined();
+    expect(statuses.results[2]?.poll).toBeUndefined();
+  });
+
+  test("tolerates provider nulls in profile and connection author payloads", async () => {
+    const client = makeClient(() =>
+      Response.json({
+        code: 200,
+        results: [
+          { screen_name: "eastdakota", website: null },
+          {
+            screen_name: "ignatz_",
+            verification: { type: null, verified: false },
+          },
+          {
+            screen_name: "Cloudflare",
+            website: {
+              display_url: "cloudflare.com",
+              url: "https://cloudflare.com",
+            },
+          },
+        ],
+        user: {
+          screen_name: "querylookup",
+          verification: { type: null, verified: false },
+          website: null,
+        },
+      })
+    );
+
+    const following = await runWithClient(
+      fetchFxConnectionsEffect("eastdakota", "following", undefined, 20),
+      client
+    );
+    const profile = await runWithClient(
+      fetchFxProfileEffect("querylookup"),
+      client
+    );
+
+    expect(following.results.map((author) => author.screen_name)).toStrictEqual(
+      ["eastdakota", "ignatz_", "Cloudflare"]
+    );
+    expect(following.results[0]?.website).toBeUndefined();
+    expect(following.results[1]?.verification?.type).toBeUndefined();
+    expect(profile.website).toBeUndefined();
+    expect(profile.verification?.type).toBeUndefined();
+  });
+
+  test("tolerates provider nulls in search results and cursor", async () => {
+    const client = makeClient(() =>
+      Response.json({
+        code: 200,
+        cursor: null,
+        results: [
+          {
+            author: { screen_name: "TheStudyofWar", website: null },
+            id: "s1",
+            text: "author without a website",
+          },
+          {
+            author: {
+              screen_name: "AJEnglish",
+              verification: { type: null, verified: false },
+            },
+            id: "s2",
+            text: "unverified author",
+          },
+        ],
+      })
+    );
+
+    const search = await runWithClient(
+      searchFxStatusesEffect("news", "latest", undefined, 12),
+      client
+    );
+
+    expect(search.results.map((tweet) => tweet.id)).toStrictEqual(["s1", "s2"]);
+    expect(search.results[0]?.author?.website).toBeUndefined();
+    expect(search.results[1]?.author?.verification?.type).toBeUndefined();
+    expect(search.cursor).toBeUndefined();
+  });
 });
 
 describe("syndication Effect adapter", () => {
