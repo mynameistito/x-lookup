@@ -35,7 +35,7 @@ jobs:
           production-stage: prod
           production-branch: main
           production-url: https://x-lookup.mynameistito.com
-          preview-url-pattern: https://{worker}-{stage}.*.workers.dev
+          preview-url-pattern: https://{stage}-{worker}.*.workers.dev
           use-adopt: true
           preview-artifact: alchemy-worker
           preview-entrypoint: worker/index.js
