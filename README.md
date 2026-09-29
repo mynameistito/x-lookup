@@ -145,3 +145,5 @@ In Bash, use `export ALCHEMY_PROFILE=your-profile`. Profiles are stored locally 
 The shared workflow owns preview and production deployment reporting, URL resolution, and preview cleanup. Cleanup uses explicitly mapped repository-scoped Cloudflare secrets, checks out only the trusted default branch, destroys `pr-<number>` first, and removes GitHub deployment records only after successful teardown; failed cleanup retains those records and the diagnostic run. The `workflow_run` deployment checks out the exact CI-passed SHA.
 
 The bundled agent skill in `skills/x-lookup/` wraps this API for CLI use; override its target with `X_API_BASE` when testing another deployment.
+
+<!-- Temporary preview URL smoke test. -->
