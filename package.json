@@ -11,6 +11,7 @@
     "plan": "alchemy plan --stage prod",
     "destroy": "alchemy destroy --stage prod",
     "alchemy:check": "vitest --run __tests__/alchemy-stack.test.ts",
+    "build:worker-preview": "bun scripts/build-worker-preview.ts",
     "test": "vitest --run",
     "typecheck": "tsc --noEmit",
     "check": "ultracite check",
@@ -38,6 +39,7 @@
     "oxlint": "^1.80.0",
     "typescript": "npm:@typescript/typescript6@^6.0.2",
     "ultracite": "7.10.7",
+    "vite": "8.2.2",
     "vitest": "^4.1.11"
   },
   "packageManager": "bun@1.4.0"

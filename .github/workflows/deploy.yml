@@ -2,14 +2,18 @@ name: Deploy
 
 on:
   workflow_run:
-    workflows: [CI]
+    workflows: [CI (artifact)]
     types: [completed]
+  pull_request_target:
+    types: [closed]
+
 jobs:
   deploy:
-    if: github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push'
+    if: >-
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') || (github.event_name == 'pull_request_target' && github.event.action == 'closed')
     runs-on: ubuntu-latest
     concurrency:
-      group: alchemy-deploy-${{ github.event.workflow_run.event == 'push' && 'prod' || 'invalid' }}
+      group: alchemy-deploy-${{ github.event_name == 'pull_request_target' && format('pr-{0}', github.event.pull_request.number) || github.event.workflow_run.event == 'pull_request' && format('pr-{0}', github.event.workflow_run.pull_requests[0].number) || github.event.workflow_run.event == 'push' && 'prod' || 'invalid' }}
       cancel-in-progress: false
     permissions:
       actions: read
@@ -19,17 +23,21 @@ jobs:
     steps:
       - name: Run Alchemy deployment
         # Pin the published action release immutably.
-        uses: mynameistito/alchemy-deploy@eb0bfa48c6f692119db4eefde9e8b093541767c7 # v2.3.1
+        uses: mynameistito/alchemy-deploy@1b495c668753637a7820112cea1773b8878fd4b9 # v3.1.2
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           worker-name: x-lookup
-          deploy-command: bunx --no-install alchemy deploy --stage "$STAGE" --yes
-          destroy-command: bunx --no-install alchemy destroy --stage "$STAGE" --yes
+          deploy-command: bun ./node_modules/alchemy/bin/cli.js deploy --stage "$STAGE" --yes
+          destroy-command: bun ./node_modules/alchemy/bin/cli.js destroy --stage "$STAGE" --yes
           production-stage: prod
           production-branch: main
           production-url: https://x-lookup.mynameistito.com
           preview-url-pattern: https://{worker}-{stage}.*.workers.dev
           use-adopt: true
+          preview-artifact: alchemy-worker
+          preview-entrypoint: worker/index.js
+          preview-compatibility-date: "2026-07-04"
+          worker-config: '{"CACHE_TTL_SECONDS":"3600"}'

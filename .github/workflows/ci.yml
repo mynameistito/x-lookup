@@ -1,10 +1,13 @@
-name: CI
+name: CI (artifact)
 
 on:
   push:
     branches: [main]
   pull_request:
     branches: [main]
+
+permissions:
+  contents: read
 
 jobs:
   check:
@@ -27,5 +30,26 @@ jobs:
         with:
           # Deployments are gated on the PR head SHA reported by workflow_run.
           ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
       - uses: ./.github/actions/setup-bun
       - run: ${{ matrix.command }}
+
+  preview-artifact:
+    needs: check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: ./.github/actions/setup-bun
+      - run: bun install --frozen-lockfile
+      - name: Bundle Worker Preview artifact
+        run: bun run build:worker-preview
+        env:
+          PREVIEW_ARTIFACT_DIRECTORY: ${{ runner.temp }}/alchemy-worker
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: alchemy-worker
+          path: ${{ runner.temp }}/alchemy-worker/
+          if-no-files-found: error
