@@ -27,14 +27,20 @@ export interface WorkerIdentity {
   readonly name?: string;
   /** The canonical custom domain, attached only in `prod`. */
   readonly domain?: string;
-  /** Whether the default `workers.dev` hostname is enabled for the stage. */
-  readonly workersDev: boolean;
+  /** Whether stable and version-preview `workers.dev` URLs are enabled. */
+  readonly workersDev:
+    | boolean
+    | { readonly enabled: false; readonly previewsEnabled: true };
 }
 
 /** Resolve the Worker's isolated script name and optional production domain. */
 export const resolveWorkerIdentity = (stage: string): WorkerIdentity =>
   stage === PROD_STAGE
-    ? { domain: CUSTOM_DOMAIN, name: WORKER_NAME, workersDev: false }
+    ? {
+        domain: CUSTOM_DOMAIN,
+        name: WORKER_NAME,
+        workersDev: { enabled: false, previewsEnabled: true },
+      }
     : { name: `${WORKER_NAME}-${stage}`, workersDev: true };
 
 /** Declare the x-lookup Worker and its deployment-time configuration. */

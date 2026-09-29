@@ -76,7 +76,7 @@ describe(resolveWorkerIdentity, () => {
     expect(resolveWorkerIdentity("prod")).toStrictEqual({
       domain: "x-lookup.mynameistito.com",
       name: "x-lookup",
-      workersDev: false,
+      workersDev: { enabled: false, previewsEnabled: true },
     });
   });
 
