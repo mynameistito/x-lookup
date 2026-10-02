@@ -1,5 +1,5 @@
 import { Effect, Layer } from "effect";
-import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
+import { HttpServerRequest, HttpServerResponse } from "effect/http";
 import { describe, expect, test } from "vitest";
 
 import {

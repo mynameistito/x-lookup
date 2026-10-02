@@ -1,6 +1,6 @@
 import { createMcpHandler } from "agents/mcp/server";
 import { Effect, Layer, Option, Schema } from "effect";
-import { HttpEffect } from "effect/unstable/http";
+import { HttpEffect } from "effect/http";
 
 import type { XLookupEnv } from "@/alchemy.run.ts";
 import {

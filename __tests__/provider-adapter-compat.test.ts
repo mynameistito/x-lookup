@@ -1,6 +1,6 @@
 import { Effect } from "effect";
-import { HttpClient, HttpClientResponse } from "effect/unstable/http";
-import type { HttpClientRequest } from "effect/unstable/http";
+import { HttpClient, HttpClientResponse } from "effect/http";
+import type { HttpClientRequest } from "effect/http";
 import { describe, expect, test } from "vitest";
 
 import {
