@@ -1,5 +1,5 @@
-import { HttpServerResponse } from "effect/unstable/http";
-import type { HttpServerRequest } from "effect/unstable/http";
+import { HttpServerResponse } from "effect/http";
+import type { HttpServerRequest } from "effect/http";
 
 import type { HttpPayload } from "@/http/request.ts";
 import { requestOrigin } from "@/http/request.ts";

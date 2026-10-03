@@ -1,9 +1,5 @@
 import { Effect, Layer } from "effect";
-import {
-  HttpClient,
-  HttpClientError,
-  HttpClientResponse,
-} from "effect/unstable/http";
+import { HttpClient, HttpClientError, HttpClientResponse } from "effect/http";
 
 /**
  * A provider adapter program that resolves its HTTP client from context so

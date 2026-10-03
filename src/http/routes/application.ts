@@ -1,5 +1,5 @@
 import { Effect, Result } from "effect";
-import type { HttpServerRequest } from "effect/unstable/http";
+import type { HttpServerRequest } from "effect/http";
 
 import { parseBrowseRequest } from "@/application/browse.ts";
 import type { BrowseInput } from "@/application/browse.ts";
