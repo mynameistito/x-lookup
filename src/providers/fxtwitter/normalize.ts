@@ -93,6 +93,9 @@ export const normalizeMediaItem = (item: FxMediaItemTransport): FxMediaItem => {
   };
 };
 
+const mapMediaItems = (items?: readonly FxMediaItemTransport[]) =>
+  items?.map(normalizeMediaItem);
+
 /** Normalize all provider media collections, omitting an empty media object. */
 export const normalizeMedia = (
   media?: FxMediaTransport
@@ -100,11 +103,9 @@ export const normalizeMedia = (
   if (!media || Object.keys(media).length === 0) {
     return undefined;
   }
-  const mapItems = (items?: readonly FxMediaItemTransport[]) =>
-    items?.map(normalizeMediaItem);
   return {
-    all: mapItems(media.all),
-    animated: mapItems(media.animated),
+    all: mapMediaItems(media.all),
+    animated: mapMediaItems(media.animated),
     mosaic: media.mosaic
       ? {
           formats: media.mosaic.formats
@@ -113,12 +114,12 @@ export const normalizeMedia = (
                 webp: media.mosaic.formats.webp,
               }
             : undefined,
-          photos: mapItems(media.mosaic.photos),
+          photos: mapMediaItems(media.mosaic.photos),
           type: media.mosaic.type,
         }
       : undefined,
-    photos: mapItems(media.photos),
-    videos: mapItems(media.videos),
+    photos: mapMediaItems(media.photos),
+    videos: mapMediaItems(media.videos),
   };
 };
 
