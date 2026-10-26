@@ -1,6 +1,6 @@
+import { providers, state, Worker } from "@alchemy.run/cloudflare";
+import type { InferEnv } from "@alchemy.run/cloudflare";
 import { Stack } from "alchemy";
-import { providers, state, Worker } from "alchemy/Cloudflare";
-import type { InferEnv } from "alchemy/Cloudflare";
 import { Stage } from "alchemy/Stage";
 import { gen } from "effect/Effect";
 

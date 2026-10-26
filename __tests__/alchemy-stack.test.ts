@@ -1,5 +1,5 @@
+import { providers } from "@alchemy.run/cloudflare";
 import { inMemoryState } from "alchemy";
-import { providers } from "alchemy/Cloudflare";
 import { Stack } from "alchemy/Stack";
 import { Stage } from "alchemy/Stage";
 import { run } from "alchemy/Test/Core";

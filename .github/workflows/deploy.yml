@@ -23,7 +23,7 @@ jobs:
     steps:
       - name: Run Alchemy deployment
         # Pin the published action release immutably.
-        uses: mynameistito/alchemy-deploy@68f577f3032660bd4919dfcc5725db21d5b64f9d # v3.1.5
+        uses: mynameistito/alchemy-deploy@d20c33c9a06b6a2f15816a3a4ebc39eda4b9d9ea # v3.1.8
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
