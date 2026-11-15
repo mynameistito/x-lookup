@@ -1,10 +1,7 @@
-import { providers } from "@alchemy.run/cloudflare";
-import { inMemoryState } from "alchemy";
 import { Stack } from "alchemy/Stack";
 import { Stage } from "alchemy/Stage";
-import { run } from "alchemy/Test/Core";
-import { isEffect, provide } from "effect/Effect";
-import { provideMerge, succeed } from "effect/Layer";
+import { isEffect, provide, runPromise, scoped } from "effect/Effect";
+import { succeed } from "effect/Layer";
 import { describe, expect, expectTypeOf, test } from "vitest";
 
 import XLookupStack, {
@@ -39,7 +36,7 @@ describe("alchemy stack", () => {
     expect(response.headers.get("content-type")).toContain("text/markdown");
   });
 
-  test("executes the stack body against in-memory state without credentials", async () => {
+  test("registers the stack resources without credentials", async () => {
     const stackSpec = {
       actions: {},
       bindings: {},
@@ -47,17 +44,12 @@ describe("alchemy stack", () => {
       resources: {},
       stage: "test",
     };
-    const options = {
-      providers: providers(),
-      stage: "test",
-      state: inMemoryState(),
-    };
     const program = buildXLookupStack.pipe(
-      provide(options.providers.pipe(provideMerge(succeed(Stack, stackSpec)))),
+      provide(succeed(Stack, stackSpec)),
       provide(succeed(Stage, "test"))
     );
 
-    const output = await run(program, options);
+    const output = await runPromise(scoped(program));
 
     expect(Object.keys(stackSpec.resources)).toStrictEqual(["x-lookup"]);
     expect(Object.keys(output)).toStrictEqual(["url"]);

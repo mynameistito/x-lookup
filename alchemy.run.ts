@@ -65,8 +65,8 @@ export type XLookupEnv = InferEnv<typeof WORKER_ENV>;
 /**
  * The stack's build program: resolves the current stage so the Worker
  * declaration receives concrete identity props, registers the Effect-native
- * resource, and returns its public URL. Tests execute this against Alchemy's
- * in-memory state, so stack validation remains credential-free.
+ * resource, and returns its public URL. Tests register the resources in a
+ * stack context, so stack validation remains credential-free.
  */
 export const buildXLookupStack = gen(function* buildXLookupStack() {
   const stage = yield* Stage;

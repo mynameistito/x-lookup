@@ -1,11 +1,10 @@
+import { Clock, Effect, Schema } from "effect";
+import type { Layer } from "effect";
 import {
-  Clock,
-  Crypto as EffectCrypto,
-  Effect,
-  Layer,
-  PlatformError,
-  Schema,
-} from "effect";
+  Digest,
+  layerWebCrypto as digestLayerWebCrypto,
+  sha256,
+} from "effect/crypto/Digest";
 
 import type {
   CacheEntry,
@@ -45,19 +44,19 @@ const digestHex = (bytes: Uint8Array): string =>
   [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 
 const cacheUrl = (
-  crypto: EffectCrypto.Crypto,
+  crypto: Digest["Service"],
   prefix: string,
   key: string,
   operation: CacheStoreOperation
 ): Effect.Effect<string, CacheStoreError> =>
-  crypto.digest("SHA-256", new TextEncoder().encode(key)).pipe(
+  crypto.digest(sha256, new TextEncoder().encode(key)).pipe(
     Effect.mapError((cause) => storeError(operation, cause)),
     Effect.map((digest) => `${prefix}/${digestHex(digest)}`)
   );
 
 const readCacheEntry = <T>(
   cache: MinimalCache,
-  crypto: EffectCrypto.Crypto,
+  crypto: Digest["Service"],
   prefix: string,
   key: string
 ): Effect.Effect<CacheEntry<T> | undefined, CacheStoreError> =>
@@ -91,7 +90,7 @@ const readCacheEntry = <T>(
 
 const writeCacheEntry = <T>(
   cache: MinimalCache,
-  crypto: EffectCrypto.Crypto,
+  crypto: Digest["Service"],
   prefix: string,
   key: string,
   value: T,
@@ -124,14 +123,14 @@ const writeCacheEntry = <T>(
   });
 
 /**
- * Build the Cloudflare Cache API store while preserving the Effect Crypto
+ * Build the Cloudflare Cache API store while preserving the Effect Digest
  * requirement for the composition root to satisfy.
  */
 export const makeCacheApiStore = (
   cache: MinimalCache,
   prefix = CACHE_PREFIX
-): Effect.Effect<CacheStore, never, EffectCrypto.Crypto> =>
-  EffectCrypto.Crypto.pipe(
+): Effect.Effect<CacheStore, never, Digest> =>
+  Digest.pipe(
     Effect.map((crypto): CacheStore => ({
       get: <T>(key: string) => readCacheEntry<T>(cache, crypto, prefix, key),
       set: <T>(key: string, value: T, ttlSeconds: number) =>
@@ -139,41 +138,8 @@ export const makeCacheApiStore = (
     }))
   );
 
-const makeWebCryptoService = (): EffectCrypto.Crypto => {
-  const { crypto: webCrypto } = globalThis;
-
-  const randomBytes = (size: number): Uint8Array => {
-    const bytes = new Uint8Array(size);
-    for (let index = 0; index < bytes.length; index += 65_536) {
-      webCrypto.getRandomValues(bytes.subarray(index, index + 65_536));
-    }
-    return bytes;
-  };
-
-  const digest: EffectCrypto.Crypto["digest"] = (algorithm, data) =>
-    Effect.map(
-      Effect.tryPromise({
-        catch: (cause) =>
-          PlatformError.systemError({
-            _tag: "Unknown",
-            cause,
-            description: "Could not compute digest",
-            method: "digest",
-            module: "Crypto",
-          }),
-        try: () => webCrypto.subtle.digest(algorithm, new Uint8Array(data)),
-      }),
-      (buffer) => new Uint8Array(buffer)
-    );
-
-  return EffectCrypto.make({ digest, randomBytes });
-};
-
-/** Effect Crypto backed by the Web Crypto API available in workerd. */
-export const layerWebCrypto: Layer.Layer<EffectCrypto.Crypto> = Layer.effect(
-  EffectCrypto.Crypto,
-  Effect.sync(makeWebCryptoService)
-);
+/** Effect digest service backed by the Web Crypto API available in workerd. */
+export const layerWebCrypto: Layer.Layer<Digest> = digestLayerWebCrypto;
 
 /** Return workerd's default Cache API binding when the runtime provides it. */
 export const defaultCacheApi = (): MinimalCache | undefined => {

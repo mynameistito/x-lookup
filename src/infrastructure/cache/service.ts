@@ -147,7 +147,7 @@ const layerCacheApiWithMemory = (
   );
 
 /**
- * L1 + Cache API L2 layer that deliberately preserves its Effect Crypto
+ * L1 + Cache API L2 layer that deliberately preserves its Effect Digest
  * requirement so composition roots can choose the platform implementation.
  */
 export const layerCacheApiWithoutDependencies = (
