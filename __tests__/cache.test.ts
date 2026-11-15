@@ -58,6 +58,18 @@ const runWithCache = <A>(
 const ttl = (seconds: number) => parseTtlSeconds(String(seconds));
 
 describe("Cache service", () => {
+  test("preserves persisted SHA-256 cache keys with the digest service", async () => {
+    const edge = new FakeEdgeCache();
+    await runWithCache(
+      lookup("abc", false, Effect.succeed("cached")),
+      layerCacheApi(edge, ttl(60))
+    );
+
+    expect([...edge.entries.keys()]).toStrictEqual([
+      "https://x-lookup.cache/__cache/ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+    ]);
+  });
+
   test("serves an L1 hit without re-running the loader", async () => {
     let calls = 0;
     const load = Effect.sync(() => {
