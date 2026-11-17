@@ -54,6 +54,14 @@ const routeRequest = (
     );
   }
   return applicationRoute.pipe(
+    Effect.tapError((failure) =>
+      failure.status >= 500
+        ? Effect.logError("HTTP application failure", {
+            code: failure.code,
+            status: failure.status,
+          })
+        : Effect.void
+    ),
     Effect.match({
       onFailure: failurePayload,
       onSuccess: (payload) => payload,
@@ -81,15 +89,23 @@ export const makeHttpApplication = (
   HttpServerRequest.HttpServerRequest
 > =>
   HttpServerRequest.HttpServerRequest.pipe(
-    Effect.flatMap((request) => routeRequest(request, services)),
-    Effect.catchCause(() =>
-      Effect.succeed(
-        serverResponse(
-          jsonErrorPayload(500, {
+    Effect.flatMap((request) =>
+      Effect.suspend(() => routeRequest(request, services)).pipe(
+        Effect.catchCause(() =>
+          Effect.logError("HTTP internal failure", {
             code: "internal_error",
-            error: "Internal server error",
-          }),
-          false
+            status: 500,
+          }).pipe(
+            Effect.as(
+              serverResponse(
+                jsonErrorPayload(500, {
+                  code: "internal_error",
+                  error: "Internal server error",
+                }),
+                request.method === "HEAD"
+              )
+            )
+          )
         )
       )
     )

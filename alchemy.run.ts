@@ -54,7 +54,21 @@ export const makeXLookupWorker = (stage: string) => {
     env: WORKER_ENV,
     main: "./src/worker.ts",
     name: identity.name,
-    observability: { enabled: stage === PROD_STAGE },
+    observability: {
+      enabled: stage === PROD_STAGE,
+      issues: { enabled: stage === PROD_STAGE },
+      logs: {
+        enabled: stage === PROD_STAGE,
+        headSamplingRate: 1,
+        invocationLogs: true,
+        persist: true,
+      },
+      traces: {
+        enabled: stage === PROD_STAGE,
+        headSamplingRate: 1,
+        persist: true,
+      },
+    },
     workersDev: identity.workersDev,
   });
 };

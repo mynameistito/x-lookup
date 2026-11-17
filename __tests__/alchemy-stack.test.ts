@@ -1,6 +1,6 @@
 import { Stack } from "alchemy/Stack";
 import { Stage } from "alchemy/Stage";
-import { isEffect, provide, runPromise, scoped } from "effect/Effect";
+import { isEffect, map, provide, runPromise, scoped } from "effect/Effect";
 import { succeed } from "effect/Layer";
 import { describe, expect, expectTypeOf, test } from "vitest";
 
@@ -13,6 +13,40 @@ import type { XLookupEnv } from "@/alchemy.run.ts";
 import WorkerEntrypoint from "@/worker.ts";
 
 describe("alchemy stack", () => {
+  test.each(["prod", "pr-7", "dev_mynameistito"])(
+    "configures observability for %s",
+    async (stage) => {
+      const stackSpec = {
+        actions: {},
+        bindings: {},
+        name: "x-lookup",
+        resources: {},
+        stage,
+      };
+      const observability = await runPromise(
+        scoped(
+          makeXLookupWorker(stage).pipe(
+            map((worker) => worker.Props.observability),
+            provide(succeed(Stack, stackSpec)),
+            provide(succeed(Stage, stage))
+          )
+        )
+      );
+      const enabled = stage === "prod";
+      expect(observability).toStrictEqual({
+        enabled,
+        issues: { enabled },
+        logs: {
+          enabled,
+          headSamplingRate: 1,
+          invocationLogs: true,
+          persist: true,
+        },
+        traces: { enabled, headSamplingRate: 1, persist: true },
+      });
+    }
+  );
+
   test("exports a well-formed stack program", () => {
     expect(isEffect(XLookupStack)).toBeTruthy();
   });

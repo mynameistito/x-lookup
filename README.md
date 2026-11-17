@@ -118,6 +118,8 @@ FxTwitter refuses some datacenter egress IPs. When that happens, search returns 
 
 ## Development
 
+Production Alchemy configuration enables persisted invocation logs, Workers Traces, and Workers Issues at full sampling. These channels remain disabled for local and PR stages. Issues groups recurring failures; it does not repair upstream outages. HTTP application failures with status 500 or higher log their stable error code and status. Unexpected HTTP defects log `internal_error` while returning a generic 500 response (with no body for HEAD). Application logs omit query values and raw error causes. Traces capture runtime activity; Effect spans need a separate tracer integration to appear as custom spans.
+
 The repository uses Bun `1.4.0`. On Windows, install Bun from the [official PowerShell instructions](https://bun.sh/docs/installation), then run:
 
 ```powershell
