@@ -1,4 +1,4 @@
-import { Effect, Layer } from "effect";
+import { Effect, Layer, Logger } from "effect";
 import { HttpServerRequest, HttpServerResponse } from "effect/http";
 import { describe, expect, test } from "vitest";
 
@@ -166,6 +166,67 @@ const runBoundary = (
   );
 
 describe("Effect HTTP boundary", () => {
+  test("logs upstream failure codes without logging search inputs", async () => {
+    const { services } = await makeHarness({ failSearch: true });
+    const messages: unknown[] = [];
+    const response = await Effect.runPromise(
+      makeHttpApplication(services).pipe(
+        Effect.provideService(
+          HttpServerRequest.HttpServerRequest,
+          HttpServerRequest.fromWeb(request("/search?q=private-query"))
+        ),
+        Effect.provide(
+          Logger.layer([Logger.make(({ message }) => messages.push(message))])
+        ),
+        Effect.map(HttpServerResponse.toWeb)
+      )
+    );
+    expect(response.status).toBe(502);
+    await expect(response.json()).resolves.toMatchObject({
+      code: "search_unavailable",
+    });
+    expect(messages).toStrictEqual([
+      ["HTTP application failure", { code: "search_unavailable", status: 502 }],
+    ]);
+  });
+
+  test.each(["GET", "HEAD"])(
+    "reports defects safely for %s",
+    async (method) => {
+      const { services } = await makeHarness();
+      const messages: unknown[] = [];
+      const response = await Effect.runPromise(
+        makeHttpApplication({
+          ...services,
+          browse: { browse: () => Effect.die("private upstream detail") },
+        }).pipe(
+          Effect.provideService(
+            HttpServerRequest.HttpServerRequest,
+            HttpServerRequest.fromWeb(
+              request("/search?q=private-query", { method })
+            )
+          ),
+          Effect.provide(
+            Logger.layer([Logger.make(({ message }) => messages.push(message))])
+          ),
+          Effect.map(HttpServerResponse.toWeb)
+        )
+      );
+      expect(response.status).toBe(500);
+      await expect(response.text()).resolves.toBe(
+        method === "HEAD"
+          ? ""
+          : JSON.stringify({
+              code: "internal_error",
+              error: "Internal server error",
+            })
+      );
+      expect(messages).toStrictEqual([
+        ["HTTP internal failure", { code: "internal_error", status: 500 }],
+      ]);
+    }
+  );
+
   test("serves GET / and /docs without application provider calls", async () => {
     const { calls, services } = await makeHarness();
     const root = await runBoundary(request("/"), services);
